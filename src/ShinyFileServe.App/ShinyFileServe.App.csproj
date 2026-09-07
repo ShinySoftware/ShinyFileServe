@@ -23,6 +23,7 @@
     <!-- Read straight out of the assembly: the three heads lay out their app bundles differently
          and a missing package file would mean no tray icon at all. -->
     <EmbeddedResource Include="Resources\trayicon.png" />
+    <EmbeddedResource Include="Resources\trayicon-active.png" />
   </ItemGroup>
 
   <ItemGroup>

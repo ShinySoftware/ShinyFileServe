@@ -58,6 +58,14 @@ public class AdminEndpoints(
         stored.AllowRememberMe = request.AllowRememberMe;
         stored.RememberMeDays = request.RememberMeDays;
         stored.IdleLogoffMinutes = request.IdleLogoffMinutes;
+        if (request.Passwords is { } rules)
+        {
+            if (rules.MinimumLength is < 1 or > 128)
+                return new BadRequestObjectResult("The minimum password length must be between 1 and 128.");
+
+            stored.PasswordRules = PasswordPolicyMapping.ToRules(rules);
+        }
+
         stored.NotificationsEnabled = request.NotificationsEnabled;
         if (request.NotifyOn is not null)
             stored.NotifyOn = request.NotifyOn.Distinct().ToList();
@@ -184,7 +192,8 @@ public class AdminEndpoints(
                 config.NotifyOn,
                 config.AllowRememberMe,
                 config.RememberMeDays,
-                config.IdleLogoffMinutes
+                config.IdleLogoffMinutes,
+                PasswordPolicyMapping.ToInfo(config.PasswordRules)
             )
         );
     }

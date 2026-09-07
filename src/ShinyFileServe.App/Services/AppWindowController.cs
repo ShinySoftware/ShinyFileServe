@@ -10,11 +10,12 @@ public interface IAppWindowController
 {
     bool IsWindowOpen { get; }
 
-    /// <summary>Opens the window if it was put away, and brings it forward either way.</summary>
+    /// <summary>
+    /// Opens the window if it was put away, and brings it forward either way. There is deliberately
+    /// no Hide: the close button is how a window goes away, and programmatic CloseWindow disconnects
+    /// the handler before AppKit reports the close, which the current macOS backend does not expect.
+    /// </summary>
     void Show();
-
-    /// <summary>Puts the window away. The process, the server and the tray icon carry on.</summary>
-    void Hide();
 
     /// <summary>Ends the process for real.</summary>
     void Quit();
@@ -80,14 +81,6 @@ public class AppWindowController(IPlatformShell shell, IServiceProvider services
         }
 
         application.OpenWindow(this.CreateWindow());
-    }
-
-    public void Hide()
-    {
-        if (this.window is { } existing)
-            Application.Current?.CloseWindow(existing);
-
-        this.window = null;
     }
 
     public void Quit()

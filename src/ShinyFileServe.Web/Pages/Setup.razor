@@ -22,6 +22,24 @@
     </aside>
 
     <div class="signin__form">
+        @if (!this.canSetUpHere)
+        {
+            @* Refused before the form rather than after it: showing fields the server is going to
+               reject would waste somebody's password on a 403. *@
+            <div class="signin__card">
+                <h1>Set this up on the server itself</h1>
+                <p style="color:var(--ink-2); margin-top:4px;">
+                    The first account can only be created from the machine running FileServe, so that
+                    whoever finds this address on the network cannot claim it.
+                </p>
+                <p style="color:var(--ink-2);">
+                    Open FileServe on that machine — its window is this same page — and create the
+                    administrator there. Then sign in from here.
+                </p>
+            </div>
+        }
+        else
+        {
         <form class="signin__card" @onsubmit="this.Submit" @onsubmit:preventDefault>
             <div>
                 <h1>Create the administrator</h1>
@@ -43,11 +61,13 @@
                 <input type="text" autocomplete="username" @bind="this.username" @bind:event="oninput" />
             </label>
 
-            <label class="field">
-                <span class="field__label">Password</span>
-                <input type="password" autocomplete="new-password" @bind="this.password" @bind:event="oninput" />
-                <span class="admin__hint">At least 8 characters. There is no reset link — write it down.</span>
-            </label>
+            <PasswordField Label="Password"
+                           Policy="this.policy.Passwords"
+                           Password="this.password"
+                           PasswordChanged="v => this.password = v"
+                           AcceptableChanged="v => this.passwordOk = v"
+                           UserInputs="this.Identifiers"
+                           Hint="There is no reset link — write it down." />
 
             <label class="field">
                 <span class="field__label">Password again</span>
@@ -59,6 +79,7 @@
                 @(this.busy ? "Creating…" : "Create account")
             </button>
         </form>
+        }
     </div>
 </div>
 
@@ -68,16 +89,25 @@
     string password = "";
     string confirm = "";
     bool busy;
+    bool passwordOk;
+    bool canSetUpHere = true;
     string? error;
+    SessionPolicy policy = new(true, true, true, 30, 0, PasswordPolicyInfo.Off);
 
-    bool CanSubmit => !String.IsNullOrWhiteSpace(this.username) && this.password.Length >= 8;
+    bool CanSubmit => !String.IsNullOrWhiteSpace(this.username) && this.passwordOk;
+
+    /// <summary>Fed to the meter so it can refuse a password that is just the person's own name.</summary>
+    IReadOnlyList<string> Identifiers => [this.username, this.displayName];
 
     protected override async Task OnInitializedAsync()
     {
         // Someone else may have set the server up between the page loading and this running.
         try
         {
-            if (!(await this.Api.GetSessionPolicy()).NeedsSetup)
+            this.policy = await this.Api.GetSessionPolicy();
+            this.canSetUpHere = this.policy.CanCompleteSetup;
+
+            if (!this.policy.NeedsSetup)
                 this.Nav.NavigateTo("signin");
         }
         catch (ApiException)

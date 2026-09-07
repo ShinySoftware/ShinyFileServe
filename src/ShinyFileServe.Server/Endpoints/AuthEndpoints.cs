@@ -11,6 +11,7 @@ public class AuthEndpoints(
     IUserManager users,
     IActivityLogger activity,
     ISettingsManager settings,
+    IPasswordPolicy passwords,
     ICurrentUserResolver current
 )
 {
@@ -21,30 +22,45 @@ public class AuthEndpoints(
     [Get("/policy")]
     [AllowAnonymous]
     [Produces(200, typeof(SessionPolicy))]
-    public async Task<IActionResult> Policy(CancellationToken ct)
+    public async Task<IActionResult> Policy(HttpContext ctx, CancellationToken ct)
     {
         var config = settings.Current;
         return new OkObjectResult(new SessionPolicy(
             await users.NeedsSetup(ct),
+            LoopbackSignInMiddleware.IsLocal(ctx),
             config.AllowRememberMe,
             config.RememberMeDays,
-            Math.Max(0, config.IdleLogoffMinutes)
+            Math.Max(0, config.IdleLogoffMinutes),
+            PasswordPolicyMapping.ToInfo(passwords.Current)
         ));
     }
 
     /// <summary>
     /// Creates the first administrator and signs them in. Anonymous by necessity - there is nobody
-    /// to authenticate as yet - and refused the moment any account exists, so it cannot be replayed
-    /// by the next person to find the address.
+    /// to authenticate as yet - and hedged two ways so that cannot be abused: it is refused the
+    /// moment any account exists, and it is refused from anywhere but the machine running the
+    /// server. Without the second, whoever found the address first on the network would own it.
     /// </summary>
     [Post("/setup")]
     [AllowAnonymous]
     [Produces(200, typeof(CurrentUser))]
     [Produces(400)]
+    [Produces(403)]
     [Produces(409)]
     public async Task<IActionResult> Setup(SetupRequest request, HttpContext ctx, CancellationToken ct)
     {
         var context = current.GetActivityContext(ctx);
+
+        // A tunnelled connection terminates on loopback at this end, so the address alone is not
+        // enough - IsLocal checks both.
+        if (!LoopbackSignInMiddleware.IsLocal(ctx))
+        {
+            await activity.Log(
+                ActivityAction.Denied, null, request.Username, success: false,
+                detail: "Setup attempted from off this machine", context: context, ct: ct
+            );
+            return new ForbidResult();
+        }
 
         try
         {

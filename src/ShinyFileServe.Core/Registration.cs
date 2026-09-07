@@ -42,6 +42,7 @@ public static class Registration
         services.AddSingleton<IAccessResolver, AccessResolver>();
         services.AddSingleton<IActivityLogger, ActivityLogger>();
         services.AddSingleton<ISettingsManager, SettingsManager>();
+        services.AddSingleton<IPasswordPolicy, PasswordPolicy>();
         services.AddSingleton<IFileService, FileService>();
         services.AddSingleton<FileServeInitializer>();
 

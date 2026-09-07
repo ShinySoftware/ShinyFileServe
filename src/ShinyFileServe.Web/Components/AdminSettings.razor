@@ -125,6 +125,52 @@
             </section>
 
             <section class="admin__block">
+                <h3>Passwords</h3>
+
+                <label class="field--check">
+                    <input type="checkbox" @bind="this.passwordsEnabled" />
+                    Apply password rules
+                </label>
+
+                @if (this.passwordsEnabled)
+                {
+                    <label class="field">
+                        <span class="field__label">Minimum length</span>
+                        <input type="number" min="1" max="128" @bind="this.passwordMinimum" />
+                    </label>
+
+                    <div class="admin__checks">
+                        <label class="field--check">
+                            <input type="checkbox" @bind="this.requireUpper" /> A capital letter
+                        </label>
+                        <label class="field--check">
+                            <input type="checkbox" @bind="this.requireLower" /> A lower-case letter
+                        </label>
+                        <label class="field--check">
+                            <input type="checkbox" @bind="this.requireNumber" /> A number
+                        </label>
+                        <label class="field--check">
+                            <input type="checkbox" @bind="this.requireSymbol" /> A symbol
+                        </label>
+                        <label class="field--check">
+                            <input type="checkbox" @bind="this.blockCommon" /> Not a commonly guessed password
+                        </label>
+                    </div>
+                }
+                else
+                {
+                    <span class="admin__hint">
+                        Any password is accepted, as long as it is not blank. Reasonable on a machine
+                        only you can reach; think again before opening the tunnel.
+                    </span>
+                }
+
+                <span class="admin__hint">
+                    Existing passwords are not re-checked. The rules apply the next time one is set.
+                </span>
+            </section>
+
+            <section class="admin__block">
                 <h3>Notifications</h3>
 
                 <label class="field--check">
@@ -174,6 +220,13 @@
     string token = "";
     bool autoStartServer;
     bool autoStartTunnel;
+    bool passwordsEnabled = true;
+    int passwordMinimum = 8;
+    bool requireUpper;
+    bool requireLower;
+    bool requireNumber;
+    bool requireSymbol;
+    bool blockCommon = true;
     bool allowRememberMe = true;
     int rememberMeDays = 30;
     int idleLogoffMinutes;
@@ -224,6 +277,15 @@
             this.port = this.status.Config.Port;
             this.autoStartServer = this.status.Config.AutoStartServer;
             this.autoStartTunnel = this.status.Config.AutoStartTunnel;
+            var rules = this.status.Config.Passwords;
+            this.passwordsEnabled = rules.Enabled;
+            this.passwordMinimum = rules.MinimumLength;
+            this.requireUpper = rules.RequireUppercase;
+            this.requireLower = rules.RequireLowercase;
+            this.requireNumber = rules.RequireNumber;
+            this.requireSymbol = rules.RequireSpecialCharacter;
+            this.blockCommon = rules.BlockCommonPasswords;
+
             this.allowRememberMe = this.status.Config.AllowRememberMe;
             this.rememberMeDays = this.status.Config.RememberMeDays;
             this.idleLogoffMinutes = this.status.Config.IdleLogoffMinutes;
@@ -297,7 +359,16 @@
         [.. this.notifyOn],
         this.allowRememberMe,
         this.rememberMeDays,
-        this.idleLogoffMinutes
+        this.idleLogoffMinutes,
+        new PasswordPolicyInfo(
+            this.passwordsEnabled,
+            this.passwordMinimum,
+            this.requireUpper,
+            this.requireLower,
+            this.requireNumber,
+            this.requireSymbol,
+            this.blockCommon
+        )
     );
 
     Task Save() => this.Run(async () =>

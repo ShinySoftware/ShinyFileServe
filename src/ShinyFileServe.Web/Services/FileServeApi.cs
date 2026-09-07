@@ -26,7 +26,7 @@ public class FileServeApi(HttpClient http)
         using var response = await http.GetAsync("api/auth/policy", ct);
         await Ensure(response);
         return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.SessionPolicy, ct)
-            ?? new SessionPolicy(false, true, 30, 0);
+            ?? new SessionPolicy(false, false, true, 30, 0, PasswordPolicyInfo.Off);
     }
 
     /// <summary>Creates the first administrator and signs them in.</summary>

@@ -23,6 +23,9 @@ public class TrayController(
     TrayMenuItem? serverItem;
     TrayMenuItem? tunnelItem;
 
+    /// <summary>Null until the first paint, so the artwork is only re-decoded when the state moves.</summary>
+    bool? showingBusy;
+
     public bool IsAvailable => this.icon is not null;
 
     public void Start()
@@ -42,11 +45,6 @@ public class TrayController(
         }
 
         this.icon.Tooltip = "FileServe";
-        this.icon.Title = "FileServe";
-
-        // A flat monochrome mark so macOS can tint it for the light and dark menu bar.
-        this.icon.IsTemplateImage = true;
-        this.icon.SetIcon(TrayArtwork.OpenIcon);
 
         // Reads out the address and acts on it. A tray line that shows a url is a promise it can
         // also hand it over, so a click opens the browser there and leaves it on the clipboard -
@@ -93,6 +91,8 @@ public class TrayController(
         if (this.icon is null)
             return;
 
+        this.PaintIcon();
+
         if (this.addressItem is { } address)
         {
             // The tunnel first when it is up, because it is the address that works from anywhere.
@@ -120,7 +120,39 @@ public class TrayController(
             tunnelToggle.IsEnabled = server.IsServing;
         }
 
-        this.icon.Tooltip = server.PreferredUrl is { } url ? $"FileServe — {url}" : "FileServe — not serving";
+        var people = server.ActiveSessionCount;
+        var who = people switch
+        {
+            0 => null,
+            1 => "1 person connected",
+            _ => $"{people} people connected"
+        };
+
+        this.icon.Tooltip = (server.PreferredUrl, who) switch
+        {
+            ({ } url, { } connected) => $"FileServe — {url} · {connected}",
+            ({ } url, null) => $"FileServe — {url}",
+            _ => "FileServe — not serving"
+        };
+    }
+
+    /// <summary>
+    /// Grey when nobody is on it, green when somebody is - the one thing worth knowing at a glance
+    /// from a menu bar. The idle mark is a template image so macOS tints it like every other icon
+    /// up there; the busy one is not, because a template image would throw the colour away.
+    /// </summary>
+    void PaintIcon()
+    {
+        if (this.icon is null)
+            return;
+
+        var busy = server.ActiveSessionCount > 0;
+        if (this.showingBusy == busy)
+            return;
+
+        this.showingBusy = busy;
+        this.icon.IsTemplateImage = !busy;
+        this.icon.SetIcon(busy ? TrayArtwork.Busy : TrayArtwork.Idle);
     }
 
     /// <summary>
@@ -169,15 +201,19 @@ public class TrayController(
 static class TrayArtwork
 {
     /// <summary>
-    /// The tray mark, embedded rather than loaded from app package assets: the three heads lay out
+    /// The tray marks, embedded rather than loaded from app package assets: the three heads lay out
     /// their bundles differently and a missing file would mean no icon at all.
     /// </summary>
-    public static Stream OpenIcon()
+    public static Stream Idle() => Open("trayicon.png");
+
+    public static Stream Busy() => Open("trayicon-active.png");
+
+    static Stream Open(string fileName)
     {
         var assembly = typeof(TrayArtwork).Assembly;
         var name = assembly
             .GetManifestResourceNames()
-            .First(x => x.EndsWith("trayicon.png", StringComparison.OrdinalIgnoreCase));
+            .First(x => x.EndsWith(fileName, StringComparison.OrdinalIgnoreCase));
 
         return assembly.GetManifestResourceStream(name)!;
     }

@@ -52,7 +52,7 @@ public static class AdminRules
         => user.IsAdmin || roles.Any(r => r.IsAdmin);
 }
 
-public class UserManager(IDocumentStore store, TimeProvider time) : IUserManager
+public class UserManager(IDocumentStore store, IPasswordPolicy passwords, TimeProvider time) : IUserManager
 {
     public async Task<bool> NeedsSetup(CancellationToken ct = default)
         => !await store.Query<User>().Any(ct);
@@ -65,8 +65,10 @@ public class UserManager(IDocumentStore store, TimeProvider time) : IUserManager
         if (String.IsNullOrWhiteSpace(username))
             throw new ArgumentException("A username is required.", nameof(username));
 
-        if (password.Length < 8)
-            throw new ArgumentException("The password must be at least 8 characters.", nameof(password));
+        // The rules are configurable and can be switched off entirely, so this asks the policy
+        // rather than carrying a number of its own that would drift away from it.
+        if (passwords.Validate(password, [username, displayName]) is { Ok: false } invalid)
+            throw new ArgumentException(invalid.Message, nameof(password));
 
         var role = new Role
         {
@@ -119,6 +121,9 @@ public class UserManager(IDocumentStore store, TimeProvider time) : IUserManager
         if (await this.FindByUsername(username, ct) is not null)
             throw new InvalidOperationException($"A user named '{username}' already exists");
 
+        if (passwords.Validate(password, [username, displayName]) is { Ok: false } invalid)
+            throw new ArgumentException(invalid.Message, nameof(password));
+
         var (hash, salt, iterations) = PasswordHasher.Hash(password);
         var user = new User
         {
@@ -152,6 +157,9 @@ public class UserManager(IDocumentStore store, TimeProvider time) : IUserManager
     {
         var user = await store.Get<User>(userId, cancellationToken: ct)
             ?? throw new InvalidOperationException("User not found");
+
+        if (passwords.Validate(password, [user.Username, user.DisplayName]) is { Ok: false } invalid)
+            throw new ArgumentException(invalid.Message, nameof(password));
 
         var (hash, salt, iterations) = PasswordHasher.Hash(password);
         user.PasswordHash = hash;

@@ -35,6 +35,8 @@ public static class ServerRegistration
         services.TryAddSingleton<ITunnelController, TunnelController>();
         services.TryAddSingleton<ILoopbackIdentity, LoopbackIdentity>();
         services.TryAddSingleton<LoopbackSignInMiddleware>();
+        services.TryAddSingleton<ISessionTracker>(sp => new SessionTracker(sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.TryAddSingleton<SessionTrackingMiddleware>();
 
         var protector = TicketProtectorFactory.LoadOrCreate(options.TicketKeyPath);
 
@@ -84,6 +86,10 @@ public static class ServerRegistration
                     if (options.TrustLoopback)
                         server.Use<LoopbackSignInMiddleware>();
 
+                    // After the loopback middleware so it can tell this machine's own window from
+                    // someone actually connecting, and before routing so it sees every request.
+                    server.Use<SessionTrackingMiddleware>();
+
                     server.UseAuthorization();
 
                     server.MapAuthEndpoints();
@@ -98,7 +104,7 @@ public static class ServerRegistration
                     // /api/auth/me answers. Everything with data behind it is [Authorize]d above.
                     var frontend = TryOpenFrontend();
                     if (frontend is not null)
-                        server.UseBlazorWebAssembly(frontend);
+                        server.UseBlazorWebAssembly(frontend, o => o.OnPrepareResponse = FrontendCachePolicy.Apply);
                 });
             },
             autoStart
@@ -173,8 +179,16 @@ public interface IFileServeServer
     IReadOnlyList<string> ListenUrls { get; }
     int ActiveConnections { get; }
 
+    /// <summary>People using the server from elsewhere. This machine's own window is not one.</summary>
+    int ActiveSessionCount { get; }
+
+    IReadOnlyList<ActiveSession> ActiveSessions { get; }
+
     /// <summary>Fires on every transition. Marshal to the UI thread yourself - it is raised off a background thread.</summary>
     event EventHandler<HttpServerState>? StateChanged;
+
+    /// <summary>Raised when somebody arrives or ages out. Also off a background thread.</summary>
+    event EventHandler? SessionsChanged;
 
     Task Start(CancellationToken ct = default);
     Task Stop(CancellationToken ct = default);
@@ -190,12 +204,17 @@ public interface IFileServeServer
 class FileServeServerFacade : IFileServeServer, IDisposable
 {
     readonly HttpServer server;
+    readonly ISessionTracker sessions;
 
-    public FileServeServerFacade(HttpServer server)
+    public FileServeServerFacade(HttpServer server, ISessionTracker sessions)
     {
         this.server = server;
+        this.sessions = sessions;
         this.server.StateChanged += this.OnStateChanged;
+        this.sessions.Changed += this.OnSessionsChanged;
     }
+
+    void OnSessionsChanged(object? sender, EventArgs e) => this.SessionsChanged?.Invoke(this, EventArgs.Empty);
 
     void OnStateChanged(object? sender, HttpServerState e) => this.StateChanged?.Invoke(this, e);
 
@@ -204,11 +223,22 @@ class FileServeServerFacade : IFileServeServer, IDisposable
     public string? ListenUrl => this.server.IsRunning ? this.server.ListenUrl : null;
     public IReadOnlyList<string> ListenUrls => this.server.IsRunning ? this.server.ListenUrls : [];
     public int ActiveConnections => this.server.ActiveConnections;
+    public int ActiveSessionCount => this.sessions.ActiveCount;
+    public IReadOnlyList<ActiveSession> ActiveSessions => this.sessions.Active;
 
     public event EventHandler<HttpServerState>? StateChanged;
+    public event EventHandler? SessionsChanged;
 
     public Task Start(CancellationToken ct = default) => this.server.StartAsync(ct);
-    public Task Stop(CancellationToken ct = default) => this.server.StopAsync(ct);
+
+    public async Task Stop(CancellationToken ct = default)
+    {
+        await this.server.StopAsync(ct);
+
+        // Nobody is connected to a closed socket, and leaving stale entries would keep the tray lit
+        // for five minutes after the server went down.
+        this.sessions.Clear();
+    }
     public Task Restart(CancellationToken ct = default) => this.server.RestartAsync(ct);
 
     public async Task Rebind(IPAddress address, int port, CancellationToken ct = default)
@@ -224,5 +254,9 @@ class FileServeServerFacade : IFileServeServer, IDisposable
             await this.server.StartAsync(ct);
     }
 
-    public void Dispose() => this.server.StateChanged -= this.OnStateChanged;
+    public void Dispose()
+    {
+        this.server.StateChanged -= this.OnStateChanged;
+        this.sessions.Changed -= this.OnSessionsChanged;
+    }
 }

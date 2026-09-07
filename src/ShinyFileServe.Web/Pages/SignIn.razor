@@ -69,7 +69,7 @@
     bool remember;
     bool busy;
     string? error;
-    SessionPolicy policy = new(false, false, 30, 0);
+    SessionPolicy policy = new(false, false, false, 30, 0, PasswordPolicyInfo.Off);
     bool signedOutForIdle;
 
     protected override async Task OnInitializedAsync()

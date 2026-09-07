@@ -26,6 +26,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The backend turns this into the platform's own icon container. -->
+    <MauiIcon Include="..\..\src\ShinyFileServe.App\Resources\AppIcon\appicon.svg" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\ShinyFileServe.App\ShinyFileServe.App.csproj" />
   </ItemGroup>
 </Project>

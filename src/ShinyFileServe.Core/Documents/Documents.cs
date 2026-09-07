@@ -170,6 +170,9 @@ public class ServerSettings
     /// </summary>
     public int IdleLogoffMinutes { get; set; }
 
+    /// <summary>What a password has to look like. Replaced wholesale rather than merged on save.</summary>
+    public PasswordRules PasswordRules { get; set; } = new();
+
     /// <summary>Show a desktop notification when one of <see cref="NotifyOn"/> happens.</summary>
     public bool NotificationsEnabled { get; set; }
 
@@ -198,4 +201,27 @@ public class PathAnnotation
 
     public string? DisplayName { get; set; }
     public string? Description { get; set; }
+}
+
+/// <summary>
+/// What makes an acceptable password on this server. Every rule is optional and the whole set can
+/// be switched off - some deployments are a cupboard on a home network, and a password policy there
+/// is friction with nothing behind it.
+/// </summary>
+public class PasswordRules
+{
+    /// <summary>
+    /// False accepts any password at all. A password still cannot be empty: that is not a policy
+    /// choice, it is what the word means.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    public int MinimumLength { get; set; } = 8;
+    public bool RequireUppercase { get; set; }
+    public bool RequireLowercase { get; set; }
+    public bool RequireNumber { get; set; }
+    public bool RequireSpecialCharacter { get; set; }
+
+    /// <summary>Refuse the handful of passwords that turn up first in every credential-stuffing list.</summary>
+    public bool BlockCommonPasswords { get; set; } = true;
 }

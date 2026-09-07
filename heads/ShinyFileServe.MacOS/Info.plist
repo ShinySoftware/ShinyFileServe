@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    Only what the SDK does not work out for itself. The identifier, name, versions and minimum
+    system version are all computed from the csproj and merged in on the way into the bundle;
+    repeating them here would be two places to change a version number and one of them would
+    eventually be wrong.
+-->
+<plist version="1.0">
+<dict>
+	<!--
+		The icon, and the reason this file exists at all.
+
+		MauiIcon does produce Contents/Resources/AppIcon.icns on this backend - the build runs sips
+		and iconutil over the SVG - but nothing writes the key that points at it, so macOS falls
+		back to the generic application icon and the app appears blank in the Dock, the app switcher
+		and Finder. The extension is left off deliberately: CFBundleIconFile names the resource, and
+		macOS appends .icns itself.
+	-->
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+
+	<!--
+		The app is a file server: it binds a listening socket on every interface so other machines on
+		the network can reach it. macOS prompts for local network access on the app's behalf, and an
+		unexplained prompt is one that gets refused - which reads, from the other device, as a server
+		that simply does not work.
+	-->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>FileServe serves your shared folders to other devices on your local network.</string>
+</dict>
+</plist>

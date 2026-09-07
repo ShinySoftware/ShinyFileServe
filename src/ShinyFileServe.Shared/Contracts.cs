@@ -18,12 +18,40 @@ public record SessionPolicy(
     /// </summary>
     bool NeedsSetup,
 
+    /// <summary>
+    /// Whether setup can be completed from this connection. Only the machine running the server
+    /// can claim it, so a visitor over the network is told where to go rather than shown a form
+    /// the server is going to refuse.
+    /// </summary>
+    bool CanCompleteSetup,
+
     bool AllowRememberMe,
     int RememberMeDays,
 
     /// <summary>Minutes of inactivity before the browser signs itself out. 0 turns it off.</summary>
-    int IdleLogoffMinutes
+    int IdleLogoffMinutes,
+
+    /// <summary>What a password has to look like here. Sent unauthenticated so the setup and
+    /// sign-in pages can show the rules while somebody is typing.</summary>
+    PasswordPolicyInfo Passwords
 );
+
+/// <summary>
+/// The password rules, in the shape the strength meter wants. Server-enforced regardless - this is
+/// what the browser shows, not what decides.
+/// </summary>
+public record PasswordPolicyInfo(
+    bool Enabled,
+    int MinimumLength,
+    bool RequireUppercase,
+    bool RequireLowercase,
+    bool RequireNumber,
+    bool RequireSpecialCharacter,
+    bool BlockCommonPasswords
+)
+{
+    public static PasswordPolicyInfo Off { get; } = new(false, 1, false, false, false, false, false);
+}
 
 public record CurrentUser(
     string UserId,
@@ -211,7 +239,8 @@ public record ServerConfig(
     IReadOnlyList<ActivityAction> NotifyOn,
     bool AllowRememberMe,
     int RememberMeDays,
-    int IdleLogoffMinutes
+    int IdleLogoffMinutes,
+    PasswordPolicyInfo Passwords
 );
 
 /// <summary>
@@ -230,7 +259,10 @@ public record UpdateServerConfig(
 
     bool AllowRememberMe = true,
     int RememberMeDays = 30,
-    int IdleLogoffMinutes = 0
+    int IdleLogoffMinutes = 0,
+
+    /// <summary>Null leaves the stored rules alone.</summary>
+    PasswordPolicyInfo? Passwords = null
 );
 
 public static class ActivityActions

@@ -32,6 +32,7 @@ namespace ShinyFileServe.Server;
 [JsonSerializable(typeof(ServerConfig))]
 [JsonSerializable(typeof(UpdateServerConfig))]
 [JsonSerializable(typeof(SessionPolicy))]
+[JsonSerializable(typeof(PasswordPolicyInfo))]
 [JsonSerializable(typeof(SetupRequest))]
 [JsonSerializable(typeof(UserSummary))]
 [JsonSerializable(typeof(IReadOnlyList<UserSummary>))]

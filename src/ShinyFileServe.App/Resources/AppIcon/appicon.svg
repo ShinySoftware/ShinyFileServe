@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The app icon. The same folder mark as the menu bar glyph, so the tile in the Dock and the
+    outline in the status bar read as one application rather than two.
+
+    The rounded tile is drawn here rather than left to the platform: macOS composites an .icns from
+    whatever it is handed without applying the squircle itself, so an icon that relied on being
+    masked would come out a full-bleed square. The 100px inset on a 1024 canvas is the padding
+    Apple's own icons leave for shadow and alignment.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+    <defs>
+        <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#12817F" />
+            <stop offset="1" stop-color="#0A5455" />
+        </linearGradient>
+    </defs>
+
+    <rect x="100" y="100" width="824" height="824" rx="184" ry="184" fill="url(#tile)" />
+
+    <path d="M278 655 L278 369 L434 369 L486 421 L746 421 L746 655 Z"
+          fill="none"
+          stroke="#FFFFFF"
+          stroke-width="52"
+          stroke-linejoin="round"
+          stroke-linecap="round" />
+</svg>

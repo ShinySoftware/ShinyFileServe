@@ -4,6 +4,7 @@
     that only show up when you can see both lists at once.
 *@
 @inject AdminApi Admin
+@inject FileServeApi Api
 @inject IToastService Toasts
 @inject IDialogService Dialogs
 
@@ -146,13 +147,13 @@
                 <input type="email" @bind="draft.Email" placeholder="Optional" />
             </label>
 
-            <label class="field">
-                <span class="field__label">@(draft.Id is null ? "Password" : "New password")</span>
-                <input type="password" @bind="draft.Password" />
-                <span class="admin__hint">
-                    @(draft.Id is null ? "At least 8 characters." : "Leave blank to keep the current password.")
-                </span>
-            </label>
+            <PasswordField Label="@(draft.Id is null ? "Password" : "New password")"
+                           Policy="this.passwords"
+                           Password="draft.Password"
+                           PasswordChanged="v => draft.Password = v"
+                           AcceptableChanged="v => this.passwordOk = v"
+                           UserInputs="@(new[] { draft.Username, draft.DisplayName })"
+                           Hint="@(draft.Id is null ? null : "Leave blank to keep the current password.")" />
 
             <div class="admin__block">
                 <h3>Groups</h3>
@@ -179,7 +180,10 @@
             </label>
 
             <div class="admin__actions">
-                <button type="button" class="action action--primary" disabled="@this.busy" @onclick="this.Save">Save</button>
+                @* An existing account may be saved without touching its password, so an empty box
+                   is fine there; a new one has to clear the rules before Save is offered. *@
+                <button type="button" class="action action--primary"
+                        disabled="@(this.busy || !this.CanSave(draft))" @onclick="this.Save">Save</button>
                 <button type="button" class="action" @onclick="() => this.editorOpen = false">Cancel</button>
             </div>
         </div>
@@ -191,6 +195,8 @@
     List<RoleInfo> roles = [];
     string newGroup = "";
     bool busy;
+    bool passwordOk;
+    PasswordPolicyInfo passwords = PasswordPolicyInfo.Off;
     bool editorOpen;
     Draft? draft;
     string? editorError;
@@ -227,6 +233,14 @@
         public List<string> RoleIds = [];
     }
 
+    bool CanSave(Draft draft)
+    {
+        if (String.IsNullOrWhiteSpace(draft.Username))
+            return false;
+
+        return draft.Password.Length == 0 ? draft.Id is not null : this.passwordOk;
+    }
+
     static string Status(UserDetail user) => user switch
     {
         { IsActive: false } => "Disabled",
@@ -261,6 +275,7 @@
         {
             this.users = await this.Admin.GetUsers();
             this.roles = await this.Admin.GetRoles();
+            this.passwords = (await this.Api.GetSessionPolicy()).Passwords;
         }
         catch (ApiException ex)
         {

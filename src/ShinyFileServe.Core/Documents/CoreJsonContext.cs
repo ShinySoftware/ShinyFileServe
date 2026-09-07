@@ -16,6 +16,7 @@ namespace ShinyFileServe.Core.Documents;
 [JsonSerializable(typeof(ActivityLogEntry))]
 [JsonSerializable(typeof(ServerSettings))]
 [JsonSerializable(typeof(PathAnnotation))]
+[JsonSerializable(typeof(PasswordRules))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(List<ShinyFileServe.Shared.ActivityAction>))]
 public partial class CoreJsonContext : JsonSerializerContext;

@@ -14,6 +14,7 @@ namespace ShinyFileServe.Server.Endpoints;
 [Authorize(Roles = ClaimTypesEx.AdminRole)]
 public class AdminUsersEndpoints(
     IUserManager users,
+    IPasswordPolicy passwords,
     ICurrentUserResolver current,
     IActivityLogger activity
 )
@@ -40,14 +41,27 @@ public class AdminUsersEndpoints(
         var roles = await users.GetRoles(ct);
         User user;
 
+        // Checked here so a bad password is one 400 rather than a half-saved account: CreateUser
+        // would throw on it anyway, but only after the name and groups had already been accepted.
+        if (request.Password is { Length: > 0 } candidate)
+        {
+            if (passwords.Validate(candidate, [request.Username, request.DisplayName]) is { Ok: false } invalid)
+                return new BadRequestObjectResult(invalid.Message);
+        }
+        else if (String.IsNullOrEmpty(request.Id))
+        {
+            return new BadRequestObjectResult("A new account needs a password.");
+        }
+
         if (String.IsNullOrEmpty(request.Id))
         {
-            if (request.Password is not { Length: >= 8 })
-                return new BadRequestObjectResult("A new account needs a password of at least 8 characters.");
-
             try
             {
-                user = await users.CreateUser(request.Username, request.Password, request.DisplayName, request.IsAdmin, ct);
+                user = await users.CreateUser(request.Username, request.Password!, request.DisplayName, request.IsAdmin, ct);
+            }
+            catch (ArgumentException ex)
+            {
+                return new BadRequestObjectResult(ex.Message);
             }
             catch (InvalidOperationException ex)
             {
@@ -57,9 +71,6 @@ public class AdminUsersEndpoints(
         else
         {
             user = await users.GetUser(request.Id, ct) ?? throw new BadHttpRequestException("No such user", 404);
-
-            if (request.Password is { Length: > 0 } and not { Length: >= 8 })
-                return new BadRequestObjectResult("A password must be at least 8 characters.");
         }
 
         user.Username = request.Username.Trim();
@@ -73,7 +84,7 @@ public class AdminUsersEndpoints(
         // enforces it, and re-reading afterwards is what makes the portal show the truth.
         await users.SaveUser(user, ct);
 
-        if (request.Password is { Length: >= 8 })
+        if (request.Password is { Length: > 0 })
             await users.SetPassword(user.Id, request.Password, ct);
 
         await this.Log(ctx, $"Saved the account '{user.Username}'", ct);

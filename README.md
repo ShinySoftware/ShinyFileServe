@@ -50,8 +50,10 @@ dotnet run --project heads/ShinyFileServe.Windows   # Windows, WinUI
 Add `-p:SkipFrontendBuild=true` for inner-loop work on the desktop UI — it skips publishing and
 zipping the Blazor app, which is the slow part of a build.
 
-Nothing is seeded on first run. The first person to open the site creates the administrator — an
-account with a password the whole internet knows is worse than no account at all.
+Nothing is seeded on first run. The administrator is created by the first person to open the app,
+**and only from the machine running it** — otherwise whoever found the address on the network first
+would own the server. An account with a password the whole internet knows is worse than no account
+at all, so nothing is seeded either.
 
 ### Linux prerequisites
 
@@ -115,6 +117,18 @@ A download charges the whole file the moment it is authorised, even for a range 
 per range would let a client fetch a file in pieces for free. An upload that turns out to exceed
 the quota is deleted rather than left on disk.
 
+## Passwords
+
+Configurable, and switchable off entirely — a cupboard server on a home network does not need a
+policy, and friction with nothing behind it is just friction. Minimum length, and optional
+requirements for a capital, a lower-case letter, a number, a symbol, and not being one of the
+commonly guessed passwords.
+
+The browser shows Shiny's strength meter with the server's own rules loaded into it, so somebody
+sees where they stand as they type. **The server validates the same rules on every path that sets a
+password** — the meter is the affordance, not the gate. Existing passwords are never re-checked;
+the rules apply the next time one is set.
+
 ## Sessions
 
 - **Keep me signed in** can be turned off entirely; when on, the window is configurable in days.
@@ -133,12 +147,20 @@ one with an awkward name.
 The tray icon is the app's front door; the window is one view onto it.
 
 - The address people need — the **public tunnel when it is open, otherwise the LAN address**.
+  Clicking it opens the browser there and leaves it on the clipboard.
 - Start/stop the server, open/close the tunnel.
 - Open FileServe, and the only Quit in the application.
+
+The icon is a thin folder outline that follows the menu bar's tint while nobody is connected, and
+turns green while somebody is. "Connected" means a signed-in person who has made a request in the
+last five minutes, from anywhere but this machine — counting the app's own window would leave it
+permanently lit and say nothing.
 
 Closing the window puts the app away rather than shutting the server down, and the app leaves the
 Dock/taskbar the first time its window is closed rather than at launch — an app that vanished
 before anyone had seen it would be hard to get back.
+
+The icon is the same folder mark as the app icon, so the two read as one application.
 
 **The status item has to be created straight after `builder.Build()`, before any window exists.**
 Created later — from `App.CreateWindow`, dispatched, or delayed — the `NSStatusItem` is constructed
@@ -165,13 +187,43 @@ runtime surprise on a trimmed head.
 | `GET /api/auth/policy` | anonymous — the sign-in page needs it before anyone signs in |
 | `GET /api/folders`, `GET /api/folders/{id}` | signed in |
 | `GET /api/files`, `/download`, `POST /upload`, `/directory`, `DELETE /api/files` | signed in, per permission |
-| `POST /api/auth/setup` | anonymous, and only until the first account exists |
+| `POST /api/auth/setup` | anonymous, only from loopback, and only until the first account exists |
 | `GET /api/activity` (filter by user, action and date window) | administrators |
 | `GET /api/admin/status`, `PUT /api/admin/settings`, `/server/{start,stop}`, `/tunnel/{start,stop}` | administrators |
 | `GET /api/admin/user-details`, `POST /api/admin/users`, `DELETE /api/admin/users/{id}` | administrators |
 | `GET /api/admin/roles`, `POST /api/admin/roles`, `DELETE /api/admin/roles/{id}` | administrators |
 | `GET /api/admin/shares`, `/{id}`, `POST`, `DELETE /{id}` | administrators |
 | `PUT /api/admin/annotation` | administrators |
+
+Password rules travel on `GET /api/auth/policy` so the setup and account screens can render the
+meter before anyone has signed in.
+
+## Building a release
+
+```bash
+dotnet publish heads/ShinyFileServe.MacOS -c Release -f net10.0-macos -p:CreatePackage=false
+```
+
+Produces a universal (`x86_64` + `arm64`) `FileServe.app` under
+`bin/Release/net10.0-macos/`, ad-hoc signed, around 264 MB. Drop `-p:CreatePackage=false` to get a
+`.pkg` installer instead. Add `-r osx-arm64` to halve the size at the cost of Intel Macs.
+
+Release builds run the IL trimmer, so **test the published app rather than only the Debug one** —
+nothing here depends on runtime reflection (JSON is source-generated end to end, DocumentDb runs
+with `UseReflectionFallback = false`), but that is a property worth re-checking rather than
+assuming.
+
+## Two things the macOS backend does not do for you
+
+Both are handled in `heads/ShinyFileServe.MacOS`, and both fail silently rather than loudly:
+
+- **`MauiIcon` produces `AppIcon.icns` but nothing writes `CFBundleIconFile`.** Without that key
+  macOS shows the generic application icon in the Dock, the app switcher and Finder. The head's
+  own `Info.plist` supplies it.
+- **`WindowHandler.OnWindowClosed` reads `VirtualView` unguarded** in the shipped preview (fixed
+  upstream on `main`), so a close arriving after the handler is disconnected aborts the process.
+  Nothing here closes a window programmatically for that reason — the close button and the tray are
+  the only paths, and both are safe.
 
 ## Where data lives
 

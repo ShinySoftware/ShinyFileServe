@@ -1076,3 +1076,5 @@ button.cell-name__link:hover { color: var(--accent); text-decoration: underline;
     background: var(--surface);
     color: var(--ink);
 }
+
+.pwfield { display: grid; gap: 6px; }

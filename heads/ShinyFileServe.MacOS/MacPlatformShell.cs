@@ -1,4 +1,5 @@
 using AppKit;
+using Foundation;
 using ShinyFileServe.App.Services;
 
 namespace ShinyFileServe.MacOS;
@@ -15,9 +16,10 @@ public class MacPlatformShell : IPlatformShell
 
     public void BringToFront()
     {
-        // An Accessory app has nothing to click in the Dock, so it has to raise itself.
+        // An Accessory app has nothing to click in the Dock, so it has to raise itself. Back to
+        // Regular first: AppKit will not front an Accessory app's window.
         NSApplication.SharedApplication.ActivationPolicy = NSApplicationActivationPolicy.Regular;
-        NSApplication.SharedApplication.ActivateIgnoringOtherApps(true);
+        NSApplication.SharedApplication.Activate();
     }
 
     /// <summary>
@@ -32,6 +34,6 @@ public class MacPlatformShell : IPlatformShell
     {
         var pasteboard = NSPasteboard.GeneralPasteboard;
         pasteboard.ClearContents();
-        pasteboard.SetStringForType(text, NSPasteboard.NSPasteboardTypeString);
+        pasteboard.WriteObjects([new NSString(text)]);
     }
 }

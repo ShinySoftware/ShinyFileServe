@@ -41,6 +41,7 @@ public class ServerController
         this.logger = logger;
 
         this.server.StateChanged += (_, _) => this.Raise();
+        this.server.SessionsChanged += (_, _) => this.Raise();
         this.tunnel.Changed += (_, _) => this.Raise();
         this.settings.Changed += (_, s) =>
         {
@@ -52,6 +53,9 @@ public class ServerController
     public bool IsServing => this.server.IsRunning;
     public HttpServerState State => this.server.State;
     public int ActiveConnections => this.server.ActiveConnections;
+
+    /// <summary>People using the server from elsewhere. This machine's own window is not one.</summary>
+    public int ActiveSessionCount => this.server.ActiveSessionCount;
 
     public TunnelState TunnelState => this.tunnel.State;
     public string? TunnelUrl => this.tunnel.PublicUrl;
