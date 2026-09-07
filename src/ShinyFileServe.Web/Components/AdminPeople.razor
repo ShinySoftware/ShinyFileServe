@@ -8,13 +8,6 @@
 @inject IToastService Toasts
 @inject IDialogService Dialogs
 
-<ModalView IsOpen="this.IsOpen" IsOpenChanged="this.SetOpen"
-           Title="People"
-           Subtitle="Accounts and the groups that carry their rights"
-           Size="ModalSize.Large"
-           CloseOnBackdropClick="false"
-           Opened="this.Reload">
-
     <div class="people">
         <section class="admin__block">
             <div class="people__head">
@@ -39,16 +32,38 @@
                                 </span>
                                 <span class="row__sub">
                                     @(user.RoleNames.Count == 0 ? "No groups" : String.Join(", ", user.RoleNames))
+                                    @if (user.IsAnonymous)
+                                    {
+                                        <span> · no password</span>
+                                    }
                                     @if (user.LastLoginUtc is { } last)
                                     {
                                         <span> · last in @Format.When(last)</span>
                                     }
                                 </span>
+
+                                @if (CapText(user) is { Length: > 0 } caps)
+                                {
+                                    <span class="row__sub">@caps</span>
+                                }
+
+                                @* Said with the count, because a run of ten is a person who forgot
+                                   their password and a run of a hundred is somebody else. *@
+                                @if (user.LockedOutUtc is { } locked)
+                                {
+                                    <span class="row__sub row__sub--warn">
+                                        Locked @Format.When(locked) after @user.FailedSignInCount failed sign-ins
+                                    </span>
+                                }
                             </div>
 
                             <span class="tag @TagClass(user)">@Status(user)</span>
 
                             <span class="row__actions">
+                                @if (user.IsLockedOut)
+                                {
+                                    <button type="button" class="action action--primary" @onclick="() => this.Unlock(user)">Unlock</button>
+                                }
                                 <button type="button" class="action" @onclick="() => this.Edit(user)">Edit</button>
                                 @if (!user.IsProtected)
                                 {
@@ -107,7 +122,6 @@
             </ul>
         </section>
     </div>
-</ModalView>
 
 @* The account editor. A second modal rather than an inline form, because the list is the thing
    you come back to and losing your place in it to edit one row is worse than a second layer. *@
@@ -118,7 +132,9 @@
 
     @if (this.draft is { } draft)
     {
-        <div class="admin">
+        @* The password here belongs to somebody else, so the browser must not offer the one it
+           remembers for this site. See the note beside the observer in index.html. *@
+        <div class="admin" data-no-autofill>
             @if (this.editorError is { Length: > 0 } editorError)
             {
                 <p class="form-error" role="alert">@editorError</p>
@@ -147,13 +163,27 @@
                 <input type="email" @bind="draft.Email" placeholder="Optional" />
             </label>
 
-            <PasswordField Label="@(draft.Id is null ? "Password" : "New password")"
-                           Policy="this.passwords"
-                           Password="draft.Password"
-                           PasswordChanged="v => draft.Password = v"
-                           AcceptableChanged="v => this.passwordOk = v"
-                           UserInputs="@(new[] { draft.Username, draft.DisplayName })"
-                           Hint="@(draft.Id is null ? null : "Leave blank to keep the current password.")" />
+            @if (!draft.IsAnonymous)
+            {
+                <PasswordField Label="@(draft.Id is null ? "Password" : "New password")"
+                               Policy="this.passwords"
+                               Password="draft.Password"
+                               PasswordChanged="v => draft.Password = v"
+                               AcceptableChanged="v => this.passwordOk = v"
+                               UserInputs="@(new[] { draft.Username, draft.DisplayName })"
+                               Hint="@(draft.Id is null ? null : "Leave blank to keep the current password.")" />
+            }
+
+            <label class="field--check">
+                <input type="checkbox" checked="@draft.IsAnonymous" disabled="@draft.IsProtected"
+                       @onchange="e => this.SetAnonymous(draft, (bool?)e.Value == true)" />
+                Anyone can sign in as this account
+            </label>
+            <span class="admin__hint">
+                No password at all — the sign-in page offers it as a button to everybody who reaches
+                this server. What they can then do is whatever its groups allow, so give it the
+                narrowest one. It can never be an administrator.
+            </span>
 
             <div class="admin__block">
                 <h3>Groups</h3>
@@ -170,14 +200,76 @@
             </div>
 
             <label class="field--check">
-                <input type="checkbox" @bind="draft.IsAdmin" disabled="@draft.IsProtected" />
+                <input type="checkbox" @bind="draft.IsAdmin" disabled="@(draft.IsProtected || draft.IsAnonymous)" />
                 Administrator
             </label>
 
-            <label class="field--check">
-                <input type="checkbox" @bind="draft.IsActive" disabled="@draft.IsProtected" />
-                Can sign in
-            </label>
+            <div class="admin__block">
+                <h3>Expiry</h3>
+
+                @* A date input rather than a text box: a typed date is a date somebody can get
+                   wrong, and the account it locks out is not theirs. *@
+                <label class="field--check">
+                    <input type="checkbox" checked="@(draft.ExpiresOn is null)" disabled="@draft.IsProtected"
+                           @onchange="e => this.SetNeverExpires(draft, (bool?)e.Value == true)" />
+                    Never expires
+                </label>
+
+                @if (draft.ExpiresOn is not null)
+                {
+                    <label class="field">
+                        <span class="field__label">Stops working on</span>
+                        <input type="date" @bind="draft.ExpiresOn" @bind:format="yyyy-MM-dd" />
+                    </label>
+                }
+
+                @if (draft.IsProtected)
+                {
+                    <span class="admin__hint">
+                        This account keeps the server administrable, so it cannot be given a date.
+                    </span>
+                }
+            </div>
+
+            <div class="admin__block">
+                <h3>Transfer limits</h3>
+                <span class="admin__hint">
+                    A cap on how many files this account may move, whatever share they come from.
+                    Leave the window at "No limit" for no cap at all.
+                </span>
+
+                <div class="caps">
+                    <label class="field">
+                        <span class="field__label">Downloads</span>
+                        <select @bind="draft.DownloadCapWindow">
+                            @foreach (var window in Windows)
+                            {
+                                <option value="@window">@WindowText(window)</option>
+                            }
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span class="field__label">Files</span>
+                        <input type="number" min="0" step="1" @bind="draft.MaxDownloads"
+                               disabled="@(draft.DownloadCapWindow == QuotaWindow.None)" />
+                    </label>
+
+                    <label class="field">
+                        <span class="field__label">Uploads</span>
+                        <select @bind="draft.UploadCapWindow">
+                            @foreach (var window in Windows)
+                            {
+                                <option value="@window">@WindowText(window)</option>
+                            }
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span class="field__label">Files</span>
+                        <input type="number" min="0" step="1" @bind="draft.MaxUploads"
+                               disabled="@(draft.UploadCapWindow == QuotaWindow.None)" />
+                    </label>
+                </div>
+            </div>
 
             <div class="admin__actions">
                 @* An existing account may be saved without touching its password, so an empty box
@@ -191,6 +283,9 @@
 </ModalView>
 
 @code {
+    static readonly QuotaWindow[] Windows =
+        [QuotaWindow.None, QuotaWindow.Daily, QuotaWindow.Weekly, QuotaWindow.Monthly, QuotaWindow.Total];
+
     List<UserDetail> users = [];
     List<RoleInfo> roles = [];
     string newGroup = "";
@@ -201,25 +296,12 @@
     Draft? draft;
     string? editorError;
 
-    [Parameter] public bool IsOpen { get; set; }
-    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    protected override Task OnInitializedAsync() => this.Reload();
 
     /// <summary>
-    /// Passes the modal's own close back up to whoever opened it. Binding the inner ModalView
-    /// straight to this component's IsOpen would write the parameter and stop there, leaving the
-    /// parent still believing the modal is open - so the next click would set true over true,
-    /// change nothing, and the modal would never come back.
+    /// A mutable copy so a cancelled edit leaves the list untouched. The expiry is held as a date
+    /// rather than an instant: an operator picks a day, and the account is good to the end of it.
     /// </summary>
-    async Task SetOpen(bool value)
-    {
-        if (this.IsOpen == value)
-            return;
-
-        this.IsOpen = value;
-        await this.IsOpenChanged.InvokeAsync(value);
-    }
-
-    /// <summary>A mutable copy so a cancelled edit leaves the list untouched.</summary>
     class Draft
     {
         public string? Id;
@@ -228,8 +310,13 @@
         public string? Email;
         public string Password = "";
         public bool IsAdmin;
-        public bool IsActive = true;
+        public DateTime? ExpiresOn;
+        public bool IsAnonymous;
         public bool IsProtected;
+        public QuotaWindow DownloadCapWindow;
+        public int? MaxDownloads;
+        public QuotaWindow UploadCapWindow;
+        public int? MaxUploads;
         public List<string> RoleIds = [];
     }
 
@@ -238,23 +325,95 @@
         if (String.IsNullOrWhiteSpace(draft.Username))
             return false;
 
+        // An anonymous account has no password to judge, which is the whole point of it.
+        if (draft.IsAnonymous)
+            return true;
+
         return draft.Password.Length == 0 ? draft.Id is not null : this.passwordOk;
     }
 
+    static string WindowText(QuotaWindow window) => window switch
+    {
+        QuotaWindow.Daily => "Per day",
+        QuotaWindow.Weekly => "Per week",
+        QuotaWindow.Monthly => "Per month",
+        QuotaWindow.Total => "Total, never resets",
+        _ => "No limit"
+    };
+
+    /// <summary>
+    /// One tag per row, so the order is the priority. A date the account is going to stop on says
+    /// more about it than the group it is in, and outranks everything but being protected.
+    /// </summary>
     static string Status(UserDetail user) => user switch
     {
-        { IsActive: false } => "Disabled",
+        // Ahead of everything else: a locked account is the one state an administrator has to act on.
+        { IsLockedOut: true } => "Locked",
+        { IsExpired: true } => "Expired",
         { IsProtected: true } => "Owner",
+        { ExpiresAtUtc: { } expiry } => $"Expires {Day(expiry)}",
         { IsAdmin: true } => "Administrator",
+        { IsAnonymous: true } => "Guest",
         _ => "Active"
     };
 
+    /// <summary>
+    /// Expiries are stored and shown as whole UTC days. Converting to local time would move a date
+    /// somebody typed onto a different day for half the world, which is not what they chose.
+    /// </summary>
+    static string Day(DateTimeOffset value) => value.UtcDateTime.ToString("d MMM yyyy");
+
     static string TagClass(UserDetail user) => user switch
     {
-        { IsActive: false } => "tag--off",
+        { IsLockedOut: true } => "tag--off",
+        { IsExpired: true } => "tag--off",
         { IsProtected: true } or { IsAdmin: true } => "tag--admin",
+        { ExpiresAtUtc: not null } => "tag--dated",
         _ => ""
     };
+
+    /// <summary>"14 of 20 downloads today" - a cap is only readable next to what is left of it.</summary>
+    static string CapText(UserDetail user)
+    {
+        var parts = new List<string>(2);
+
+        if (!user.Downloads.IsUncapped)
+            parts.Add($"{user.Downloads.Used} of {user.Downloads.Limit} downloads {Span(user.Downloads.Window)}");
+
+        if (!user.Uploads.IsUncapped)
+            parts.Add($"{user.Uploads.Used} of {user.Uploads.Limit} uploads {Span(user.Uploads.Window)}");
+
+        return String.Join(" · ", parts);
+    }
+
+    static string Span(QuotaWindow window) => window switch
+    {
+        QuotaWindow.Daily => "today",
+        QuotaWindow.Weekly => "this week",
+        QuotaWindow.Monthly => "this month",
+        _ => "in all"
+    };
+
+    /// <summary>
+    /// Ticking "never expires" drops the date; unticking it proposes a month out, because an empty
+    /// date input that saves as "never" would silently ignore what the operator just asked for.
+    /// </summary>
+    void SetNeverExpires(Draft draft, bool never)
+        => draft.ExpiresOn = never ? null : DateTime.Today.AddMonths(1);
+
+    /// <summary>
+    /// The two are exclusive, and the server settles it either way - doing it here as well keeps the
+    /// form from offering a password box that is about to be thrown away.
+    /// </summary>
+    void SetAnonymous(Draft draft, bool anonymous)
+    {
+        draft.IsAnonymous = anonymous;
+        if (anonymous)
+        {
+            draft.Password = "";
+            draft.IsAdmin = false;
+        }
+    }
 
     static void Toggle(List<string> list, string value, bool on)
     {
@@ -295,8 +454,13 @@
                 DisplayName = user.DisplayName,
                 Email = user.Email,
                 IsAdmin = user.IsAdmin,
-                IsActive = user.IsActive,
+                ExpiresOn = user.ExpiresAtUtc?.UtcDateTime.Date,
+                IsAnonymous = user.IsAnonymous,
                 IsProtected = user.IsProtected,
+                DownloadCapWindow = user.Downloads.Window,
+                MaxDownloads = user.Downloads.Limit,
+                UploadCapWindow = user.Uploads.Window,
+                MaxUploads = user.Uploads.Limit,
                 RoleIds = [.. user.RoleIds]
             };
 
@@ -320,7 +484,15 @@
                 draft.Email,
                 draft.Password.Length > 0 ? draft.Password : null,
                 draft.IsAdmin,
-                draft.IsActive,
+
+                // A whole UTC day, kept as one on the way out as well as the way in.
+                draft.ExpiresOn is { } day ? new DateTimeOffset(day.Date, TimeSpan.Zero) : null,
+
+                draft.IsAnonymous,
+                draft.DownloadCapWindow,
+                draft.MaxDownloads,
+                draft.UploadCapWindow,
+                draft.MaxUploads,
                 draft.RoleIds
             ));
 
@@ -335,6 +507,20 @@
         finally
         {
             this.busy = false;
+        }
+    }
+
+    async Task Unlock(UserDetail user)
+    {
+        try
+        {
+            await this.Admin.UnlockUser(user.Id);
+            await this.Reload();
+            await this.Toasts.SuccessAsync($"{user.DisplayName} can sign in again.");
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
         }
     }
 

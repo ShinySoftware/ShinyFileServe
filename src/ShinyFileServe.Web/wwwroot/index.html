@@ -33,5 +33,25 @@
     </div>
 
     <script src="_framework/blazor.webassembly.js"></script>
+    <script>
+        // Shiny's PasswordStrength takes no arbitrary attributes and ships autocomplete="on", so
+        // the field cannot be marked new-password where it is declared. Left alone, a browser fills
+        // an administrator's own saved password into the box for somebody else's new account - a
+        // password nobody chose and nobody was told. The sign-in page is deliberately not marked:
+        // remembering your own password there is the point.
+        // Only the attribute. Emptying the box as well was tried and made things worse: the field
+        // cleared but PasswordStrength kept the value it had already evaluated, so the box and the
+        // model disagreed and the meter went on warning about a password that was no longer there.
+        // A filled box the administrator can see is safer than an empty one hiding a value.
+        function noAutofill() {
+            for (const box of document.querySelectorAll('[data-no-autofill] input[type="password"]:not([data-autofill-handled])')) {
+                box.setAttribute('autocomplete', 'new-password');
+                box.setAttribute('data-autofill-handled', '');
+            }
+        }
+
+        new MutationObserver(noAutofill).observe(document.body, { childList: true, subtree: true, attributeFilter: ['data-no-autofill'] });
+        noAutofill();
+    </script>
 </body>
 </html>

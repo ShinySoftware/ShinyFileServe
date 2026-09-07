@@ -1,0 +1,88 @@
+@*
+    The frame every administrator screen sits in. These are screens somebody reads, sorts and
+    scrolls rather than short tasks with an end, so they get the window instead of a modal's
+    rectangle - and because the desktop shell has no back button, each one carries its own way back
+    to the files.
+*@
+@inject WorkspaceState State
+@inject NavigationManager Nav
+
+<PageTitle>@this.Title · FileServe</PageTitle>
+
+<div class="screen">
+    <AppChrome />
+
+    @if (this.checking)
+    {
+        <p class="admin__loading">Checking who you are…</p>
+    }
+    else
+    {
+        <header class="screen__head">
+            <a class="screen__back" href="">
+                <span aria-hidden="true">←</span>
+                Files
+            </a>
+
+            <div class="screen__titles">
+                <h1>@this.Title</h1>
+                @if (this.Subtitle is { Length: > 0 } subtitle)
+                {
+                    <p class="screen__sub">@subtitle</p>
+                }
+            </div>
+        </header>
+
+        <main class="screen__body @(this.Fill ? "screen__body--fill" : "")">
+            @this.ChildContent
+        </main>
+    }
+</div>
+
+@code {
+    bool checking = true;
+
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string? Subtitle { get; set; }
+
+    /// <summary>
+    /// True for a screen that owns its own scrolling - the log, which keeps its filters and its
+    /// pager still and scrolls only the rows between them. Everything else is a document that
+    /// scrolls as one.
+    /// </summary>
+    [Parameter] public bool Fill { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Nothing is rendered until the server has said who is here. Typing one of these addresses
+    /// starts a session with no user loaded, and a non-administrator who reaches one is sent to the
+    /// files rather than shown an empty screen. The endpoints refuse them regardless - this is so
+    /// the refusal reads as a wrong turn instead of as a broken page.
+    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var user = await this.State.EnsureUser();
+            if (user is null)
+            {
+                this.Nav.NavigateTo("signin");
+                return;
+            }
+
+            if (!user.IsAdmin)
+            {
+                this.Nav.NavigateTo("");
+                return;
+            }
+        }
+        catch (ApiException)
+        {
+            this.Nav.NavigateTo("signin");
+            return;
+        }
+
+        this.checking = false;
+    }
+}

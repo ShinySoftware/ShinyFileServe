@@ -1,0 +1,12 @@
+@page "/shares"
+@inject WorkspaceState State
+
+@* Publishing or unpublishing a folder changes what the signed-in user can see, so the workspace
+   behind this screen is re-read rather than left showing a share that has gone. *@
+<AdminScreen Title="Shares" Subtitle="Folders on this machine, published to groups">
+    <AdminShares Changed="this.OnSharesChanged" />
+</AdminScreen>
+
+@code {
+    Task OnSharesChanged() => this.State.LoadFolders();
+}

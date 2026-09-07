@@ -4,215 +4,281 @@
     are role-gated regardless, so hiding this is a courtesy, not the security boundary.
 *@
 @inject FileServeApi Api
+@inject AdminApi Admin
+@inject NavigationManager Nav
 @inject IToastService Toasts
 
-<ModalView IsOpen="this.IsOpen" IsOpenChanged="this.SetOpen"
-           Title="Server settings"
-           Subtitle="How this machine is reached"
-           Size="ModalSize.Medium"
-           CloseOnBackdropClick="true"
-           Opened="this.Refresh">
+@if (this.status is null)
+{
+    <p class="admin__loading">Reading the server…</p>
+}
+else
+{
+    <div class="admin">
 
-    @if (this.status is null)
-    {
-        <p class="admin__loading">Reading the server…</p>
-    }
-    else
-    {
-        <div class="admin">
+        <section class="admin__block">
+            <div class="admin__head">
+                <span class="admin__dot @(this.status.IsServing ? "is-on" : "")"></span>
+                <div>
+                    <h3>@(this.status.IsServing ? "Serving" : "Stopped")</h3>
+                    <p class="admin__sub">
+                        @(this.status.ActiveConnections == 1
+                            ? "1 open connection"
+                            : $"{this.status.ActiveConnections} open connections")
+                    </p>
+                </div>
+                <button type="button" class="action" disabled="@this.busy" @onclick="this.ToggleServer">
+                    @(this.status.IsServing ? "Stop" : "Start")
+                </button>
+            </div>
 
-            <section class="admin__block">
-                <div class="admin__head">
-                    <span class="admin__dot @(this.status.IsServing ? "is-on" : "")"></span>
-                    <div>
-                        <h3>@(this.status.IsServing ? "Serving" : "Stopped")</h3>
-                        <p class="admin__sub">
-                            @(this.status.ActiveConnections == 1
-                                ? "1 open connection"
-                                : $"{this.status.ActiveConnections} open connections")
+            @if (this.status.LocalUrls.Count > 0)
+            {
+                <ul class="admin__urls">
+                    @foreach (var url in this.status.LocalUrls)
+                    {
+                        <li class="num">@url</li>
+                    }
+                </ul>
+            }
+        </section>
+
+        <section class="admin__block">
+            <div class="admin__head">
+                <span class="admin__dot @(this.status.Tunnel == TunnelStatus.Open ? "is-on" : "")"></span>
+                <div>
+                    <h3>@this.TunnelText</h3>
+                    <p class="admin__sub">A public address that reaches this machine from anywhere.</p>
+                </div>
+                <button type="button" class="action" disabled="@(this.busy || !this.status.IsServing)"
+                        @onclick="this.ToggleTunnel">
+                    @(this.status.Tunnel is TunnelStatus.Open or TunnelStatus.Connecting ? "Close" : "Open")
+                </button>
+            </div>
+
+            @if (this.status.TunnelUrl is { Length: > 0 } tunnelUrl)
+            {
+                <ul class="admin__urls"><li class="num">@tunnelUrl</li></ul>
+            }
+            @if (this.status.Tunnel == TunnelStatus.Failed && this.status.TunnelError is { Length: > 0 } tunnelError)
+            {
+                <p class="form-error">@tunnelError</p>
+            }
+        </section>
+
+        <section class="admin__block">
+            <h3>Configuration</h3>
+
+            <label class="field">
+                <span class="field__label">Port</span>
+                <input type="number" min="1" max="65535" @bind="this.port" />
+                <span class="admin__hint">The server always listens on every network interface on this machine.</span>
+            </label>
+
+            <label class="field">
+                <span class="field__label">Pinggy access token</span>
+                <input type="password" placeholder="@this.TokenPlaceholder" @bind="this.token" @bind:event="oninput" />
+                <span class="admin__hint">@this.TokenHint</span>
+            </label>
+
+            <label class="field--check">
+                <input type="checkbox" @bind="this.autoStartServer" />
+                Start serving when the app opens
+            </label>
+
+            <label class="field--check">
+                <input type="checkbox" @bind="this.autoStartTunnel" />
+                Open the tunnel whenever the server starts
+            </label>
+
+        </section>
+
+        <section class="admin__block">
+            <h3>Sessions</h3>
+
+            <label class="field--check">
+                <input type="checkbox" @bind="this.allowRememberMe" />
+                Offer "keep me signed in" on the sign-in page
+            </label>
+
+            @if (this.allowRememberMe)
+            {
+                <label class="field">
+                    <span class="field__label">A remembered session lasts</span>
+                    <input type="number" min="1" max="3650" @bind="this.rememberMeDays" />
+                    <span class="admin__hint">Days. Without this, every session ends when the browser closes.</span>
+                </label>
+            }
+
+            <label class="field">
+                <span class="field__label">Sign out after</span>
+                <input type="number" min="0" max="1440" @bind="this.idleLogoffMinutes" />
+                <span class="admin__hint">
+                    Minutes with no keyboard or mouse. 0 never signs anyone out for being idle.
+                </span>
+            </label>
+        </section>
+
+        <section class="admin__block">
+            <h3>Backup</h3>
+            <span class="admin__hint">
+                One file holds everything: accounts, groups, shares, quota counters, settings and
+                the activity log. It does not contain the files themselves — those stay where they are.
+            </span>
+
+            <div class="admin__actions">
+                <a class="action" href="@this.Admin.BackupUrl" download>Download a backup</a>
+
+                <label class="action">
+                    Choose a backup to restore…
+                    <InputFile OnChange="this.OnBackupPicked" accept=".db" style="display:none" />
+                </label>
+            </div>
+
+            @if (this.staged is { } staged)
+            {
+                @if (staged.IsValid)
+                {
+                    <div class="restore">
+                        <p class="restore__title">Ready to restore</p>
+                        <p class="restore__body">
+                            @staged.Users @(staged.Users == 1 ? "account" : "accounts")
+                            (@staged.Administrators @(staged.Administrators == 1 ? "administrator" : "administrators")),
+                            @staged.Shares @(staged.Shares == 1 ? "share" : "shares"),
+                            @staged.ActivityEntries log @(staged.ActivityEntries == 1 ? "entry" : "entries")
+                            · @Format.Bytes(staged.SizeBytes)
+                            @if (staged.TakenUtc is { } taken)
+                            {
+                                <span> · settings last changed @Format.When(taken)</span>
+                            }
                         </p>
-                    </div>
-                    <button type="button" class="action" disabled="@this.busy" @onclick="this.ToggleServer">
-                        @(this.status.IsServing ? "Stop" : "Start")
-                    </button>
-                </div>
-
-                @if (this.status.LocalUrls.Count > 0)
-                {
-                    <ul class="admin__urls">
-                        @foreach (var url in this.status.LocalUrls)
-                        {
-                            <li class="num">@url</li>
-                        }
-                    </ul>
-                }
-            </section>
-
-            <section class="admin__block">
-                <div class="admin__head">
-                    <span class="admin__dot @(this.status.Tunnel == TunnelStatus.Open ? "is-on" : "")"></span>
-                    <div>
-                        <h3>@this.TunnelText</h3>
-                        <p class="admin__sub">A public address that reaches this machine from anywhere.</p>
-                    </div>
-                    <button type="button" class="action" disabled="@(this.busy || !this.status.IsServing)"
-                            @onclick="this.ToggleTunnel">
-                        @(this.status.Tunnel is TunnelStatus.Open or TunnelStatus.Connecting ? "Close" : "Open")
-                    </button>
-                </div>
-
-                @if (this.status.TunnelUrl is { Length: > 0 } tunnelUrl)
-                {
-                    <ul class="admin__urls"><li class="num">@tunnelUrl</li></ul>
-                }
-                @if (this.status.Tunnel == TunnelStatus.Failed && this.status.TunnelError is { Length: > 0 } tunnelError)
-                {
-                    <p class="form-error">@tunnelError</p>
-                }
-            </section>
-
-            <section class="admin__block">
-                <h3>Configuration</h3>
-
-                <label class="field">
-                    <span class="field__label">Port</span>
-                    <input type="number" min="1" max="65535" @bind="this.port" />
-                    <span class="admin__hint">The server always listens on every network interface on this machine.</span>
-                </label>
-
-                <label class="field">
-                    <span class="field__label">Pinggy access token</span>
-                    <input type="password" placeholder="@this.TokenPlaceholder" @bind="this.token" @bind:event="oninput" />
-                    <span class="admin__hint">@this.TokenHint</span>
-                </label>
-
-                <label class="field--check">
-                    <input type="checkbox" @bind="this.autoStartServer" />
-                    Start serving when the app opens
-                </label>
-
-                <label class="field--check">
-                    <input type="checkbox" @bind="this.autoStartTunnel" />
-                    Open the tunnel whenever the server starts
-                </label>
-
-            </section>
-
-            <section class="admin__block">
-                <h3>Sessions</h3>
-
-                <label class="field--check">
-                    <input type="checkbox" @bind="this.allowRememberMe" />
-                    Offer "keep me signed in" on the sign-in page
-                </label>
-
-                @if (this.allowRememberMe)
-                {
-                    <label class="field">
-                        <span class="field__label">A remembered session lasts</span>
-                        <input type="number" min="1" max="3650" @bind="this.rememberMeDays" />
-                        <span class="admin__hint">Days. Without this, every session ends when the browser closes.</span>
-                    </label>
-                }
-
-                <label class="field">
-                    <span class="field__label">Sign out after</span>
-                    <input type="number" min="0" max="1440" @bind="this.idleLogoffMinutes" />
-                    <span class="admin__hint">
-                        Minutes with no keyboard or mouse. 0 never signs anyone out for being idle.
-                    </span>
-                </label>
-            </section>
-
-            <section class="admin__block">
-                <h3>Passwords</h3>
-
-                <label class="field--check">
-                    <input type="checkbox" @bind="this.passwordsEnabled" />
-                    Apply password rules
-                </label>
-
-                @if (this.passwordsEnabled)
-                {
-                    <label class="field">
-                        <span class="field__label">Minimum length</span>
-                        <input type="number" min="1" max="128" @bind="this.passwordMinimum" />
-                    </label>
-
-                    <div class="admin__checks">
-                        <label class="field--check">
-                            <input type="checkbox" @bind="this.requireUpper" /> A capital letter
-                        </label>
-                        <label class="field--check">
-                            <input type="checkbox" @bind="this.requireLower" /> A lower-case letter
-                        </label>
-                        <label class="field--check">
-                            <input type="checkbox" @bind="this.requireNumber" /> A number
-                        </label>
-                        <label class="field--check">
-                            <input type="checkbox" @bind="this.requireSymbol" /> A symbol
-                        </label>
-                        <label class="field--check">
-                            <input type="checkbox" @bind="this.blockCommon" /> Not a commonly guessed password
-                        </label>
+                        <p class="restore__warn">
+                            This replaces every account, share and log entry on this server. If your
+                            own account is not in that backup, you will be signed out.
+                        </p>
+                        <div class="admin__actions">
+                            <button type="button" class="action action--danger" disabled="@this.busy"
+                                    @onclick="this.Restore">Restore and restart</button>
+                            <button type="button" class="action" disabled="@this.busy"
+                                    @onclick="this.DiscardBackup">Cancel</button>
+                        </div>
                     </div>
                 }
                 else
                 {
-                    <span class="admin__hint">
-                        Any password is accepted, as long as it is not blank. Reasonable on a machine
-                        only you can reach; think again before opening the tunnel.
-                    </span>
+                    <p class="form-error" role="alert">@staged.Problem</p>
                 }
+            }
+        </section>
 
-                <span class="admin__hint">
-                    Existing passwords are not re-checked. The rules apply the next time one is set.
-                </span>
-            </section>
+        <section class="admin__block">
+            <h3>Passwords</h3>
 
-            <section class="admin__block">
-                <h3>Notifications</h3>
+            <label class="field--check">
+                <input type="checkbox" @bind="this.passwordsEnabled" />
+                Apply password rules
+            </label>
 
-                <label class="field--check">
-                    <input type="checkbox" @bind="this.notificationsEnabled" />
-                    Show a desktop notification on the server machine
+            @if (this.passwordsEnabled)
+            {
+                <label class="field">
+                    <span class="field__label">Minimum length</span>
+                    <input type="number" min="1" max="128" @bind="this.passwordMinimum" />
                 </label>
 
-                @if (this.notificationsEnabled)
-                {
-                    <div class="admin__checks">
-                        @foreach (var action in ActivityActions.Notifiable)
-                        {
-                            var selected = this.notifyOn.Contains(action);
-                            <label class="field--check">
-                                <input type="checkbox" checked="@selected"
-                                       @onchange="e => this.ToggleNotify(action, (bool?)e.Value == true)" />
-                                @action.ToDisplay()
-                            </label>
-                        }
-                    </div>
-                }
-
+                <div class="admin__checks">
+                    <label class="field--check">
+                        <input type="checkbox" @bind="this.requireUpper" /> A capital letter
+                    </label>
+                    <label class="field--check">
+                        <input type="checkbox" @bind="this.requireLower" /> A lower-case letter
+                    </label>
+                    <label class="field--check">
+                        <input type="checkbox" @bind="this.requireNumber" /> A number
+                    </label>
+                    <label class="field--check">
+                        <input type="checkbox" @bind="this.requireSymbol" /> A symbol
+                    </label>
+                    <label class="field--check">
+                        <input type="checkbox" @bind="this.blockCommon" /> Not a commonly guessed password
+                    </label>
+                </div>
+            }
+            else
+            {
                 <span class="admin__hint">
-                    Notifications land on the machine running the server, not here. Everything is written
-                    to the activity log either way.
+                    Any password is accepted, as long as it is not blank. Reasonable on a machine
+                    only you can reach; think again before opening the tunnel.
                 </span>
+            }
 
-                <div class="admin__actions">
-                    <button type="button" class="action action--primary" disabled="@this.busy" @onclick="this.Save">
-                        Save settings
-                    </button>
-                    @if (this.status.Config.HasPinggyToken)
+            <span class="admin__hint">
+                Existing passwords are not re-checked. The rules apply the next time one is set.
+            </span>
+
+            <label class="field">
+                <span class="field__label">Ask for a new password after</span>
+                <input type="number" min="0" max="3650" @bind="this.passwordMaxAgeDays" />
+                <span class="admin__hint">
+                    Days. 0 never expires one. Past that age somebody can still sign in, but nothing
+                    answers until they set a new password.
+                </span>
+            </label>
+
+            @* Outside the rules above on purpose: an account locks itself whether or not this
+               server has opinions about what a password looks like. *@
+            <label class="field">
+                <span class="field__label">Lock an account after</span>
+                <input type="number" min="0" max="100" @bind="this.maxFailedSignIns" />
+                <span class="admin__hint">
+                    Consecutive failed sign-ins. 0 never locks anybody. Only an administrator can
+                    unlock one, from the People screen.
+                </span>
+            </label>
+        </section>
+
+        <section class="admin__block">
+            <h3>Notifications</h3>
+
+            <label class="field--check">
+                <input type="checkbox" @bind="this.notificationsEnabled" />
+                Show a desktop notification on the server machine
+            </label>
+
+            @if (this.notificationsEnabled)
+            {
+                <div class="admin__checks">
+                    @foreach (var action in ActivityActions.Notifiable)
                     {
-                        <button type="button" class="action" disabled="@this.busy" @onclick="this.ClearToken">
-                            Clear token
-                        </button>
+                        var selected = this.notifyOn.Contains(action);
+                        <label class="field--check">
+                            <input type="checkbox" checked="@selected"
+                                   @onchange="e => this.ToggleNotify(action, (bool?)e.Value == true)" />
+                            @action.ToDisplay()
+                        </label>
                     }
                 </div>
-            </section>
-        </div>
-    }
-</ModalView>
+            }
+
+            <span class="admin__hint">
+                Notifications land on the machine running the server, not here. Everything is written
+                to the activity log either way.
+            </span>
+
+            <div class="admin__actions">
+                <button type="button" class="action action--primary" disabled="@this.busy" @onclick="this.Save">
+                    Save settings
+                </button>
+                @if (this.status.Config.HasPinggyToken)
+                {
+                    <button type="button" class="action" disabled="@this.busy" @onclick="this.ClearToken">
+                        Clear token
+                    </button>
+                }
+            </div>
+        </section>
+    </div>
+}
 
 @code {
     ServerStatus? status;
@@ -220,6 +286,7 @@
     string token = "";
     bool autoStartServer;
     bool autoStartTunnel;
+    BackupSummary? staged;
     bool passwordsEnabled = true;
     int passwordMinimum = 8;
     bool requireUpper;
@@ -227,6 +294,8 @@
     bool requireNumber;
     bool requireSymbol;
     bool blockCommon = true;
+    int passwordMaxAgeDays;
+    int maxFailedSignIns = 10;
     bool allowRememberMe = true;
     int rememberMeDays = 30;
     int idleLogoffMinutes;
@@ -234,23 +303,7 @@
     HashSet<ActivityAction> notifyOn = [];
     bool busy;
 
-    [Parameter] public bool IsOpen { get; set; }
-    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
-
-    /// <summary>
-    /// Passes the modal's own close back up to whoever opened it. Binding the inner ModalView
-    /// straight to this component's IsOpen would write the parameter and stop there, leaving the
-    /// parent still believing the modal is open - so the next click would set true over true,
-    /// change nothing, and the modal would never come back.
-    /// </summary>
-    async Task SetOpen(bool value)
-    {
-        if (this.IsOpen == value)
-            return;
-
-        this.IsOpen = value;
-        await this.IsOpenChanged.InvokeAsync(value);
-    }
+    protected override Task OnInitializedAsync() => this.Refresh();
 
     string TunnelText => this.status?.Tunnel switch
     {
@@ -285,6 +338,8 @@
             this.requireNumber = rules.RequireNumber;
             this.requireSymbol = rules.RequireSpecialCharacter;
             this.blockCommon = rules.BlockCommonPasswords;
+            this.passwordMaxAgeDays = rules.MaximumAgeDays;
+            this.maxFailedSignIns = this.status.Config.MaxFailedSignIns;
 
             this.allowRememberMe = this.status.Config.AllowRememberMe;
             this.rememberMeDays = this.status.Config.RememberMeDays;
@@ -342,6 +397,66 @@
             await this.Toasts.SuccessAsync($"Tunnel open at {this.status.TunnelUrl}");
     });
 
+    // -- backup -------------------------------------------------------------
+
+    async Task OnBackupPicked(InputFileChangeEventArgs args)
+    {
+        if (args.FileCount == 0)
+            return;
+
+        var file = args.File;
+        this.staged = null;
+
+        await this.Run(async () =>
+        {
+            // A database of any size worth restoring still fits in a stream; the cap is a guard
+            // against somebody picking a disk image by mistake.
+            await using var content = file.OpenReadStream(512L * 1024 * 1024);
+            this.staged = await this.Admin.StageBackup(file.Name, content, file.Size);
+
+            if (this.staged is { IsValid: false, Problem: { Length: > 0 } problem })
+                await this.Toasts.WarningAsync(problem);
+        });
+    }
+
+    Task DiscardBackup() => this.Run(async () =>
+    {
+        await this.Admin.DiscardStaged();
+        this.staged = null;
+    });
+
+    Task Restore() => this.Run(async () =>
+    {
+        await this.Admin.RestoreStaged();
+        this.staged = null;
+
+        // The listener goes away to do the swap, so nothing this page asks for next would arrive.
+        // Say so, then reload once the server is back rather than leaving a dead page up.
+        await this.Toasts.WarningAsync("Restoring. This page will reload when the server is back.");
+        await this.WaitForServerThenReload();
+    });
+
+    async Task WaitForServerThenReload()
+    {
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            await Task.Delay(500);
+
+            try
+            {
+                await this.Api.GetSessionPolicy();
+                this.Nav.NavigateTo(this.Nav.BaseUri, forceLoad: true);
+                return;
+            }
+            catch (Exception)
+            {
+                // Still down. The restart is a second or two; keep asking.
+            }
+        }
+
+        await this.Toasts.DangerAsync("The server has not come back. Check the FileServe window on that machine.");
+    }
+
     void ToggleNotify(ActivityAction action, bool selected)
     {
         if (selected)
@@ -367,8 +482,10 @@
             this.requireLower,
             this.requireNumber,
             this.requireSymbol,
-            this.blockCommon
-        )
+            this.blockCommon,
+            this.passwordMaxAgeDays
+        ),
+        this.maxFailedSignIns
     );
 
     Task Save() => this.Run(async () =>

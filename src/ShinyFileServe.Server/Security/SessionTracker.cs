@@ -3,7 +3,21 @@ using Shiny.Net.HttpServer;
 
 namespace ShinyFileServe.Server.Security;
 
-public record ActiveSession(string UserId, string Username, DateTimeOffset LastSeenUtc);
+public record ActiveSession(
+    string UserId,
+    string Username,
+    DateTimeOffset LastSeenUtc,
+    string DisplayName = "",
+
+    /// <summary>Where the last request came from, when the connection reported one.</summary>
+    string? Address = null,
+
+    /// <summary>When this stretch of activity began, not when the cookie was issued.</summary>
+    DateTimeOffset SignedInUtc = default,
+
+    /// <summary>The window on the machine running the server.</summary>
+    bool IsLocal = false
+);
 
 /// <summary>
 /// Who is actually using the server right now. There is no server-side session store - the cookie
@@ -17,10 +31,17 @@ public interface ISessionTracker
 
     IReadOnlyList<ActiveSession> Active { get; }
 
+    /// <summary>
+    /// Everyone inside the window, the machine's own window included. For an administrator looking
+    /// at who is here - where leaving out the session they are reading the screen from would be
+    /// confusing - rather than for the tray, which counts visitors.
+    /// </summary>
+    IReadOnlyList<ActiveSession> All { get; }
+
     /// <summary>Raised when the count changes, from a request thread or the sweep timer.</summary>
     event EventHandler? Changed;
 
-    void Touch(string userId, string username, bool isLocal);
+    void Touch(string userId, string username, string displayName, string? address, bool isLocal);
 
     /// <summary>Forgets everyone. Used when the listener stops - nobody is connected to a closed socket.</summary>
     void Clear();
@@ -57,19 +78,31 @@ public class SessionTracker : ISessionTracker, IDisposable
 
     public event EventHandler? Changed;
 
-    public int ActiveCount => this.Snapshot().Count;
+    public int ActiveCount => this.Visitors().Count;
 
-    public IReadOnlyList<ActiveSession> Active => this.Snapshot();
+    public IReadOnlyList<ActiveSession> Active => this.Visitors();
 
-    public void Touch(string userId, string username, bool isLocal)
+    public IReadOnlyList<ActiveSession> All => this.Snapshot();
+
+    public void Touch(string userId, string username, string displayName, string? address, bool isLocal)
     {
-        // The console window on this machine is signed in without a password and is always there.
-        // Counting it would leave the tray permanently lit and tell the operator nothing.
-        if (isLocal || String.IsNullOrEmpty(userId))
+        if (String.IsNullOrEmpty(userId))
             return;
 
+        var now = this.time.GetUtcNow();
+
+        // The machine's own window and a browser signed in as the same account are two different
+        // people at two different screens, so they are two entries. Keying on the account alone
+        // would let the local one overwrite a visitor and empty the tray while somebody is still here.
+        var key = (isLocal ? "local:" : "net:") + userId;
+
         lock (this.gate)
-            this.sessions[userId] = new ActiveSession(userId, username, this.time.GetUtcNow());
+        {
+            // Signed in "since" is when this stretch of activity began. Carrying it forward keeps a
+            // long session from looking as though it restarted on every request.
+            var since = this.sessions.TryGetValue(key, out var existing) ? existing.SignedInUtc : now;
+            this.sessions[key] = new ActiveSession(userId, username, now, displayName, address, since, isLocal);
+        }
 
         this.RaiseIfChanged();
     }
@@ -95,9 +128,15 @@ public class SessionTracker : ISessionTracker, IDisposable
         }
     }
 
+    /// <summary>
+    /// The console window on this machine is signed in without a password and is always there.
+    /// Counting it would leave the tray permanently lit and tell the operator nothing.
+    /// </summary>
+    List<ActiveSession> Visitors() => this.Snapshot().Where(x => !x.IsLocal).ToList();
+
     void RaiseIfChanged()
     {
-        var count = this.Snapshot().Count;
+        var count = this.Visitors().Count;
         if (Interlocked.Exchange(ref this.lastCount, count) == count)
             return;
 
@@ -127,6 +166,8 @@ public class SessionTrackingMiddleware(ISessionTracker tracker) : IHttpMiddlewar
                 tracker.Touch(
                     id,
                     context.User.Identity.Name ?? "",
+                    context.User.FindFirst("display_name")?.Value ?? context.User.Identity.Name ?? "",
+                    context.Connection.RemoteIpAddress?.ToString(),
                     context.User.HasClaim(PrincipalFactory.LocalSessionClaim, "true")
                 );
             }

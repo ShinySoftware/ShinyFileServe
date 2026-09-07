@@ -134,7 +134,78 @@ the rules apply the next time one is set.
 - **Keep me signed in** can be turned off entirely; when on, the window is configurable in days.
 - **Idle sign-out** after N minutes with no keyboard or mouse. Enforced in the browser, which is
   the only place that can see a screen go idle; the server's part is that a non-remembered session
-  is a browser session and a deactivated account's cookie is rejected on its next request.
+  is a browser session and an expired account's cookie is rejected on its next request.
+
+## Accounts
+
+An account **expires** rather than being switched off: a date, or nothing at all, which means it
+lives forever. Past the date it cannot sign in and its existing cookie is refused on the next
+request. The first administrator cannot be put on a timer — a server that times out its only
+administrator has locked everybody out of itself.
+
+An account may instead be **anonymous**: no password, and anybody who reaches the server can sign
+in as it from a button on the sign-in page. Its groups still decide everything it can do. It can
+never be an administrator — refused when set directly, refused through a group, and refused again
+when the claim is built, so a database that arrived with the flag already set still grants nothing.
+Password sign-in against one is refused, and it is never remembered on a browser.
+
+Either kind can carry a **cap on the number of files it moves** — downloads and uploads counted
+separately, per day, week, month or in total. It sits beside the byte quotas on the folder grant
+rather than replacing them: one is about how much, the other about how often.
+
+## Passwords over time
+
+- A password can be given a **maximum age**. Past it somebody still signs in, but the API answers
+  **428** to everything except reading their own account and replacing the password — an expired
+  password that only the browser knew about would be a suggestion, not a rule.
+- Anyone can change **their own** password from Profile, producing the current one to do it. That
+  check is metered by the same counter as a sign-in, so a session left open on somebody else's
+  screen is not an unlimited oracle on the password it was too polite to ask for.
+- An account **locks itself** after a run of failed sign-ins, and only an administrator can let it
+  back in. A wrong password against a locked account reads exactly like a wrong password against
+  any other — saying "locked" to somebody who has not proved they know the password would turn the
+  message into a way to find out which accounts exist. The right password on a locked account does
+  say so, because by then they have proved it.
+- The machine running the server signs in over loopback without a password, so an administrator
+  locked out over the network can always recover from the app's own window.
+
+## Right now
+
+Who is signed in, and what is moving. Live transfers carry the share, the path, the direction,
+bytes so far against the total, the speed over a five-second window and the time left; finished
+ones carry how long they took, the average speed, and whether they finished, failed, or the other
+end walked away. The counting happens in the stream itself, so it is what actually moved rather
+than what was asked for, and the per-chunk cost is one interlocked add.
+
+The browser asks once a second while the screen is open. It is polled rather than streamed: a
+WebAssembly client cannot consume server-sent events without an EventSource bridged through JS
+interop, and the whole payload is a few hundred bytes.
+
+## Screens, not modals
+
+Anything somebody **reads** — Activity, People, Shares, Right now, Settings — is a page with an
+address. Anything somebody **finishes** — the share editor, the account editor, the folder picker,
+Profile, a confirmation — is a modal. A log with filters, sorting and paging inside a dialog is a
+dialog being used as a window.
+
+The desktop shell has no address bar and no back button, so every page carries its own way back to
+the files.
+
+## Choosing a folder to share
+
+The path used to be typed into the share editor, which meant reading it off the server machine and
+carrying it across by hand — and a typo produced a share pointing at nothing. Administrators now
+walk the server's own folders over the API and pick one.
+
+The picker opens on the places somebody actually means — home, Desktop, Documents, Downloads, the
+machine root, and mounted volumes (drives on Windows) — with everything else one branch away.
+Hidden folders are left out until asked for. A folder another share already publishes is marked, so
+the same folder is not published twice by accident. A folder that does not exist yet cannot be
+picked from a list, so the picker can make one where it stands.
+
+Only directory names are ever read or reported — never a file, never a file's contents. It is
+administrator-only, and no wider than what an administrator already had: the editor has always
+accepted any path on the machine, and this only shows what is there to type.
 
 ## Names and notes
 
@@ -175,6 +246,26 @@ Desktop notifications for whichever activities you pick — sign-ins, refusals, 
 `Shiny.Notifications` registers per head (`AddNotifications()` only exists on the platform builds);
 where no manager is registered the tray icon's own balloon is used instead.
 
+## Backup and restore
+
+The whole database in one file — accounts, groups, shares, quota counters, settings and the
+activity log. Not the files themselves; those stay on disk where they are, and a share whose folder
+has since moved simply points nowhere until an administrator repoints it.
+
+**Download a backup** streams a consistent copy taken through SQLite's online backup API, so it can
+be taken while the server is serving. **Choose a backup to restore** uploads a candidate and reads
+it before anything is touched: the account and administrator counts, share and log-entry counts and
+the size come back for confirmation, and a file with no administrator in it is refused rather than
+restored into a server nobody can sign into.
+
+Confirming stops the server, writes the backup *into* the live database rather than over the file —
+the document store holds a long-lived connection, and a file swap would leave it reading a replaced
+inode — and starts the server again; the browser polls and reloads itself when it answers. The
+database it replaced is kept beside it as `db.sqlite.previous`.
+
+Restoring replaces every account, so a backup that does not contain your own account signs you out.
+The confirmation says so.
+
 ## API
 
 Everything under `/api`. JSON is source-generated end to end — there is no reflection path on
@@ -194,6 +285,11 @@ runtime surprise on a trimmed head.
 | `GET /api/admin/roles`, `POST /api/admin/roles`, `DELETE /api/admin/roles/{id}` | administrators |
 | `GET /api/admin/shares`, `/{id}`, `POST`, `DELETE /{id}` | administrators |
 | `PUT /api/admin/annotation` | administrators |
+| `GET /api/admin/browse` (the machine's folders), `POST /browse/directory` | administrators |
+| `GET /api/account/profile`, `POST /api/account/password` | anyone signed in, about themselves only |
+| `POST /api/auth/anonymous` | anyone — and only for an account marked anonymous |
+| `GET /api/admin/live` (sessions and transfers), `POST /api/admin/users/{id}/unlock` | administrators |
+| `GET /api/admin/backup`, `POST /stage`, `POST /restore`, `DELETE /stage` | administrators |
 
 Password rules travel on `GET /api/auth/policy` so the setup and account screens can render the
 meter before anyone has signed in.
@@ -243,5 +339,8 @@ truth.
   is checked against the share root to catch symlinks.
 - A share a user has no grant on answers **404**, not 403 — they should not learn it exists.
 - Refusals are logged, not just successes.
+- Browsing the machine's folders is administrator-only and reports directory names only. It grants
+  nothing new — the share editor has always taken any path on the machine — but it is worth knowing
+  that an administrator account is, by design, an account that can see the server's directory tree.
 - A loopback session is marked as such, and the portal hides Sign out on one — signing out of a
   session that signs itself back in on the next request would be a button that does nothing.

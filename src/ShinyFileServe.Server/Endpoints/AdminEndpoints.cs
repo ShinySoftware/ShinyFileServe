@@ -43,6 +43,9 @@ public class AdminEndpoints(
         if (request.IdleLogoffMinutes is < 0 or > 1440)
             return new BadRequestObjectResult("Idle sign-out must be between 0 and 1440 minutes. 0 turns it off.");
 
+        if (request.MaxFailedSignIns is < 0 or > 100)
+            return new BadRequestObjectResult("Lock an account after between 1 and 100 failed sign-ins. 0 never locks one.");
+
         var stored = await settings.Load(ct);
         var portChanged = stored.Port != request.Port;
 
@@ -63,8 +66,16 @@ public class AdminEndpoints(
             if (rules.MinimumLength is < 1 or > 128)
                 return new BadRequestObjectResult("The minimum password length must be between 1 and 128.");
 
+            if (rules.MaximumAgeDays is < 0 or > 3650)
+                return new BadRequestObjectResult("A password may last between 1 and 3650 days. 0 never expires one.");
+
             stored.PasswordRules = PasswordPolicyMapping.ToRules(rules);
         }
+
+        // Null leaves the stored number alone, the same way a null token does - 0 is a real value
+        // here and means nobody is ever locked out.
+        if (request.MaxFailedSignIns is { } lockout)
+            stored.MaxFailedSignIns = lockout;
 
         stored.NotificationsEnabled = request.NotificationsEnabled;
         if (request.NotifyOn is not null)
@@ -146,7 +157,7 @@ public class AdminEndpoints(
     {
         var all = await users.GetUsers(ct);
         return new OkObjectResult(all
-            .Select(u => new UserSummary(u.Id, u.Username, u.DisplayName, u.IsActive, u.IsAdmin, u.IsProtected))
+            .Select(u => new UserSummary(u.Id, u.Username, u.DisplayName, u.ExpiresAtUtc, u.IsAdmin, u.IsProtected))
             .ToList()
         );
     }
@@ -193,7 +204,8 @@ public class AdminEndpoints(
                 config.AllowRememberMe,
                 config.RememberMeDays,
                 config.IdleLogoffMinutes,
-                PasswordPolicyMapping.ToInfo(config.PasswordRules)
+                PasswordPolicyMapping.ToInfo(config.PasswordRules),
+                Math.Max(0, config.MaxFailedSignIns)
             )
         );
     }

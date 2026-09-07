@@ -13,7 +13,8 @@ public static class PasswordPolicyMapping
         rules.RequireLowercase,
         rules.RequireNumber,
         rules.RequireSpecialCharacter,
-        rules.BlockCommonPasswords
+        rules.BlockCommonPasswords,
+        Math.Max(0, rules.MaximumAgeDays)
     );
 
     public static PasswordRules ToRules(PasswordPolicyInfo info) => new()
@@ -24,6 +25,10 @@ public static class PasswordPolicyMapping
         RequireLowercase = info.RequireLowercase,
         RequireNumber = info.RequireNumber,
         RequireSpecialCharacter = info.RequireSpecialCharacter,
-        BlockCommonPasswords = info.BlockCommonPasswords
+        BlockCommonPasswords = info.BlockCommonPasswords,
+
+        // Ten years is not a policy anybody wants, but it is a number; anything larger is somebody
+        // trying to say "never", which has its own value.
+        MaximumAgeDays = Math.Clamp(info.MaximumAgeDays, 0, 3650)
     };
 }

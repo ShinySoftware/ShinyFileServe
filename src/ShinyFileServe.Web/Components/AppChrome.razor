@@ -1,0 +1,72 @@
+@*
+    The top bar, on every screen. In the desktop shell it is the only navigation there is - no
+    address bar, no back button - so the mark goes home, the administrator entries are links to
+    pages rather than buttons that open modals, and who is signed in never leaves the screen.
+*@
+@implements IDisposable
+@inject WorkspaceState State
+@inject SessionActions Session
+
+<div class="chrome">
+    <a class="chrome__mark" href="">
+        <span class="chrome__glyph" aria-hidden="true"></span>
+        FileServe
+    </a>
+
+    @this.ChildContent
+
+    <div class="chrome__spacer"></div>
+
+    @* Role-gated for tidiness only. Every endpoint behind these pages checks the role itself, and
+       the pages check it again on arrival, so this is what an administrator sees rather than what
+       makes them one. *@
+    @if (this.State.User is { IsAdmin: true })
+    {
+        <nav class="chrome__nav" aria-label="Administration">
+            <NavLink class="chrome__link" href="shares" title="Folders published to groups">Shares</NavLink>
+            <NavLink class="chrome__link" href="people" title="Accounts and groups">People</NavLink>
+            <NavLink class="chrome__link" href="activity" title="The audit trail">Activity</NavLink>
+            <NavLink class="chrome__link" href="live" title="Who is signed in and what is moving">Right now</NavLink>
+            <NavLink class="chrome__link" href="settings" title="Server settings">Settings</NavLink>
+        </nav>
+    }
+
+    <div class="chrome__me">
+        <span class="chrome__who">
+            <span class="chrome__avatar" aria-hidden="true">@Format.Initials(this.State.User?.DisplayName ?? "?")</span>
+            @this.State.User?.DisplayName
+        </span>
+
+        @* The signed-in user's area of the bar is where somebody looks for their own password. An
+           account with no password still gets the entry: it is where you find out that is why. *@
+        <button type="button" class="chrome__btn" @onclick="() => this.profileOpen = true">Profile</button>
+
+        @* A loopback session signs itself back in on the next request, so a Sign out button there
+           would do nothing visible. *@
+        @if (this.State.User is not { IsLocalSession: true })
+        {
+            <button type="button" class="chrome__btn" @onclick="() => this.Session.SignOut()">Sign out</button>
+        }
+    </div>
+</div>
+
+@* Outside the bar so its backdrop covers the page rather than sitting inside a flex row. *@
+<Profile IsOpen="this.ProfileIsOpen" IsOpenChanged="v => this.profileOpen = v" Forced="this.MustChange" />
+
+@code {
+    /// <summary>Anything that belongs beside the mark - the share switcher, on the file browser.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    bool profileOpen;
+
+    /// <summary>An expired password leaves nothing else working, so the way to fix it opens itself.</summary>
+    bool MustChange => this.State.User is { MustChangePassword: true };
+
+    bool ProfileIsOpen => this.profileOpen || this.MustChange;
+
+    protected override void OnInitialized() => this.State.Changed += this.OnStateChanged;
+
+    public void Dispose() => this.State.Changed -= this.OnStateChanged;
+
+    void OnStateChanged() => this.InvokeAsync(this.StateHasChanged);
+}

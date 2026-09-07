@@ -1,0 +1,196 @@
+@*
+    Your own account, and the one thing you can do to it. A modal rather than a page because it is a
+    short errand with an obvious end - unlike Activity or People, which are screens you read.
+
+    It is also the way out of an expired password, so when Forced is set there is no way past it
+    except through it.
+*@
+@inject FileServeApi Api
+@inject IToastService Toasts
+
+<ModalView IsOpen="this.IsOpen"
+           IsOpenChanged="this.SetOpen"
+           Title="Your account"
+           Subtitle="@(this.Forced ? "Your password has expired" : "Who you are here, and your password")"
+           Size="ModalSize.Medium"
+           CloseOnBackdropClick="false"
+           CloseOnEscape="@(!this.Forced)"
+           ShowCloseButton="@(!this.Forced)"
+           Opened="this.Load">
+
+    <div class="admin" data-no-autofill>
+        @if (this.profile is not { } me)
+        {
+            <p class="admin__loading">Looking…</p>
+        }
+        else
+        {
+            @if (this.Forced)
+            {
+                <p class="restore restore__warn" role="alert">
+                    This server asks for a new password every @me.Passwords.MaximumAgeDays days.
+                    Until you set one, nothing else here will answer.
+                </p>
+            }
+
+            <div class="profile__facts">
+                <div class="profile__fact">
+                    <span class="profile__label">Name</span>
+                    <span class="profile__value">@me.DisplayName</span>
+                </div>
+                <div class="profile__fact">
+                    <span class="profile__label">Username</span>
+                    <span class="profile__value num">@me.Username</span>
+                </div>
+                <div class="profile__fact">
+                    <span class="profile__label">Groups</span>
+                    <span class="profile__value">@(me.Roles.Count == 0 ? "None" : String.Join(", ", me.Roles))</span>
+                </div>
+                <div class="profile__fact">
+                    <span class="profile__label">Password set</span>
+                    <span class="profile__value">
+                        @(me.PasswordSetUtc is { } set ? Format.When(set) : "This account has no password")
+                    </span>
+                </div>
+                @if (me.PasswordExpiresUtc is { } expires)
+                {
+                    <div class="profile__fact">
+                        <span class="profile__label">Expires</span>
+                        <span class="profile__value @(me.MustChangePassword ? "profile__value--warn" : "")">
+                            @Format.When(expires)
+                        </span>
+                    </div>
+                }
+            </div>
+
+            @if (!me.CanChangePassword)
+            {
+                <p class="admin__hint">
+                    You signed in without a password, so there is none to change.
+                </p>
+            }
+            else
+            {
+                <section class="admin__block">
+                    <h3>Change your password</h3>
+
+                    @if (this.error is { Length: > 0 } error)
+                    {
+                        <p class="form-error" role="alert">@error</p>
+                    }
+
+                    <label class="field">
+                        <span class="field__label">Your current password</span>
+                        <input type="password" autocomplete="current-password"
+                               @bind="this.currentPassword" @bind:event="oninput" />
+                    </label>
+
+                    <PasswordField Label="New password"
+                                   Password="this.newPassword"
+                                   PasswordChanged="this.OnNewPassword"
+                                   Policy="me.Passwords"
+                                   UserInputs="@(new[] { me.Username, me.DisplayName })"
+                                   AcceptableChanged="v => this.acceptable = v" />
+
+                    <div class="admin__actions">
+                        <button type="button" class="action action--primary"
+                                disabled="@(this.busy || !this.CanSave)"
+                                @onclick="this.Save">
+                            Set new password
+                        </button>
+
+                        @* No way out while the password has expired: closing this would leave the
+                           person with a session that answers nothing. *@
+                        @if (!this.Forced)
+                        {
+                            <button type="button" class="action" @onclick="() => this.SetOpen(false)">Close</button>
+                        }
+                    </div>
+                </section>
+            }
+        }
+    </div>
+</ModalView>
+
+@code {
+    AccountProfile? profile;
+    string currentPassword = "";
+    string newPassword = "";
+    bool acceptable;
+    bool busy;
+    string? error;
+
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+
+    /// <summary>The password has expired: this is the only screen that answers until it changes.</summary>
+    [Parameter] public bool Forced { get; set; }
+
+    bool CanSave => this.currentPassword.Length > 0 && this.newPassword.Length > 0 && this.acceptable;
+
+    /// <summary>
+    /// Passes the modal's own close back up to whoever opened it. Binding the inner ModalView
+    /// straight to this component's IsOpen would write the parameter and stop there, leaving the
+    /// parent still believing the modal is open - so the next click would change nothing.
+    /// </summary>
+    async Task SetOpen(bool value)
+    {
+        // Forced means forced. The close button is not rendered, but a backdrop click or an Escape
+        // would otherwise still get past a rule the server is going to enforce anyway.
+        if (this.Forced && !value)
+            return;
+
+        if (this.IsOpen == value)
+            return;
+
+        this.IsOpen = value;
+        await this.IsOpenChanged.InvokeAsync(value);
+    }
+
+    async Task Load()
+    {
+        this.error = null;
+        this.currentPassword = "";
+        this.newPassword = "";
+        this.acceptable = false;
+
+        try
+        {
+            this.profile = await this.Api.GetProfile();
+        }
+        catch (ApiException ex)
+        {
+            this.error = ex.Message;
+        }
+    }
+
+    void OnNewPassword(string value) => this.newPassword = value ?? "";
+
+    async Task Save()
+    {
+        this.busy = true;
+        this.error = null;
+
+        try
+        {
+            await this.Api.ChangePassword(this.currentPassword, this.newPassword);
+            await this.Toasts.SuccessAsync("Your password has been changed.");
+
+            // Re-read rather than assume: the server is what decides whether the session is still
+            // in the must-change state, and it has just stopped being so.
+            await this.Load();
+
+            // Forced blocks SetOpen, so the flag goes first - the errand is done either way.
+            this.Forced = false;
+            await this.SetOpen(false);
+        }
+        catch (ApiException ex)
+        {
+            this.error = ex.Message;
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+}

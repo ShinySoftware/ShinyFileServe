@@ -14,8 +14,8 @@ public static class ClaimTypesEx
 
 /// <summary>
 /// Turns the cookie's <see cref="ClaimsPrincipal"/> back into the stored user. Every endpoint that
-/// touches data goes through this rather than trusting the claims alone, so deactivating an account
-/// takes effect on the next request instead of when the cookie happens to expire.
+/// touches data goes through this rather than trusting the claims alone, so an account that has
+/// expired stops working on its next request instead of when the cookie happens to run out.
 /// </summary>
 public interface ICurrentUserResolver
 {
@@ -23,7 +23,7 @@ public interface ICurrentUserResolver
     ActivityContext GetActivityContext(HttpContext context);
 }
 
-public class CurrentUserResolver(IUserManager users) : ICurrentUserResolver
+public class CurrentUserResolver(IUserManager users, TimeProvider time) : ICurrentUserResolver
 {
     public async Task<CoreUser?> Resolve(HttpContext context, CancellationToken ct = default)
     {
@@ -32,7 +32,7 @@ public class CurrentUserResolver(IUserManager users) : ICurrentUserResolver
             return null;
 
         var user = await users.GetUser(id, ct);
-        return user is { IsActive: true } ? user : null;
+        return user is not null && !user.IsExpired(time.GetUtcNow()) ? user : null;
     }
 
     public ActivityContext GetActivityContext(HttpContext context) => new(
@@ -68,13 +68,19 @@ public static class PrincipalFactory
         return new ClaimsPrincipal(new ClaimsIdentity(claims, AuthenticationScheme));
     }
 
-    public static CurrentUser ToDto(CoreUser user, IReadOnlyList<Role> roles, bool isLocalSession = false)
+    public static CurrentUser ToDto(
+        CoreUser user,
+        IReadOnlyList<Role> roles,
+        bool isLocalSession = false,
+        bool mustChangePassword = false
+    )
         => new(
             user.Id,
             user.Username,
             user.DisplayName,
             user.IsAdministrator(roles),
             roles.Select(r => r.Name).ToList(),
-            isLocalSession
+            isLocalSession,
+            mustChangePassword
         );
 }

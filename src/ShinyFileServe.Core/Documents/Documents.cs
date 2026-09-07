@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using ShinyFileServe.Shared;
 
 namespace ShinyFileServe.Core.Documents;
@@ -45,17 +46,80 @@ public class User
     /// admin when any group they belong to is marked as one - see <see cref="Role.IsAdmin"/>.
     /// </summary>
     public bool IsAdmin { get; set; }
-    public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// When the account stops working - it can no longer sign in, and any cookie it still holds is
+    /// refused on the next request. Null means it lives forever, which is what most accounts are.
+    /// </summary>
+    public DateTimeOffset? ExpiresAtUtc { get; set; }
+
+    /// <summary>
+    /// Read only by the one-time migration in <c>FileServeInitializer</c>. Accounts used to be
+    /// switched off with an <c>isActive</c> flag; a database written then still carries it, and a
+    /// disabled account coming back usable because the field is no longer read would be the worst
+    /// possible reading of it. The migration turns a stored false into an expiry of "now" and clears
+    /// this, after which nothing writes the field again.
+    /// </summary>
+    [JsonPropertyName("isActive")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? LegacyIsActive { get; set; }
+
+    /// <summary>
+    /// No password, and anybody who can reach the server may sign in as it. Its rights still come
+    /// from its groups, so an anonymous account is only as open as an administrator made it.
+    /// </summary>
+    public bool IsAnonymous { get; set; }
+
+    /// <summary>How many files this account may download per period. None, or a null cap, is unmetered.</summary>
+    public QuotaWindow DownloadCapWindow { get; set; } = QuotaWindow.None;
+    public int? MaxDownloads { get; set; }
+
+    public QuotaWindow UploadCapWindow { get; set; } = QuotaWindow.None;
+    public int? MaxUploads { get; set; }
 
     /// <summary>
     /// The administrator created during first-run setup. It can be renamed and have its password
-    /// changed, but it cannot be deleted, disabled, or stripped of admin - the same reason the
-    /// administrators group is protected.
+    /// changed, but it cannot be deleted, expired, made anonymous, or stripped of admin - the same
+    /// reason the administrators group is protected.
     /// </summary>
     public bool IsProtected { get; set; }
 
+    /// <summary>
+    /// When this account's password was last set - at creation, by the person themselves, or by an
+    /// administrator. Null on an account written before the field existed.
+    /// </summary>
+    public DateTimeOffset? PasswordChangedUtc { get; set; }
+
+    /// <summary>
+    /// Consecutive failed sign-ins. Any successful one puts it back to zero, so this is a run of
+    /// failures rather than a lifetime total.
+    /// </summary>
+    public int FailedSignInCount { get; set; }
+
+    /// <summary>
+    /// When the account locked itself after too many failed sign-ins. Null is the normal state, and
+    /// only an administrator clears it once it is set.
+    /// </summary>
+    public DateTimeOffset? LockedOutUtc { get; set; }
+
     public DateTimeOffset CreatedUtc { get; set; }
     public DateTimeOffset? LastLoginUtc { get; set; }
+
+    /// <summary>True once the expiry has passed. An account with no expiry never is.</summary>
+    public bool IsExpired(DateTimeOffset now) => this.ExpiresAtUtc is { } expiry && expiry <= now;
+
+    /// <summary>
+    /// The instant this account's password dates from. An account that has never recorded a change
+    /// ages from the day it was made rather than from the epoch: the alternative would declare every
+    /// password on an upgraded database infinitely old the moment an expiry was configured, and lock
+    /// everybody out at once over a setting that was meant to take effect gradually.
+    /// </summary>
+    [JsonIgnore]
+    public DateTimeOffset PasswordSetUtc => this.PasswordChangedUtc ?? this.CreatedUtc;
+
+    /// <summary>Derived from the timestamp, so the two can never disagree about whether it is locked.</summary>
+    [JsonIgnore]
+    public bool IsLockedOut => this.LockedOutUtc is not null;
 }
 
 /// <summary>A directory on the host machine published under a friendly name. The "setup" in the UI.</summary>
@@ -106,6 +170,27 @@ public class QuotaUsage
 
     public static string MakeId(string userId, string folderId, QuotaWindow window, string periodKey)
         => $"{userId}|{folderId}|{window}|{periodKey}";
+}
+
+/// <summary>
+/// How many files one account moved during one period. Separate from <see cref="QuotaUsage"/>
+/// because it counts transfers rather than bytes and it is per account rather than per folder - a
+/// cap of "twenty downloads a day" is about the person, not about where they got the files from.
+/// </summary>
+public class TransferCount
+{
+    /// <summary>Composite: <c>{userId}|{window}|{periodKey}</c>.</summary>
+    public string Id { get; set; } = "";
+    public string UserId { get; set; } = "";
+    public QuotaWindow Window { get; set; }
+    public string PeriodKey { get; set; } = "";
+    public int Downloads { get; set; }
+    public int Uploads { get; set; }
+    public DateTimeOffset PeriodStartUtc { get; set; }
+    public DateTimeOffset? PeriodEndUtc { get; set; }
+
+    public static string MakeId(string userId, QuotaWindow window, string periodKey)
+        => $"{userId}|{window}|{periodKey}";
 }
 
 /// <summary>One line in the audit trail. Written for every action a user takes, allowed or denied.</summary>
@@ -173,6 +258,14 @@ public class ServerSettings
     /// <summary>What a password has to look like. Replaced wholesale rather than merged on save.</summary>
     public PasswordRules PasswordRules { get; set; } = new();
 
+    /// <summary>
+    /// How many consecutive failed sign-ins an account tolerates before it locks itself. 0 never
+    /// locks anybody. Ten by default: high enough that somebody working through the three passwords
+    /// they use is not punished for it, low enough that guessing over the network is pointless -
+    /// ten tries against any password worth the name is nothing.
+    /// </summary>
+    public int MaxFailedSignIns { get; set; } = 10;
+
     /// <summary>Show a desktop notification when one of <see cref="NotifyOn"/> happens.</summary>
     public bool NotificationsEnabled { get; set; }
 
@@ -224,4 +317,17 @@ public class PasswordRules
 
     /// <summary>Refuse the handful of passwords that turn up first in every credential-stuffing list.</summary>
     public bool BlockCommonPasswords { get; set; } = true;
+
+    /// <summary>
+    /// How many days a password may be used before the person is made to set a new one. 0 - the
+    /// default - never expires anything, and is the only value most of these servers should ever
+    /// hold: forced rotation costs somebody an interruption every time it fires, and only earns that
+    /// where an operator decided it does.
+    /// </summary>
+    /// <remarks>
+    /// Read whether or not <see cref="Enabled"/> is on. That switch governs what a password has to
+    /// look like; age is a different question, and an operator who turned the shape rules off has
+    /// not said anything about how long a password should last.
+    /// </remarks>
+    public int MaximumAgeDays { get; set; }
 }

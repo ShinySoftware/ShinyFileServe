@@ -13,6 +13,7 @@ namespace ShinyFileServe.Core.Documents;
 [JsonSerializable(typeof(ShareFolder))]
 [JsonSerializable(typeof(FolderGrant))]
 [JsonSerializable(typeof(QuotaUsage))]
+[JsonSerializable(typeof(TransferCount))]
 [JsonSerializable(typeof(ActivityLogEntry))]
 [JsonSerializable(typeof(ServerSettings))]
 [JsonSerializable(typeof(PathAnnotation))]

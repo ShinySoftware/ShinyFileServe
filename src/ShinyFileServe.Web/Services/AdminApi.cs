@@ -38,6 +38,13 @@ public class AdminApi(FileServeApi api)
         await Ensure(response);
     }
 
+    /// <summary>Ends a lockout. The only way out of one - an account cannot talk itself back in.</summary>
+    public async Task UnlockUser(string id, CancellationToken ct = default)
+    {
+        using var response = await this.Http.PostAsync($"api/admin/users/{Uri.EscapeDataString(id)}/unlock", null, ct);
+        await Ensure(response);
+    }
+
     // -- groups -------------------------------------------------------------
 
     public async Task<List<RoleInfo>> GetRoles(CancellationToken ct = default)
@@ -93,6 +100,82 @@ public class AdminApi(FileServeApi api)
     public async Task DeleteShare(string id, CancellationToken ct = default)
     {
         using var response = await this.Http.DeleteAsync($"api/admin/shares/{Uri.EscapeDataString(id)}", ct);
+        await Ensure(response);
+    }
+
+    // -- the machine's own folders ------------------------------------------
+
+    /// <summary>
+    /// The folders inside <paramref name="path"/> on the machine running the server. A null or
+    /// empty path asks for the starting points rather than a directory.
+    /// </summary>
+    public async Task<MachineFolderListing> Browse(string? path = null, bool showHidden = false, CancellationToken ct = default)
+    {
+        var query = $"api/admin/browse?showHidden={(showHidden ? "true" : "false")}";
+        if (!String.IsNullOrEmpty(path))
+            query += $"&path={Uri.EscapeDataString(path)}";
+
+        using var response = await this.Http.GetAsync(query, ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.MachineFolderListing, ct)
+            ?? throw new ApiException(HttpStatusCode.InternalServerError, "The server sent back no folders.");
+    }
+
+    public async Task<MachineFolder> CreateMachineFolder(string parent, string name, CancellationToken ct = default)
+    {
+        using var response = await this.Http.PostAsJsonAsync(
+            "api/admin/browse/directory",
+            new CreateMachineFolderRequest(parent, name),
+            ClientJsonContext.Default.CreateMachineFolderRequest,
+            ct
+        );
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.MachineFolder, ct)
+            ?? throw new ApiException(HttpStatusCode.InternalServerError, "The folder was made but the server sent nothing back.");
+    }
+
+    // -- what is happening right now ----------------------------------------
+
+    /// <summary>
+    /// Who is here and what is moving, at this instant. Re-asked about once a second while the live
+    /// screen is open, so it stays a single small round trip on purpose.
+    /// </summary>
+    public async Task<LiveActivitySnapshot> GetLiveActivity(CancellationToken ct = default)
+    {
+        using var response = await this.Http.GetAsync("api/admin/live", ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.LiveActivitySnapshot, ct)
+            ?? new LiveActivitySnapshot([], [], []);
+    }
+
+    // -- backup -------------------------------------------------------------
+
+    /// <summary>The href a browser follows to download a backup. It streams, so it is a navigation.</summary>
+    public string BackupUrl => "api/admin/backup";
+
+    public async Task<BackupSummary> StageBackup(string fileName, Stream content, long length, CancellationToken ct = default)
+    {
+        using var form = new MultipartFormDataContent();
+        var part = new StreamContent(content);
+        part.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+        part.Headers.ContentLength = length;
+        form.Add(part, "backup", fileName);
+
+        using var response = await this.Http.PostAsync("api/admin/backup/stage", form, ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.BackupSummary, ct)
+            ?? throw new ApiException(HttpStatusCode.InternalServerError, "The server read the backup but sent nothing back.");
+    }
+
+    public async Task RestoreStaged(CancellationToken ct = default)
+    {
+        using var response = await this.Http.PostAsync("api/admin/backup/restore", null, ct);
+        await Ensure(response);
+    }
+
+    public async Task DiscardStaged(CancellationToken ct = default)
+    {
+        using var response = await this.Http.DeleteAsync("api/admin/backup/stage", ct);
         await Ensure(response);
     }
 

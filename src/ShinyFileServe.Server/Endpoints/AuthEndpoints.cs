@@ -25,13 +25,21 @@ public class AuthEndpoints(
     public async Task<IActionResult> Policy(HttpContext ctx, CancellationToken ct)
     {
         var config = settings.Current;
+
+        // Only the accounts that sign in without a password, and only their id and their name. The
+        // manager filters the list rather than the endpoint, so there is one place to be wrong.
+        var anonymous = (await users.GetAnonymousAccounts(ct))
+            .Select(u => new AnonymousAccount(u.Id, u.DisplayName))
+            .ToList();
+
         return new OkObjectResult(new SessionPolicy(
             await users.NeedsSetup(ct),
             LoopbackSignInMiddleware.IsLocal(ctx),
             config.AllowRememberMe,
             config.RememberMeDays,
             Math.Max(0, config.IdleLogoffMinutes),
-            PasswordPolicyMapping.ToInfo(passwords.Current)
+            PasswordPolicyMapping.ToInfo(passwords.Current),
+            anonymous
         ));
     }
 
@@ -98,16 +106,48 @@ public class AuthEndpoints(
     public async Task<IActionResult> Login(LoginRequest request, HttpContext ctx, CancellationToken ct)
     {
         var context = current.GetActivityContext(ctx);
-        var user = await users.Authenticate(request.Username, request.Password, ct);
+        var result = await users.Authenticate(request.Username, request.Password, ct);
 
-        if (user is null)
+        // Written whether or not the attempt was otherwise refused, and it is the only place the
+        // lockout is named - the answer the caller gets is the same bare 401 either way.
+        if (result.JustLocked is { } locked)
         {
             await activity.Log(
-                ActivityAction.LoginFailed, null, request.Username, success: false,
-                detail: "Invalid credentials", context: context, ct: ct
+                ActivityAction.Denied, locked.Id, locked.Username, success: false,
+                detail: $"Locked after {locked.FailedSignInCount} consecutive failed sign-ins",
+                context: context, ct: ct
             );
-            // deliberately vague - never say whether it was the username or the password
-            return new UnauthorizedResult();
+        }
+
+        if (result.User is not { } user)
+        {
+            // The expired and locked cases are named, and both are only ever reached by somebody
+            // whose password was right, so they tell a person why they are stuck without telling a
+            // stranger anything at all. Everything else is one bare 401.
+            var detail = result.Failure switch
+            {
+                AuthenticationFailure.Expired => "The account has expired",
+                AuthenticationFailure.LockedOut => "The account is locked",
+                _ => "Invalid credentials"
+            };
+
+            await activity.Log(
+                ActivityAction.LoginFailed, null, request.Username, success: false,
+                detail: detail, context: context, ct: ct
+            );
+
+            return result.Failure switch
+            {
+                AuthenticationFailure.Expired => (IActionResult)new ObjectResult(
+                    "This account has expired. Ask an administrator to renew it.",
+                    StatusCodes.Status401Unauthorized
+                ),
+                AuthenticationFailure.LockedOut => new ObjectResult(
+                    "This account is locked after too many failed sign-ins. Ask an administrator to unlock it.",
+                    StatusCodes.Status401Unauthorized
+                ),
+                _ => new UnauthorizedResult()
+            };
         }
 
         var roles = await users.GetRolesFor(user, ct);
@@ -116,6 +156,47 @@ public class AuthEndpoints(
         // A client can always ask to be remembered; whether it happens is the server's call.
         var remember = request.RememberMe && settings.Current.AllowRememberMe;
         await ctx.SignInAsync(principal, remember);
+
+        await activity.Log(ActivityAction.Login, user.Id, user.Username, success: true, context: context, ct: ct);
+
+        // Signing in is allowed with a password past its age; doing anything afterwards is not, and
+        // the shell reads this to put the change-password screen up straight away.
+        return new OkObjectResult(PrincipalFactory.ToDto(
+            user,
+            roles,
+            mustChangePassword: PasswordChangeGateMiddleware.Applies(ctx, user, passwords)
+        ));
+    }
+
+    /// <summary>
+    /// Signs the caller in as an account that carries no password. Unauthenticated by necessity -
+    /// that is what the account is for - and narrow by design: it will only ever accept an account
+    /// that is actually marked anonymous and has not expired, and it answers every other id the same
+    /// way, so it cannot be used to find out which accounts exist.
+    /// </summary>
+    [Post("/anonymous")]
+    [AllowAnonymous]
+    [Produces(200, typeof(CurrentUser))]
+    [Produces(401)]
+    public async Task<IActionResult> Anonymous(AnonymousSignInRequest request, HttpContext ctx, CancellationToken ct)
+    {
+        var context = current.GetActivityContext(ctx);
+        var result = await users.AuthenticateAnonymous(request.UserId ?? "", ct);
+
+        if (result.User is not { } user)
+        {
+            await activity.Log(
+                ActivityAction.LoginFailed, null, "(guest)", success: false,
+                detail: "No such guest account", context: context, ct: ct
+            );
+            return new UnauthorizedResult();
+        }
+
+        var roles = await users.GetRolesFor(user, ct);
+
+        // Never remembered. A shared account left signed in on a browser is the one thing an
+        // anonymous account should not be able to do quietly.
+        await ctx.SignInAsync(PrincipalFactory.Create(user, roles), persistent: false);
 
         await activity.Log(ActivityAction.Login, user.Id, user.Username, success: true, context: context, ct: ct);
         return new OkObjectResult(PrincipalFactory.ToDto(user, roles));
@@ -150,7 +231,8 @@ public class AuthEndpoints(
         return new OkObjectResult(PrincipalFactory.ToDto(
             user,
             roles,
-            ctx.User.HasClaim(PrincipalFactory.LocalSessionClaim, "true")
+            ctx.User.HasClaim(PrincipalFactory.LocalSessionClaim, "true"),
+            PasswordChangeGateMiddleware.Applies(ctx, user, passwords)
         ));
     }
 }

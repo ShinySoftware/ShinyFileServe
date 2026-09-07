@@ -6,6 +6,8 @@
   <ItemGroup>
     <PackageReference Include="Shiny.DocumentDb" />
     <PackageReference Include="Shiny.DocumentDb.Sqlite" />
+    <!-- Already transitive; named here because BackupService uses SqliteConnection directly. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
   </ItemGroup>
   <ItemGroup>

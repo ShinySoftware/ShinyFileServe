@@ -16,7 +16,9 @@ public class AdminUsersEndpoints(
     IUserManager users,
     IPasswordPolicy passwords,
     ICurrentUserResolver current,
-    IActivityLogger activity
+    IActivityLogger activity,
+    ITransferCounter counts,
+    TimeProvider time
 )
 {
     // -- users --------------------------------------------------------------
@@ -27,7 +29,12 @@ public class AdminUsersEndpoints(
     {
         var all = await users.GetUsers(ct);
         var roles = await users.GetRoles(ct);
-        return new OkObjectResult(all.Select(u => ToDetail(u, roles)).ToList());
+
+        var details = new List<UserDetail>(all.Count);
+        foreach (var user in all)
+            details.Add(await this.ToDetail(user, roles, ct));
+
+        return new OkObjectResult(details);
     }
 
     [Post("/users")]
@@ -37,6 +44,16 @@ public class AdminUsersEndpoints(
     {
         if (String.IsNullOrWhiteSpace(request.Username))
             return new BadRequestObjectResult("A username is required.");
+
+        // An account is either open to everybody or it has a password. Sending both is a request
+        // that cannot be honoured either way round, so it is refused rather than resolved.
+        if (request.IsAnonymous && request.Password is { Length: > 0 })
+            return new BadRequestObjectResult("An account that signs in without a password cannot also be given one.");
+
+        // A conflict rather than a bad request, because the same rule refused through a group
+        // membership answers 409 from UserManager - one rule should not answer two ways.
+        if (request.IsAnonymous && request.IsAdmin)
+            return new ConflictObjectResult("An account that signs in without a password cannot be an administrator.");
 
         var roles = await users.GetRoles(ct);
         User user;
@@ -48,7 +65,7 @@ public class AdminUsersEndpoints(
             if (passwords.Validate(candidate, [request.Username, request.DisplayName]) is { Ok: false } invalid)
                 return new BadRequestObjectResult(invalid.Message);
         }
-        else if (String.IsNullOrEmpty(request.Id))
+        else if (String.IsNullOrEmpty(request.Id) && !request.IsAnonymous)
         {
             return new BadRequestObjectResult("A new account needs a password.");
         }
@@ -57,7 +74,9 @@ public class AdminUsersEndpoints(
         {
             try
             {
-                user = await users.CreateUser(request.Username, request.Password!, request.DisplayName, request.IsAdmin, ct);
+                user = request.IsAnonymous
+                    ? await users.CreateAnonymousUser(request.Username, request.DisplayName, ct)
+                    : await users.CreateUser(request.Username, request.Password!, request.DisplayName, request.IsAdmin, ct);
             }
             catch (ArgumentException ex)
             {
@@ -77,18 +96,53 @@ public class AdminUsersEndpoints(
         user.DisplayName = String.IsNullOrWhiteSpace(request.DisplayName) ? user.Username : request.DisplayName.Trim();
         user.Email = String.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
         user.IsAdmin = request.IsAdmin;
-        user.IsActive = request.IsActive;
+        user.ExpiresAtUtc = request.ExpiresAtUtc;
+        user.IsAnonymous = request.IsAnonymous;
+        user.DownloadCapWindow = request.DownloadCapWindow;
+        user.MaxDownloads = Cap(request.DownloadCapWindow, request.MaxDownloads);
+        user.UploadCapWindow = request.UploadCapWindow;
+        user.MaxUploads = Cap(request.UploadCapWindow, request.MaxUploads);
         user.RoleIds = request.RoleIds.Where(id => roles.Any(r => r.Id == id)).ToList();
 
-        // The protected account keeps its admin and its enabled state whatever was sent; SaveUser
-        // enforces it, and re-reading afterwards is what makes the portal show the truth.
-        await users.SaveUser(user, ct);
+        // The protected account keeps its admin and its perpetual life whatever was sent, and an
+        // anonymous account is refused administration through a group here rather than in the pages.
+        // Re-reading afterwards is what makes the portal show the truth.
+        try
+        {
+            await users.SaveUser(user, ct);
+        }
+        catch (ProtectedAccountException ex)
+        {
+            return new ConflictObjectResult(ex.Message);
+        }
 
         if (request.Password is { Length: > 0 })
             await users.SetPassword(user.Id, request.Password, ct);
 
         await this.Log(ctx, $"Saved the account '{user.Username}'", ct);
-        return new OkObjectResult(ToDetail((await users.GetUser(user.Id, ct))!, roles));
+        return new OkObjectResult(await this.ToDetail((await users.GetUser(user.Id, ct))!, roles, ct));
+    }
+
+    /// <summary>A cap only means something with a window, and a window only with a number.</summary>
+    static int? Cap(QuotaWindow window, int? limit)
+        => window == QuotaWindow.None || limit is not > 0 ? null : limit;
+
+    /// <summary>
+    /// Ends a lockout. Administrator-only, and deliberately the only way out of one: an account that
+    /// could talk itself back in after enough tries would not be locked at all.
+    /// </summary>
+    [Post("/users/{id}/unlock")]
+    [Produces(204)]
+    [Produces(404)]
+    public async Task<IActionResult> UnlockUser(string id, HttpContext ctx, CancellationToken ct)
+    {
+        var user = await users.GetUser(id, ct);
+        if (user is null)
+            return new NotFoundResult();
+
+        await users.Unlock(id, ct);
+        await this.Log(ctx, $"Unlocked the account '{user.Username}' after {user.FailedSignInCount} failed sign-ins", ct);
+        return new NoContentResult();
     }
 
     [Delete("/users/{id}")]
@@ -144,6 +198,18 @@ public class AdminUsersEndpoints(
         if (String.IsNullOrWhiteSpace(request.Name))
             return new BadRequestObjectResult("A group needs a name.");
 
+        // The other way into the same mistake: an account anybody can sign in as, sitting in a group
+        // that is about to be handed the server. Refused here as well as on the account itself.
+        if (request.IsAdmin && !String.IsNullOrEmpty(request.Id))
+        {
+            var everyone = await users.GetUsers(ct);
+            if (everyone.FirstOrDefault(u => u.IsAnonymous && u.RoleIds.Contains(request.Id)) is { } guest)
+            {
+                return new ConflictObjectResult(
+                    $"'{guest.Username}' signs in without a password and is in this group, so the group cannot administer this server.");
+            }
+        }
+
         Role role;
         if (String.IsNullOrEmpty(request.Id))
         {
@@ -190,19 +256,35 @@ public class AdminUsersEndpoints(
 
     // -----------------------------------------------------------------------
 
-    static UserDetail ToDetail(User user, IReadOnlyList<Role> roles) => new(
+    async Task<UserDetail> ToDetail(User user, IReadOnlyList<Role> roles, CancellationToken ct) => new(
         user.Id,
         user.Username,
         user.DisplayName,
         user.Email,
         user.IsAdmin,
-        user.IsActive,
+        user.ExpiresAtUtc,
         user.IsProtected,
+        user.IsAnonymous,
+        await this.CapState(user, user.DownloadCapWindow, user.MaxDownloads, download: true, ct),
+        await this.CapState(user, user.UploadCapWindow, user.MaxUploads, download: false, ct),
         user.RoleIds,
         roles.Where(r => user.RoleIds.Contains(r.Id)).Select(r => r.Name).ToList(),
         user.CreatedUtc,
-        user.LastLoginUtc
+        user.LastLoginUtc,
+        user.LockedOutUtc,
+        user.FailedSignInCount
     );
+
+    /// <summary>The cap plus what has been spent against it, so the list can show one against the other.</summary>
+    async Task<TransferCapState> CapState(User user, QuotaWindow window, int? limit, bool download, CancellationToken ct)
+    {
+        if (window == QuotaWindow.None || limit is null)
+            return TransferCapState.Uncapped;
+
+        var count = await counts.GetCount(user.Id, window, ct);
+        var (_, _, end) = QuotaTracker.Period(window, time.GetUtcNow());
+        return new TransferCapState(window, limit, download ? count.Downloads : count.Uploads, end);
+    }
 
     async Task Log(HttpContext ctx, string detail, CancellationToken ct)
     {

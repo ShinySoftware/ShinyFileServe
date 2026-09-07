@@ -2,6 +2,7 @@ using Shiny.Net.HttpServer;
 using Shiny.Net.HttpServer.Files;
 using ShinyFileServe.Core.Services;
 using ShinyFileServe.Server.Security;
+using ShinyFileServe.Server.Transfers;
 using ShinyFileServe.Shared;
 using CoreUser = ShinyFileServe.Core.Documents.User;
 
@@ -15,6 +16,8 @@ public class FileEndpoints(
     IFolderManager folders,
     IFileService files,
     IQuotaTracker quotas,
+    ITransferCounter counts,
+    ITransferMonitor transfers,
     IActivityLogger activity
 )
 {
@@ -68,6 +71,7 @@ public class FileEndpoints(
     [Produces(200)]
     [Produces(403)]
     [Produces(404)]
+    [Produces(429)]
     public async Task<IActionResult> Download(string folderId, string path, HttpContext ctx, CancellationToken ct = default)
     {
         var (user, folder, denied) = await this.Authorize(ctx, folderId, FolderPermissions.DownloadFile, path, ct);
@@ -92,16 +96,68 @@ public class FileEndpoints(
                 }
             }
 
+            // The account's own cap on how many files it may take, beside the folder's cap on how
+            // many bytes. Read once here and written once below - a download does no more counting
+            // work than that, whatever its size.
+            var downloads = await counts.GetCount(user!.Id, user.DownloadCapWindow, ct);
+            if (user.DownloadCapWindow != QuotaWindow.None && user.MaxDownloads is { } maxDownloads && downloads.Downloads >= maxDownloads)
+            {
+                await activity.Log(
+                    ActivityAction.Denied, user.Id, user.Username, success: false,
+                    folderId, folder.Folder.Name, path, info.Length,
+                    "Download count cap reached", current.GetActivityContext(ctx), ct
+                );
+                return new ObjectResult(
+                    $"You have used all {maxDownloads} of your {Per(user.DownloadCapWindow)} downloads.",
+                    StatusCodes.Status429TooManyRequests
+                );
+            }
+
             // The whole file counts against the quota the moment it is authorised, even for a range
-            // request. Charging per-range would let a client fetch a file in pieces for free.
-            await quotas.RecordDownload(user!.Id, folderId, folder.DownloadWindow, info.Length, ct);
+            // request. Charging per-range would let a client fetch a file in pieces for free - and
+            // the count is charged the same way, once per file rather than once per request.
+            await quotas.RecordDownload(user.Id, folderId, folder.DownloadWindow, info.Length, ct);
+            await counts.Record(user.Id, user.DownloadCapWindow, download: true, ct);
             await activity.Log(
                 ActivityAction.Download, user.Id, user.Username, success: true,
                 folderId, folder.Folder.Name, path, info.Length,
                 context: current.GetActivityContext(ctx), ct: ct
             );
 
-            return FileDownloadResult.FromFile(info.FullName, downloadName: info.Name);
+            // FromFile in all but the handle it opens: the same content type, download name, ETag
+            // and last-modified, so ranges and conditional GETs behave exactly as they did. The
+            // difference is the counting wrapper, which is what turns a download into something an
+            // administrator can watch. Registered inside the opener because a 304 or a 416 never
+            // opens the file, and neither should appear as a transfer that moved no bytes.
+            var me = user!;
+            return FileDownloadResult.FromOpener(
+                _ =>
+                {
+                    Stream file = new FileStream(info.FullName, new FileStreamOptions
+                    {
+                        Mode = FileMode.Open,
+                        Access = FileAccess.Read,
+                        Share = FileShare.Read,
+                        Options = FileOptions.Asynchronous | FileOptions.SequentialScan
+                    });
+
+                    var handle = transfers.Begin(
+                        TransferDirection.Download, me.Id, me.Username, me.DisplayName,
+                        folderId, folder!.Folder.Name, Normalize(path), info.Length
+                    );
+
+                    // How much is actually being sent is only settled once the range has been
+                    // resolved, which happens after the stream is opened and before the first read.
+                    return ValueTask.FromResult<Stream>(new CountingStream(
+                        file, handle, () => ctx.Response.ContentLength ?? info.Length
+                    ));
+                },
+                info.Length,
+                ContentTypes.ForFileName(info.FullName),
+                info.Name,
+                $"\"{info.LastWriteTimeUtc.Ticks:x}-{info.Length:x}\"",
+                info.LastWriteTimeUtc
+            );
         }
         catch (FileAccessException ex)
         {
@@ -121,6 +177,7 @@ public class FileEndpoints(
     [Produces(200, typeof(IReadOnlyList<FileEntryInfo>))]
     [Produces(403)]
     [Produces(413)]
+    [Produces(429)]
     public async Task<IActionResult> Upload(string folderId, HttpContext ctx, string? path = null, bool overwrite = false, CancellationToken ct = default)
     {
         var (user, folder, denied) = await this.Authorize(ctx, folderId, FolderPermissions.CreateFile, path, ct);
@@ -158,8 +215,23 @@ public class FileEndpoints(
                     return new StatusCodeResult(StatusCodes.Status413PayloadTooLarge);
                 }
 
+                // The account's cap on how many files it may send, read once per file and written
+                // once beside the byte quota below.
+                var uploads = await counts.GetCount(user!.Id, user.UploadCapWindow, ct);
+                if (user.UploadCapWindow != QuotaWindow.None && user.MaxUploads is { } maxUploads && uploads.Uploads >= maxUploads)
+                {
+                    await activity.Log(
+                        ActivityAction.Denied, user.Id, user.Username, false, folderId, folder!.Folder.Name,
+                        target, 0, "Upload count cap reached", activityContext, ct
+                    );
+                    return new ObjectResult(
+                        $"You have used all {maxUploads} of your {Per(user.UploadCapWindow)} uploads.",
+                        StatusCodes.Status429TooManyRequests
+                    );
+                }
+
                 long remaining = long.MaxValue;
-                if (folder.UploadWindow != QuotaWindow.None && folder.UploadLimit is { } limit)
+                if (folder!.UploadWindow != QuotaWindow.None && folder.UploadLimit is { } limit)
                 {
                     var usage = await quotas.GetUsage(user!.Id, folderId, folder.UploadWindow, ct);
                     remaining = limit - usage.UploadedBytes;
@@ -173,13 +245,27 @@ public class FileEndpoints(
                     }
                 }
 
-                var written = await files.Save(folder, target, part.Body, overwrite, ct);
+                // Watched while it is copied rather than reported once it lands, so a slow or
+                // abandoned upload is visible while it is happening. The handle outlives the copy
+                // because the outcome is only settled by the checks below.
+                using var transfer = transfers.Begin(
+                    TransferDirection.Upload, user!.Id, user.Username, user.DisplayName,
+                    folderId, folder!.Folder.Name, target, PartLength(part)
+                );
+
+                long written;
+                await using (var counted = new CountingStream(part.Body, transfer, leaveInnerOpen: true, ownsHandle: false))
+                    written = await files.Save(folder, target, counted, overwrite, ct);
+
+                transfer.SetTotal(written);
 
                 if (written > remaining || (folder.MaxUploadFileSizeBytes is { } cap && written > cap))
                 {
                     // the real size only became knowable once the stream ran out; undo rather than
                     // let an over-quota file sit on disk
                     try { files.Delete(folder, target); } catch (FileAccessException) { }
+
+                    transfer.Fail("Exceeded the quota or the per-file limit");
 
                     await activity.Log(
                         ActivityAction.Denied, user!.Id, user.Username, false, folderId, folder.Folder.Name,
@@ -188,7 +274,10 @@ public class FileEndpoints(
                     return new StatusCodeResult(StatusCodes.Status413PayloadTooLarge);
                 }
 
+                transfer.Complete();
+
                 await quotas.RecordUpload(user!.Id, folderId, folder.UploadWindow, written, ct);
+                await counts.Record(user!.Id, user.UploadCapWindow, download: false, ct);
                 await activity.Log(
                     ActivityAction.Upload, user.Id, user.Username, true, folderId, folder.Folder.Name,
                     target, written, context: activityContext, ct: ct
@@ -319,6 +408,26 @@ public class FileEndpoints(
             ? new NotFoundObjectResult(ex.Message)
             : new BadRequestObjectResult(ex.Message);
     }
+
+    /// <summary>
+    /// How big this part says it is, for the progress bar. The request's own Content-Length is no
+    /// use: it covers every part plus the multipart envelope, so it would overstate a single file
+    /// and be meaningless for several. Null when the client did not say, which is allowed - the
+    /// upload then reports bytes and speed without a percentage.
+    /// </summary>
+    static long? PartLength(MultipartSection part)
+        => Int64.TryParse(part.Headers.GetFirst("Content-Length"), out var length) && length >= 0
+            ? length
+            : null;
+
+    /// <summary>How a window reads inside a refusal: "all 20 of your daily downloads".</summary>
+    static string Per(QuotaWindow window) => window switch
+    {
+        QuotaWindow.Daily => "daily",
+        QuotaWindow.Weekly => "weekly",
+        QuotaWindow.Monthly => "monthly",
+        _ => "allowed"
+    };
 
     static string Normalize(string? path)
         => String.IsNullOrWhiteSpace(path) ? "" : path.Replace('\\', '/').Trim('/');

@@ -1,54 +1,47 @@
 @*
     Shares and the rights on them. One screen for both, because a share with no grants is invisible
     to everyone and a grant with no share is nothing at all - the two are only meaningful together.
+    The list is a page; editing one share is a task with an end, so that stays a modal.
 *@
 @inject AdminApi Admin
 @inject IToastService Toasts
 @inject IDialogService Dialogs
 
-<ModalView IsOpen="this.IsOpen" IsOpenChanged="this.SetOpen"
-           Title="Shares"
-           Subtitle="Folders on this machine, published to groups"
-           Size="ModalSize.Large"
-           CloseOnBackdropClick="false"
-           Opened="this.Reload">
-
-    <div class="admin">
-        <div class="people__head">
-            <h3>Published folders</h3>
-            <button type="button" class="action action--primary" @onclick="() => this.Edit(null)">Add a share</button>
-        </div>
-
-        @if (this.shares.Count == 0)
-        {
-            <p class="admin__loading">
-                Nothing is shared yet. Add a folder from this machine, then give a group permission to it.
-            </p>
-        }
-        else
-        {
-            <ul class="rows">
-                @foreach (var share in this.shares)
-                {
-                    <li class="row">
-                        <div class="row__main">
-                            <span class="row__title">@share.Name</span>
-                            <span class="row__sub num">@share.PhysicalPath</span>
-                            <span class="row__sub @(share.PathExists && share.IsEnabled ? "" : "row__sub--warn")">
-                                @Summary(share)
-                            </span>
-                        </div>
-
-                        <span class="row__actions">
-                            <button type="button" class="action" @onclick="() => this.Edit(share)">Edit</button>
-                            <button type="button" class="action action--danger" @onclick="() => this.Delete(share)">Stop sharing</button>
-                        </span>
-                    </li>
-                }
-            </ul>
-        }
+<div class="admin">
+    <div class="screen__bar">
+        <span class="admin__hint">@this.CountText</span>
+        <button type="button" class="action action--primary" @onclick="() => this.Edit(null)">Add a share</button>
     </div>
-</ModalView>
+
+    @if (this.shares.Count == 0)
+    {
+        <p class="admin__loading">
+            Nothing is shared yet. Add a folder from this machine, then give a group permission to it.
+        </p>
+    }
+    else
+    {
+        <ul class="rows">
+            @foreach (var share in this.shares)
+            {
+                <li class="row">
+                    <div class="row__main">
+                        <span class="row__title">@share.Name</span>
+                        <span class="row__sub num">@share.PhysicalPath</span>
+                        <span class="row__sub @(share.PathExists && share.IsEnabled ? "" : "row__sub--warn")">
+                            @Summary(share)
+                        </span>
+                    </div>
+
+                    <span class="row__actions">
+                        <button type="button" class="action" @onclick="() => this.Edit(share)">Edit</button>
+                        <button type="button" class="action action--danger" @onclick="() => this.Delete(share)">Stop sharing</button>
+                    </span>
+                </li>
+            }
+        </ul>
+    }
+</div>
 
 <ModalView @bind-IsOpen="this.editorOpen"
            Title="@(this.draft?.Id is null ? "New share" : this.draft?.Name ?? "Share")"
@@ -69,10 +62,10 @@
                 <span class="admin__hint">What people see when they sign in.</span>
             </label>
 
-            <label class="field">
+            <div class="field">
                 <span class="field__label">Folder on this machine</span>
-                <input @bind="draft.PhysicalPath" placeholder="/Users/you/Shared/Marketing" />
-            </label>
+                <FolderPicker @bind-Value="draft.PhysicalPath" />
+            </div>
 
             <label class="field">
                 <span class="field__label">Description</span>
@@ -82,11 +75,6 @@
             <label class="field--check">
                 <input type="checkbox" @bind="draft.IsEnabled" />
                 Available to signed-in users
-            </label>
-
-            <label class="field--check">
-                <input type="checkbox" @bind="draft.CreateDirectory" />
-                Create the folder if it is not there yet
             </label>
 
             <section class="admin__block">
@@ -180,23 +168,20 @@
     bool busy;
     string? editorError;
 
-    [Parameter] public bool IsOpen { get; set; }
-    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
-
     /// <summary>
-    /// Passes the modal's own close back up to whoever opened it. Binding the inner ModalView
-    /// straight to this component's IsOpen would write the parameter and stop there, leaving the
-    /// parent still believing the modal is open - so the next click would set true over true,
-    /// change nothing, and the modal would never come back.
+    /// Raised whenever the set of shares changes, so the workspace behind this screen can re-read
+    /// what the signed-in user can now see rather than keeping a list that no longer matches.
     /// </summary>
-    async Task SetOpen(bool value)
-    {
-        if (this.IsOpen == value)
-            return;
+    [Parameter] public EventCallback Changed { get; set; }
 
-        this.IsOpen = value;
-        await this.IsOpenChanged.InvokeAsync(value);
-    }
+    protected override Task OnInitializedAsync() => this.Reload();
+
+    string CountText => this.shares.Count switch
+    {
+        0 => "",
+        1 => "1 published folder",
+        var n => $"{n} published folders"
+    };
 
     /// <summary>
     /// Editable copies. Quotas are entered in megabytes because that is the unit people reason in;
@@ -209,7 +194,6 @@
         public string PhysicalPath = "";
         public string? Description;
         public bool IsEnabled = true;
-        public bool CreateDirectory;
         public List<GrantDraft> Grants = [];
     }
 
@@ -283,7 +267,6 @@
                 PhysicalPath = share?.PhysicalPath ?? "",
                 Description = share?.Description,
                 IsEnabled = share?.IsEnabled ?? true,
-                CreateDirectory = share is null,
                 Grants = rows.Select(g => new GrantDraft
                 {
                     RoleId = g.RoleId,
@@ -321,7 +304,11 @@
                 draft.PhysicalPath,
                 draft.Description,
                 draft.IsEnabled,
-                draft.CreateDirectory,
+
+                // The picker only offers folders that are there, and makes one on the spot when it
+                // is not - so a path that has gone missing between choosing and saving is news, and
+                // should be reported rather than quietly recreated.
+                false,
                 draft.Grants.Select(g => new GrantInfo(
                     g.RoleId,
                     g.RoleName,
@@ -336,6 +323,7 @@
 
             this.editorOpen = false;
             await this.Reload();
+            await this.Changed.InvokeAsync();
             await this.Toasts.SuccessAsync("Saved.");
         }
         catch (ApiException ex)
@@ -364,6 +352,7 @@
         {
             await this.Admin.DeleteShare(share.Id);
             await this.Reload();
+            await this.Changed.InvokeAsync();
         }
         catch (ApiException ex)
         {

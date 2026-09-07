@@ -8,6 +8,7 @@ using Shiny.Net.HttpServer.Security;
 using Shiny.Net.HttpServer.StaticFiles;
 using ShinyFileServe.Server.Endpoints;
 using ShinyFileServe.Server.Security;
+using ShinyFileServe.Server.Transfers;
 
 namespace ShinyFileServe.Server;
 
@@ -37,6 +38,12 @@ public static class ServerRegistration
         services.TryAddSingleton<LoopbackSignInMiddleware>();
         services.TryAddSingleton<ISessionTracker>(sp => new SessionTracker(sp.GetService<TimeProvider>() ?? TimeProvider.System));
         services.TryAddSingleton<SessionTrackingMiddleware>();
+        services.TryAddSingleton<PasswordChangeGateMiddleware>();
+        services.TryAddSingleton<ITransferMonitor>(sp => new TransferMonitor(sp.GetService<TimeProvider>() ?? TimeProvider.System));
+
+        // A singleton because the cache is the whole point of it - one per request would ask the
+        // network the same question on every page of the log.
+        services.TryAddSingleton<IHostNameResolver>(sp => new HostNameResolver(sp.GetService<TimeProvider>() ?? TimeProvider.System));
 
         var protector = TicketProtectorFactory.LoadOrCreate(options.TicketKeyPath);
 
@@ -90,12 +97,21 @@ public static class ServerRegistration
                     // someone actually connecting, and before routing so it sees every request.
                     server.Use<SessionTrackingMiddleware>();
 
+                    // After authentication, so it knows whose session this is, and ahead of routing
+                    // so an expired password is refused by every route at once rather than by each
+                    // endpoint remembering to ask.
+                    server.Use<PasswordChangeGateMiddleware>();
+
                     server.UseAuthorization();
 
                     server.MapAuthEndpoints();
+                    server.MapAccountEndpoints();
                     server.MapAdminEndpoints();
                     server.MapAdminUsersEndpoints();
                     server.MapAdminSharesEndpoints();
+                    server.MapAdminBrowseEndpoints();
+                    server.MapAdminBackupEndpoints();
+                    server.MapAdminLiveEndpoints();
                     server.MapFolderEndpoints();
                     server.MapFileEndpoints();
                     server.MapActivityEndpoints();

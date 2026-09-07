@@ -27,8 +27,8 @@ public class SessionPolicyHolder
 
     /// <summary>
     /// Rejects a cookie that is cryptographically fine but no longer true: the account is gone, or
-    /// it has been switched off. Cookies carry their claims rather than a session id, so without
-    /// this a disabled user would keep working until their cookie happened to expire.
+    /// its expiry has passed. Cookies carry their claims rather than a session id, so without this
+    /// an expired user would keep working until their cookie happened to run out.
     /// </summary>
     internal static async ValueTask<bool> ValidateTicket(AuthenticationTicket ticket, HttpContext context)
     {
@@ -40,7 +40,8 @@ public class SessionPolicyHolder
         if (users is null)
             return true;
 
+        var time = context.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System;
         var user = await users.GetUser(id, context.RequestAborted);
-        return user is { IsActive: true };
+        return user is not null && !user.IsExpired(time.GetUtcNow());
     }
 }

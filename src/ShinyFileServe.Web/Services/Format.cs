@@ -57,6 +57,46 @@ public static class Format
         return days == 1 ? "resets tomorrow" : $"resets in {days} days";
     }
 
+    /// <summary>
+    /// "4.2 MB/s". Below a byte a second there is no rate worth printing, and what to say instead
+    /// depends on the tense: a transfer still running is stalled, one that is over simply has no
+    /// meaningful average.
+    /// </summary>
+    public static string Speed(double bytesPerSecond, string whenStopped = "stalled")
+        => bytesPerSecond < 1 ? whenStopped : $"{Bytes((long)bytesPerSecond)}/s";
+
+    /// <summary>
+    /// How long something took, at the precision a person cares about: seconds up to a minute,
+    /// minutes and seconds up to an hour, hours and minutes beyond.
+    /// </summary>
+    public static string Duration(TimeSpan value)
+    {
+        if (value < TimeSpan.Zero)
+            value = TimeSpan.Zero;
+
+        if (value.TotalSeconds < 1)
+            return "under a second";
+
+        if (value.TotalMinutes < 1)
+            return $"{(int)value.TotalSeconds}s";
+
+        return value.TotalHours < 1
+            ? $"{value.Minutes}m {value.Seconds:00}s"
+            : $"{(int)value.TotalHours}h {value.Minutes:00}m";
+    }
+
+    /// <summary>
+    /// "about 12s left". Hedged on purpose - an estimate from a speed measured over a few seconds is
+    /// a guess, and phrasing it as one stops it reading as a promise.
+    /// </summary>
+    public static string? Remaining(TimeSpan? value)
+    {
+        if (value is not { } left)
+            return null;
+
+        return left < TimeSpan.FromSeconds(1) ? "almost there" : $"about {Duration(left)} left";
+    }
+
     public static string Initials(string displayName)
     {
         var parts = displayName.Split(' ', StringSplitOptions.RemoveEmptyEntries);

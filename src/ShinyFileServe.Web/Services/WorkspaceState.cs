@@ -40,6 +40,20 @@ public class WorkspaceState(FileServeApi api)
         this.Notify();
     }
 
+    /// <summary>
+    /// Who is signed in, read from the server the first time anybody asks. Every screen needs this
+    /// before it can draw its own chrome, and an administrator page reached by typing its address
+    /// starts with nothing loaded - so the answer is fetched here rather than only on the way in
+    /// through the file browser.
+    /// </summary>
+    public async Task<CurrentUser?> EnsureUser(CancellationToken ct = default)
+    {
+        if (this.user is null)
+            this.SetUser(await api.GetCurrentUser(ct));
+
+        return this.user;
+    }
+
     public async Task LoadFolders(CancellationToken ct = default)
     {
         this.Folders = await api.GetFolders(ct);

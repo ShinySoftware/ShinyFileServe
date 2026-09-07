@@ -59,6 +59,23 @@
                     disabled="@(this.busy || String.IsNullOrWhiteSpace(this.username))">
                 @(this.busy ? "Signing in…" : "Sign in")
             </button>
+
+            @* Only ever the accounts the server named as anonymous. Everything they can reach still
+               comes from their groups, so this is a shortcut past the password box and nothing more. *@
+            @if (this.policy.AnonymousAccounts.Count > 0)
+            {
+                <div class="guests">
+                    <span class="guests__rule">or</span>
+                    @foreach (var guest in this.policy.AnonymousAccounts)
+                    {
+                        var account = guest;
+                        <button type="button" class="action guests__button" disabled="@this.busy"
+                                @onclick="() => this.SignInAsGuest(account)">
+                            Continue as @account.DisplayName
+                        </button>
+                    }
+                </div>
+            }
         </form>
     </div>
 </div>
@@ -69,7 +86,7 @@
     bool remember;
     bool busy;
     string? error;
-    SessionPolicy policy = new(false, false, false, 30, 0, PasswordPolicyInfo.Off);
+    SessionPolicy policy = new(false, false, false, 30, 0, PasswordPolicyInfo.Off, []);
     bool signedOutForIdle;
 
     protected override async Task OnInitializedAsync()
@@ -117,6 +134,30 @@
         {
             this.error = ex.Message;
             this.password = "";
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    async Task SignInAsGuest(AnonymousAccount account)
+    {
+        if (this.busy)
+            return;
+
+        this.busy = true;
+        this.error = null;
+
+        try
+        {
+            var user = await this.Api.SignInAnonymous(account.Id);
+            this.State.SetUser(user);
+            this.Nav.NavigateTo("");
+        }
+        catch (ApiException ex)
+        {
+            this.error = ex.Message;
         }
         finally
         {

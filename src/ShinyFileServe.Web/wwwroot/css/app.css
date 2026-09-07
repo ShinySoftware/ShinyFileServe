@@ -1078,3 +1078,538 @@ button.cell-name__link:hover { color: var(--accent); text-decoration: underline;
 }
 
 .pwfield { display: grid; gap: 6px; }
+
+/* A staged restore. Bordered and tinted because it is the one control on this page that throws
+   away everything on the server, and it should not look like the ones that do not. */
+.restore {
+    display: grid;
+    gap: 8px;
+    padding: 14px;
+    border: 1px solid var(--warn);
+    border-radius: var(--r-md);
+    background: var(--warn-soft);
+}
+
+.restore__title { font-size: 14px; font-weight: 600; color: var(--ink); }
+.restore__body { font-size: 12.5px; color: var(--ink-2); }
+.restore__warn { font-size: 12.5px; color: var(--warn); }
+
+/* The folder picker. The chosen path reads as a value rather than a field, because it is no longer
+   typed - it is what came back from the machine. */
+.picker { display: grid; gap: 8px; }
+
+.picker__bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+}
+
+.picker__path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12.5px;
+    color: var(--ink);
+}
+
+.picker__path--empty { color: var(--ink-3); }
+
+.picker__panel {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface);
+}
+
+.picker__tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+.picker__new { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.picker__new input {
+    font: inherit;
+    padding: 6px 9px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--ink);
+}
+
+.picker__in { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.picker__tree {
+    max-height: 260px;
+    overflow: auto;
+    padding: 6px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+}
+
+.picker__tag {
+    flex: none;
+    font-size: 10.5px;
+    letter-spacing: .02em;
+    padding: 1px 6px;
+    border-radius: 999px;
+    color: var(--accent-ink);
+    background: var(--accent-soft);
+}
+
+/* ---------------------------------------------------------------------------
+   Right now — live sessions and transfers
+
+   Three stacked sections rather than tabs: the whole point is seeing all of it
+   at once, and each one is short. Numbers are set in the mono face so a column
+   of sizes and speeds refreshing once a second does not jitter sideways.
+   --------------------------------------------------------------------------- */
+
+.live { display: grid; gap: 20px; }
+
+.live__section { display: grid; gap: 8px; }
+
+.live__heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+}
+
+.live__count {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0;
+    padding: 1px 7px;
+    border-radius: 999px;
+    color: var(--accent-ink);
+    background: var(--accent-soft);
+}
+
+.live__empty {
+    margin: 0;
+    padding: 14px;
+    border: 1px dashed var(--rule);
+    border-radius: var(--r-md);
+    font-size: 12.5px;
+    color: var(--ink-3);
+    background: var(--surface-2);
+}
+
+.live__list { display: grid; gap: 6px; }
+
+.live__who {
+    display: grid;
+    grid-template-columns: 26px 1fr auto auto;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    font-size: 12.5px;
+}
+
+.live__avatar {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--accent-ink);
+    background: var(--accent-soft);
+}
+
+.live__whoname { display: grid; color: var(--ink); }
+
+.live__sub {
+    font-size: 11px;
+    color: var(--ink-3);
+}
+
+.live__where,
+.live__when {
+    display: grid;
+    justify-items: end;
+    text-align: right;
+    font-size: 11.5px;
+    color: var(--ink-2);
+}
+
+.live__tag {
+    font-size: 10.5px;
+    letter-spacing: .02em;
+    padding: 1px 6px;
+    border-radius: 999px;
+    color: var(--accent-ink);
+    background: var(--accent-soft);
+}
+
+/* One transfer in flight: what it is, how far along, and the three numbers
+   underneath that say whether it is healthy. */
+.live__move {
+    display: grid;
+    gap: 7px;
+    padding: 10px 12px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface);
+}
+
+.live__moveline {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    font-size: 12.5px;
+}
+
+.live__arrow {
+    flex: none;
+    font-size: 11px;
+    color: var(--accent);
+}
+
+.live__arrow--up { color: var(--warn); }
+
+.live__path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ink);
+}
+
+.live__stats {
+    display: flex;
+    gap: 14px;
+    font-size: 11.5px;
+    color: var(--ink-2);
+}
+
+.live__eta { margin-left: auto; color: var(--ink-3); }
+
+.live__scroll {
+    max-height: 34dvh;
+    overflow: auto;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface);
+}
+
+.live__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.live__table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 7px 10px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--rule);
+}
+
+.live__table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: middle;
+    color: var(--ink-2);
+}
+
+.live__table tr:last-child td { border-bottom: 0; }
+
+.live__table .live__path { display: inline-block; max-width: 30ch; vertical-align: bottom; }
+
+.live__right { text-align: right; }
+
+.live__row--bad td { color: var(--danger); }
+
+/* An account with a date on it. Neither an alarm nor nothing at all - it is going to matter, but
+   not today, so it reads as a note rather than as the disabled tag it eventually becomes. */
+.tag--dated { background: var(--warn-soft); color: var(--warn); }
+
+/* Sign in as a guest. Below the password form and separated from it, because they are two ways in
+   rather than two halves of one. */
+.guests { display: grid; gap: 8px; }
+
+.guests__rule {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11.5px;
+    color: var(--ink-3);
+}
+
+.guests__rule::before,
+.guests__rule::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--rule);
+}
+
+.guests__button { justify-content: center; padding: 8px; }
+
+/* The per-account caps. Two fixed columns rather than an auto-fitting grid: each window belongs to
+   the number beside it, and a layout free to wrap put one "Files" box between Downloads and
+   Uploads, where it read as belonging to neither. */
+.caps {
+    display: grid;
+    grid-template-columns: minmax(140px, 1fr) minmax(110px, 0.6fr);
+    gap: 10px 12px;
+    align-items: end;
+}
+
+.caps select,
+.caps input {
+    font: inherit;
+    padding: 6px 9px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--ink);
+}
+
+.caps input:disabled { opacity: .5; }
+
+@media (max-width: 560px) {
+    .caps { grid-template-columns: 1fr; }
+}
+
+/* ---------------------------------------------------------------------------
+   Administrator screens
+
+   These are pages rather than modals: things somebody reads, sorts, filters and
+   scrolls. The frame is the same one every time — the chrome, one heading, and
+   a way back to the files, because the desktop shell has no back button of its
+   own to lean on.
+   --------------------------------------------------------------------------- */
+
+.screen {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    background: var(--paper);
+}
+
+/* The chrome sizes itself to its host inside the dock layout; standing on its own it needs
+   the height that layout was giving it. */
+.screen > .chrome {
+    flex: none;
+    height: 52px;
+}
+
+.screen__head {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    flex: none;
+    padding: 15px 22px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--rule);
+}
+
+.screen__back {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 3px;
+    padding: 5px 11px;
+    font-size: 12.5px;
+    white-space: nowrap;
+    text-decoration: none;
+    color: var(--accent-ink);
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    transition: background var(--speed) var(--ease), border-color var(--speed) var(--ease);
+}
+
+.screen__back:hover { background: var(--accent-soft); border-color: var(--accent-line); }
+
+.screen__titles { display: grid; gap: 2px; min-width: 0; }
+.screen__titles h1 { font-size: 20px; }
+.screen__sub { font-size: 12.5px; color: var(--ink-2); }
+
+.screen__body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 18px 22px 28px;
+}
+
+/* A screen that owns its own scrolling. The body stops moving and the one child inside it
+   decides what scrolls — the log's rows, and not its filters or its pager. */
+.screen__body--fill {
+    display: flex;
+    overflow: hidden;
+    padding-bottom: 18px;
+}
+
+.screen__body--fill > * { flex: 1; min-width: 0; min-height: 0; }
+
+/* The row above a list: what it holds on the left, what you can add to it on the right. */
+.screen__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+/* --- the chrome as navigation ------------------------------------------- */
+
+.chrome__mark { color: inherit; text-decoration: none; }
+.chrome__mark:hover .chrome__glyph { background: var(--accent-ink); }
+
+.chrome__nav { display: flex; align-items: center; gap: 2px; }
+
+.chrome__link {
+    padding: 6px 10px;
+    font-size: 12.5px;
+    white-space: nowrap;
+    text-decoration: none;
+    color: var(--on-chrome-2);
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    transition: background var(--speed) var(--ease), color var(--speed) var(--ease);
+}
+
+.chrome__link:hover { color: var(--on-chrome); background: rgba(255, 255, 255, .08); }
+
+/* Where you are, said once. The bar is the only navigation in the desktop window, so the
+   current screen has to be readable off it without thinking. */
+.chrome__link.active {
+    color: var(--on-chrome);
+    background: var(--chrome-2);
+    border-color: rgba(255, 255, 255, .16);
+}
+
+.chrome__me {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 14px;
+    border-left: 1px solid rgba(255, 255, 255, .12);
+}
+
+@media (max-width: 900px) {
+    .chrome__nav { gap: 0; }
+    .chrome__link { padding: 6px 7px; }
+}
+
+/* --- the log, given the width ------------------------------------------- */
+
+.screen__body--fill .log { display: flex; flex-direction: column; gap: 12px; }
+
+.log__filters { flex: none; }
+
+.log__panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    gap: 10px;
+}
+
+/* Fetching the next page dims the rows rather than replacing them with a message. A table that
+   empties and refills moves the pager under the pointer that was about to click it again. */
+.log__panel.is-busy .log__table { opacity: .5; }
+
+.screen .log__scroll {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    background: var(--surface);
+}
+
+/* A log is scanned rather than read, so the rows sit closer together than elsewhere. */
+.screen .log__table td { padding: 5px 10px; }
+
+.log__when, .log__who, .log__addr { white-space: nowrap; }
+.log__who { font-weight: 500; }
+
+.log__addr { color: var(--ink-2); }
+
+/* The name is the friendlier of the two and the more likely to be missing, so it gets its own
+   column beside the address rather than replacing it. */
+.log__host {
+    max-width: 26ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ink-2);
+}
+
+.log__col-when { width: 15ch; }
+.log__col-who { width: 13ch; }
+.log__col-addr { width: 14ch; }
+.log__col-host { width: 22ch; }
+.log__col-size { width: 9ch; }
+
+.log__none {
+    padding: 30px 12px;
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--ink-3);
+}
+
+.log__pager { flex: none; }
+.log__spacer { flex: 1; }
+
+/* A screen has the whole window, which is not the same as wanting all of it. Rows read badly when
+   the name is at one edge and its buttons are at the other, and a form line 1800px wide is a
+   sentence nobody can follow back to its start. */
+.screen__body > * { max-width: 1180px; margin: 0 auto; }
+.screen__body--fill > * { max-width: none; }
+
+/* On a page the blocks are far enough apart to need edges of their own; in a modal a rule between
+   them was enough, because the modal was the edge. */
+.screen__body .admin__block {
+    padding: 16px 18px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+}
+
+.screen__body .admin__block:last-child { padding-bottom: 16px; border-bottom: 1px solid var(--rule); }
+
+/* Your own account. A short read above a short form, so the facts are a two-column list rather
+   than fields - nothing here is editable except the password. */
+.profile__facts {
+    display: grid;
+    grid-template-columns: minmax(110px, auto) 1fr;
+    gap: 6px 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+}
+
+.profile__fact { display: contents; }
+.profile__label { font-size: 12.5px; color: var(--ink-2); }
+.profile__value { font-size: 13px; color: var(--ink); min-width: 0; overflow-wrap: anywhere; }
+.profile__value--warn { color: var(--warn); font-weight: 550; }
+
+.row__sub--warn { color: var(--warn); }

@@ -1,0 +1,228 @@
+@*
+    What is happening on the server this second, for an administrator. The activity log answers what
+    happened; this answers what is happening - who is here, what is moving, and how fast - which is
+    the question you ask when somebody says the server feels slow.
+*@
+@implements IDisposable
+@inject AdminApi Admin
+
+<div class="live">
+    @if (this.loading)
+    {
+        <p class="admin__loading">Looking…</p>
+    }
+    else
+    {
+        <section class="live__section">
+            <h3 class="live__heading">Signed in<span class="live__count">@this.snapshot.Sessions.Count</span></h3>
+
+            @if (this.snapshot.Sessions.Count == 0)
+            {
+                <p class="live__empty">Nobody is signed in.</p>
+            }
+            else
+            {
+                <div class="live__list">
+                    @foreach (var session in this.snapshot.Sessions.OrderBy(s => s.DisplayName))
+                    {
+                        <div class="live__who">
+                            <span class="live__avatar" aria-hidden="true">@Format.Initials(session.DisplayName)</span>
+                            <span class="live__whoname">
+                                @session.DisplayName
+                                <span class="live__sub">@session.Username</span>
+                            </span>
+                            <span class="live__where num">
+                                @if (session.IsLocalSession)
+                                {
+                                    <span class="live__tag">This machine</span>
+                                }
+                                else
+                                {
+                                    @(session.Address ?? "unknown address")
+                                }
+                            </span>
+                            <span class="live__when num">
+                                since @Format.When(session.SignedInUtc)
+                                <span class="live__sub">seen @Format.When(session.LastSeenUtc)</span>
+                            </span>
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+
+        <section class="live__section">
+            <h3 class="live__heading">Moving now<span class="live__count">@this.snapshot.Transfers.Count</span></h3>
+
+            @if (this.snapshot.Transfers.Count == 0)
+            {
+                <p class="live__empty">Nothing is being transferred.</p>
+            }
+            else
+            {
+                <div class="live__list">
+                    @foreach (var transfer in this.snapshot.Transfers)
+                    {
+                        <div class="live__move">
+                            <div class="live__moveline">
+                                <span class="live__arrow @(transfer.Direction == TransferDirection.Upload ? "live__arrow--up" : "")"
+                                      aria-hidden="true">@(transfer.Direction == TransferDirection.Upload ? "↑" : "↓")</span>
+                                <span class="live__path" title="@transfer.Path">@transfer.FolderName / @transfer.Path</span>
+                                <span class="live__sub">@transfer.DisplayName</span>
+                            </div>
+
+                            <ProgressBar Value="@Percent(transfer)"
+                                         IsIndeterminate="@(transfer.Fraction is null)"
+                                         AnimateProgress="true"
+                                         TrackHeight="6"
+                                         TrackColor="var(--rule-soft)"
+                                         BarColor="var(--accent)"
+                                         CornerRadius="999px" />
+
+                            <div class="live__stats num">
+                                <span>@Moved(transfer)</span>
+                                <span>@Format.Speed(transfer.BytesPerSecond)</span>
+                                <span class="live__eta">@(Format.Remaining(transfer.Remaining) ?? "size unknown")</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+
+        <section class="live__section">
+            <h3 class="live__heading">Just finished<span class="live__count">@this.snapshot.Finished.Count</span></h3>
+
+            @if (this.snapshot.Finished.Count == 0)
+            {
+                <p class="live__empty">Nothing has finished yet.</p>
+            }
+            else
+            {
+                <div class="live__scroll">
+                    <table class="live__table">
+                        <thead>
+                            <tr>
+                                <th>What</th>
+                                <th>Who</th>
+                                <th class="live__right">Size</th>
+                                <th class="live__right">Took</th>
+                                <th class="live__right">Average</th>
+                                <th>How it ended</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var done in this.snapshot.Finished)
+                            {
+                                <tr class="@(done.Outcome == TransferOutcome.Completed ? "" : "live__row--bad")">
+                                    <td>
+                                        <span class="live__arrow @(done.Direction == TransferDirection.Upload ? "live__arrow--up" : "")"
+                                              aria-hidden="true">@(done.Direction == TransferDirection.Upload ? "↑" : "↓")</span>
+                                        <span class="live__path" title="@done.Path">@done.FolderName / @done.Path</span>
+                                    </td>
+                                    <td>@done.DisplayName</td>
+                                    <td class="num live__right">@Size(done)</td>
+                                    <td class="num live__right">@Format.Duration(done.Duration)</td>
+                                    <td class="num live__right">@Format.Speed(done.AverageBytesPerSecond, "—")</td>
+                                    <td>@Ending(done)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    /// <summary>
+    /// Fast enough that a bar visibly moves, slow enough that a screen left open all afternoon is
+    /// not a load on the server it is reporting about.
+    /// </summary>
+    static readonly TimeSpan Interval = TimeSpan.FromSeconds(1);
+
+    LiveActivitySnapshot snapshot = new([], [], []);
+    CancellationTokenSource? polling;
+    bool loading = true;
+
+    protected override Task OnInitializedAsync() => this.Start();
+
+    async Task Start()
+    {
+        this.Stop();
+        this.loading = true;
+
+        var cts = new CancellationTokenSource();
+        this.polling = cts;
+
+        await this.Refresh(cts.Token);
+        _ = this.Poll(cts);
+    }
+
+    /// <summary>Stops asking. Nothing is watching the answer once the screen is gone.</summary>
+    void Stop()
+    {
+        this.polling?.Cancel();
+        this.polling?.Dispose();
+        this.polling = null;
+    }
+
+    async Task Poll(CancellationTokenSource cts)
+    {
+        using var timer = new PeriodicTimer(Interval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cts.Token))
+                await this.Refresh(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // The screen was left between ticks, which is the ordinary way this loop ends.
+        }
+    }
+
+    async Task Refresh(CancellationToken ct)
+    {
+        try
+        {
+            this.snapshot = await this.Admin.GetLiveActivity(ct);
+        }
+        catch (ApiException)
+        {
+            // A dropped poll is not worth a toast every second. The next tick tries again.
+            return;
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        finally
+        {
+            this.loading = false;
+        }
+
+        await this.InvokeAsync(this.StateHasChanged);
+    }
+
+    public void Dispose() => this.Stop();
+
+    static double Percent(LiveTransferInfo transfer) => (transfer.Fraction ?? 0) * 100;
+
+    static string Moved(LiveTransferInfo transfer) => transfer.TotalBytes is { } total
+        ? $"{Format.Bytes(transfer.Bytes)} of {Format.Bytes(total)}"
+        : Format.Bytes(transfer.Bytes);
+
+    /// <summary>What moved, and what was meant to when the two disagree - which is the whole story
+    /// of a transfer that was cut short.</summary>
+    static string Size(FinishedTransferInfo done) => done.TotalBytes is { } total && total != done.Bytes
+        ? $"{Format.Bytes(done.Bytes)} of {Format.Bytes(total)}"
+        : Format.Bytes(done.Bytes);
+
+    static string Ending(FinishedTransferInfo done) => done.Outcome switch
+    {
+        TransferOutcome.Completed => "Finished",
+        TransferOutcome.Abandoned => done.Problem ?? "The other end stopped",
+        _ => done.Problem ?? "Failed"
+    };
+}

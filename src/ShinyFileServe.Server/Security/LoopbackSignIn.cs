@@ -66,16 +66,17 @@ public interface ILoopbackIdentity
     Task<ClaimsPrincipal?> Resolve(CancellationToken ct = default);
 }
 
-public class LoopbackIdentity(IUserManager users) : ILoopbackIdentity
+public class LoopbackIdentity(IUserManager users, TimeProvider time) : ILoopbackIdentity
 {
     public async Task<ClaimsPrincipal?> Resolve(CancellationToken ct = default)
     {
         var all = await users.GetUsers(ct);
+        var now = time.GetUtcNow();
 
-        // The account created at setup, then any other active administrator. Before setup there is
-        // nobody to be, and the frontend sends the caller to the setup page instead.
-        var user = all.FirstOrDefault(u => u is { IsProtected: true, IsActive: true })
-            ?? all.FirstOrDefault(u => u is { IsAdmin: true, IsActive: true });
+        // The account created at setup, then any other administrator that has not expired. Before
+        // setup there is nobody to be, and the frontend sends the caller to the setup page instead.
+        var user = all.FirstOrDefault(u => u.IsProtected && !u.IsExpired(now))
+            ?? all.FirstOrDefault(u => u.IsAdmin && !u.IsExpired(now));
 
         if (user is null)
             return null;

@@ -29,9 +29,21 @@ public interface IPasswordPolicy
     /// case-insensitively and only when the rules are on.
     /// </param>
     PasswordValidation Validate(string? password, IEnumerable<string>? userInputs = null);
+
+    /// <summary>
+    /// When this account's password stops being acceptable, or null when it never does - because
+    /// the server expires nothing, or because the account has no password to expire.
+    /// </summary>
+    DateTimeOffset? ExpiresAt(User user);
+
+    /// <summary>
+    /// True when the person may sign in but may do nothing else until they set a new password. One
+    /// place answers this so the gate, the DTO and the profile screen cannot drift apart.
+    /// </summary>
+    bool MustChangePassword(User user);
 }
 
-public class PasswordPolicy(ISettingsManager settings) : IPasswordPolicy
+public class PasswordPolicy(ISettingsManager settings, TimeProvider time) : IPasswordPolicy
 {
     /// <summary>
     /// The passwords that turn up first in every credential-stuffing list. Deliberately short: a
@@ -100,4 +112,18 @@ public class PasswordPolicy(ISettingsManager settings) : IPasswordPolicy
 
         return failures.Count == 0 ? PasswordValidation.Pass : new PasswordValidation(false, failures);
     }
+
+    public DateTimeOffset? ExpiresAt(User user)
+    {
+        // An account that signs in without a password has nothing to expire, and telling one to
+        // change a password it does not have would be a door with no handle on either side.
+        if (user.IsAnonymous)
+            return null;
+
+        var days = this.Current.MaximumAgeDays;
+        return days <= 0 ? null : user.PasswordSetUtc.AddDays(days);
+    }
+
+    public bool MustChangePassword(User user)
+        => this.ExpiresAt(user) is { } expiry && expiry <= time.GetUtcNow();
 }

@@ -1,175 +1,235 @@
 @*
     The audit trail, for administrators. The same query the desktop app runs, so the two can never
-    disagree about what happened - and the filters are the three questions anyone actually asks of
-    a log: who, what, and when.
+    disagree about what happened - and the filters are the questions anyone actually asks of a log:
+    who, what, where and when.
+
+    A plain table rather than a DataGrid. The grid's sorting, filtering and paging are all client
+    side, over whatever rows it was handed; this log is filtered and paged on the server, over a
+    store that will hold months of entries. A column header that reordered sixty rows out of forty
+    thousand would be telling the reader something untrue.
 *@
+@implements IDisposable
 @inject FileServeApi Api
+@inject AdminApi Admin
 @inject IToastService Toasts
 
-<ModalView IsOpen="this.IsOpen" IsOpenChanged="this.SetOpen"
-           Title="Activity"
-           Subtitle="Every sign-in, transfer and refusal"
-           Size="ModalSize.Large"
-           CloseOnBackdropClick="true"
-           Opened="this.Reload">
+<div class="log">
+    <div class="log__filters">
+        <label class="log__filter">
+            <span class="field__label">Who</span>
+            <select @bind="this.userId" @bind:after="this.Restart">
+                <option value="">Everyone</option>
+                @foreach (var user in this.users)
+                {
+                    <option value="@user.Id">@user.DisplayName (@user.Username)</option>
+                }
+            </select>
+        </label>
 
-    <div class="log">
-        <div class="log__filters">
-            <label class="log__filter">
-                <span class="field__label">Who</span>
-                <select @bind="this.userId" @bind:after="this.Reload">
-                    <option value="">Everyone</option>
-                    @foreach (var user in this.users)
+        <label class="log__filter">
+            <span class="field__label">What</span>
+            <select @bind="this.action" @bind:after="this.Restart">
+                <option value="">Everything</option>
+                @foreach (var value in Enum.GetValues<ActivityAction>())
+                {
+                    <option value="@((int)value)">@value.ToDisplay()</option>
+                }
+            </select>
+        </label>
+
+        <label class="log__filter">
+            <span class="field__label">Where</span>
+            <select @bind="this.folderId" @bind:after="this.Restart">
+                <option value="">Every share</option>
+                @foreach (var share in this.shares)
+                {
+                    <option value="@share.Id">@share.Name</option>
+                }
+            </select>
+        </label>
+
+        <label class="log__filter">
+            <span class="field__label">From</span>
+            <input type="date" @bind="this.from" @bind:after="this.Restart" />
+        </label>
+
+        <label class="log__filter">
+            <span class="field__label">To</span>
+            <input type="date" @bind="this.to" @bind:after="this.Restart" />
+        </label>
+
+        <label class="log__filter">
+            <span class="field__label">Rows</span>
+            <select @bind="this.pageSize" @bind:after="this.Restart">
+                @foreach (var size in PageSizes)
+                {
+                    <option value="@size">@size</option>
+                }
+            </select>
+        </label>
+
+        <button type="button" class="action" disabled="@(!this.HasFilters)" @onclick="this.Clear">Clear filters</button>
+    </div>
+
+    @* The table keeps its rows while the next page is fetched and the scroll box keeps its height,
+       so paging moves the contents rather than the furniture. *@
+    <div class="log__panel @(this.busy ? "is-busy" : "")">
+        <div class="log__scroll">
+            <table class="log__table">
+                <thead>
+                    <tr>
+                        <th class="log__col-when">When</th>
+                        <th class="log__col-who">Who</th>
+                        <th class="log__col-what">What</th>
+                        <th class="log__col-where">Where</th>
+                        <th class="log__col-addr">Address</th>
+                        <th class="log__col-host">Machine</th>
+                        <th class="log__right log__col-size">Size</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var entry in this.page.Items)
                     {
-                        <option value="@user.Id">@user.DisplayName (@user.Username)</option>
+                        <tr class="@(entry.Success ? "" : "log__row--failed")">
+                            <td class="num log__when" title="@entry.TimestampUtc.UtcDateTime.ToString("u")">@Stamp(entry.TimestampUtc)</td>
+                            <td class="log__who">@entry.Username</td>
+                            <td>
+                                <span class="log__what">@entry.Action.ToDisplay()</span>
+                                @if (entry.Detail is { Length: > 0 } detail)
+                                {
+                                    <span class="log__detail">@detail</span>
+                                }
+                            </td>
+                            <td class="log__where" title="@Where(entry)">@(Where(entry) is { Length: > 0 } where ? where : Nothing)</td>
+                            <td class="num log__addr">@(entry.IpAddress is { Length: > 0 } ip ? ip : Nothing)</td>
+                            <td class="num log__host" title="@entry.HostName">@(entry.HostName is { Length: > 0 } host ? host : Nothing)</td>
+                            <td class="num log__right">@(entry.Bytes > 0 ? Format.Bytes(entry.Bytes) : "")</td>
+                        </tr>
                     }
-                </select>
-            </label>
+                </tbody>
+            </table>
 
-            <label class="log__filter">
-                <span class="field__label">What</span>
-                <select @bind="this.action" @bind:after="this.Reload">
-                    <option value="">Everything</option>
-                    @foreach (var value in Enum.GetValues<ActivityAction>())
-                    {
-                        <option value="@((int)value)">@value.ToDisplay()</option>
-                    }
-                </select>
-            </label>
-
-            <label class="log__filter">
-                <span class="field__label">From</span>
-                <input type="date" @bind="this.from" @bind:after="this.Reload" />
-            </label>
-
-            <label class="log__filter">
-                <span class="field__label">To</span>
-                <input type="date" @bind="this.to" @bind:after="this.Reload" />
-            </label>
-
-            <button type="button" class="action" @onclick="this.Clear">Clear</button>
+            @if (this.page.Items.Count == 0)
+            {
+                <p class="log__none">@(this.busy ? "Reading the log…" : "Nothing matches those filters.")</p>
+            }
         </div>
 
-        @if (this.busy)
-        {
-            <p class="admin__loading">Reading the log…</p>
-        }
-        else if (this.page.Items.Count == 0)
-        {
-            <p class="admin__loading">Nothing matches those filters.</p>
-        }
-        else
-        {
-            <div class="log__scroll">
-                <table class="log__table">
-                    <thead>
-                        <tr>
-                            <th>When</th>
-                            <th>Who</th>
-                            <th>What</th>
-                            <th>Where</th>
-                            <th class="log__right">Size</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var entry in this.page.Items)
-                        {
-                            <tr class="@(entry.Success ? "" : "log__row--failed")">
-                                <td class="num">@Format.When(entry.TimestampUtc)</td>
-                                <td>@entry.Username</td>
-                                <td>
-                                    <span class="log__what">@entry.Action.ToDisplay()</span>
-                                    @if (entry.Detail is { Length: > 0 } detail)
-                                    {
-                                        <span class="log__detail">@detail</span>
-                                    }
-                                </td>
-                                <td class="num log__where">@Where(entry)</td>
-                                <td class="num log__right">@(entry.Bytes > 0 ? Format.Bytes(entry.Bytes) : "")</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
+        <div class="log__pager">
+            <button type="button" class="action" disabled="@(this.busy || this.page.Page <= 1)"
+                    @onclick="() => this.Load(1)" title="The newest entries">Newest</button>
+            <button type="button" class="action" disabled="@(this.busy || this.page.Page <= 1)"
+                    @onclick="() => this.Load(this.page.Page - 1)">Newer</button>
+            <button type="button" class="action" disabled="@(this.busy || !this.HasMore)"
+                    @onclick="() => this.Load(this.page.Page + 1)">Older</button>
 
-            <div class="log__pager">
-                <button type="button" class="action" disabled="@(this.page.Page <= 1)"
-                        @onclick="() => this.Load(this.page.Page - 1)">Newer</button>
-                <button type="button" class="action" disabled="@(!this.HasMore)"
-                        @onclick="() => this.Load(this.page.Page + 1)">Older</button>
-                <span class="admin__hint">@this.RangeText</span>
-            </div>
-        }
+            <span class="log__spacer"></span>
+            <span class="admin__hint">@this.RangeText</span>
+        </div>
     </div>
-</ModalView>
+</div>
 
 @code {
-    const int PageSize = 60;
+    /// <summary>
+    /// A log is read by scanning, so the default page is long enough to scan and the choices go up
+    /// from there. The server clamps anything past 500 regardless.
+    /// </summary>
+    static readonly int[] PageSizes = [60, 120, 250];
 
-    PagedResponse<ActivityEntryInfo> page = new([], 0, 1, PageSize);
+    /// <summary>What an empty cell says. A blank one reads as a rendering fault.</summary>
+    const string Nothing = "—";
+
+    PagedResponse<ActivityEntryInfo> page = new([], 0, 1, 60);
     List<UserSummary> users = [];
+    List<ShareInfo> shares = [];
     string userId = "";
     string action = "";
+    string folderId = "";
+    int pageSize = 60;
     DateTime? from;
     DateTime? to;
     bool busy;
+    CancellationTokenSource? inflight;
 
-    [Parameter] public bool IsOpen { get; set; }
-    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
-
-    /// <summary>
-    /// Passes the modal's own close back up to whoever opened it. Binding the inner ModalView
-    /// straight to this component's IsOpen would write the parameter and stop there, leaving the
-    /// parent still believing the modal is open - so the next click would set true over true,
-    /// change nothing, and the modal would never come back.
-    /// </summary>
-    async Task SetOpen(bool value)
+    protected override async Task OnInitializedAsync()
     {
-        if (this.IsOpen == value)
-            return;
-
-        this.IsOpen = value;
-        await this.IsOpenChanged.InvokeAsync(value);
-    }
-
-    bool HasMore => this.page.Page * this.page.PageSize < this.page.Total;
-
-    string RangeText => this.page.Total == 0
-        ? "Nothing yet"
-        : $"{(this.page.Page - 1) * this.page.PageSize + 1}–{Math.Min(this.page.Page * this.page.PageSize, this.page.Total)} of {this.page.Total}";
-
-    static string Where(ActivityEntryInfo entry)
-    {
-        if (entry.FolderName is null)
-            return entry.IpAddress ?? "";
-
-        return String.IsNullOrEmpty(entry.Path) ? entry.FolderName : $"{entry.FolderName}/{entry.Path}";
-    }
-
-    async Task Reload()
-    {
-        if (this.users.Count == 0)
+        // The two filter lists are worth one round trip each on arrival. Either failing leaves that
+        // filter reading "everyone" or "every share", which is the state it starts in anyway.
+        try
         {
-            try
-            {
-                this.users = await this.Api.GetUsers();
-            }
-            catch (ApiException)
-            {
-                // The "who" filter degrades to "everyone"; the log itself still reads.
-            }
+            this.users = await this.Api.GetUsers();
+        }
+        catch (ApiException)
+        {
+        }
+
+        try
+        {
+            this.shares = await this.Admin.GetShares();
+        }
+        catch (ApiException)
+        {
         }
 
         await this.Load(1);
     }
 
+    public void Dispose()
+    {
+        this.inflight?.Cancel();
+        this.inflight?.Dispose();
+    }
+
+    bool HasMore => this.page.Page * this.page.PageSize < this.page.Total;
+
+    bool HasFilters => this.userId.Length > 0
+        || this.action.Length > 0
+        || this.folderId.Length > 0
+        || this.from is not null
+        || this.to is not null;
+
+    string RangeText => this.page.Total == 0
+        ? "Nothing yet"
+        : $"{(this.page.Page - 1) * this.page.PageSize + 1}–{Math.Min(this.page.Page * this.page.PageSize, this.page.Total)} of {this.page.Total}";
+
+    /// <summary>
+    /// Local time to the second. A log is read by lining events up against each other, and two
+    /// downloads in the same minute are indistinguishable without the seconds. The cell's tooltip
+    /// carries the UTC instant, which is what the store actually holds.
+    /// </summary>
+    static string Stamp(DateTimeOffset value) => value.ToLocalTime().ToString("d MMM HH:mm:ss");
+
+    /// <summary>
+    /// The share and path the action touched. Sign-ins and refusals have neither, which is why the
+    /// address is its own column now rather than something this falls back to.
+    /// </summary>
+    static string Where(ActivityEntryInfo entry)
+    {
+        if (entry.FolderName is null)
+            return "";
+
+        return String.IsNullOrEmpty(entry.Path) ? entry.FolderName : $"{entry.FolderName}/{entry.Path}";
+    }
+
+    /// <summary>Any change to a filter means page one - page seven of the old query is not page seven of the new one.</summary>
+    Task Restart() => this.Load(1);
+
     async Task Load(int target)
     {
+        // A filter changed while the last read was still out. Whichever answer came back last would
+        // otherwise win, and it would not necessarily be the one that was asked for last.
+        this.inflight?.Cancel();
+        this.inflight?.Dispose();
+
+        var cts = new CancellationTokenSource();
+        this.inflight = cts;
+
         this.busy = true;
         try
         {
             this.page = await this.Api.GetActivity(new ActivityQuery(
                 UserId: String.IsNullOrEmpty(this.userId) ? null : this.userId,
+                FolderId: String.IsNullOrEmpty(this.folderId) ? null : this.folderId,
                 Action: String.IsNullOrEmpty(this.action) ? null : (ActivityAction)Int32.Parse(this.action),
                 FromUtc: this.from is { } f ? new DateTimeOffset(f.Date, TimeSpan.Zero) : null,
 
@@ -177,8 +237,12 @@
                 // today for both ends returns nothing, which reads as a broken filter.
                 ToUtc: this.to is { } t ? new DateTimeOffset(t.Date.AddDays(1).AddTicks(-1), TimeSpan.Zero) : null,
                 Page: Math.Max(1, target),
-                PageSize: PageSize
-            ));
+                PageSize: this.pageSize
+            ), cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
         }
         catch (ApiException ex)
         {
@@ -186,7 +250,8 @@
         }
         finally
         {
-            this.busy = false;
+            if (this.inflight == cts)
+                this.busy = false;
         }
     }
 
@@ -194,6 +259,7 @@
     {
         this.userId = "";
         this.action = "";
+        this.folderId = "";
         this.from = null;
         this.to = null;
         await this.Load(1);

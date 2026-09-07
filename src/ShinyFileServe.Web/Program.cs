@@ -19,6 +19,7 @@ builder.Services.AddScoped<FileServeApi>();
 builder.Services.AddScoped<WorkspaceState>();
 builder.Services.AddScoped<AdminApi>();
 builder.Services.AddScoped<IdleWatch>();
+builder.Services.AddScoped<SessionActions>();
 
 builder.Services.AddShinyControls(cfg => cfg
     .ConfigureDialogs(o => o.DefaultAnimation = DialogAnimation.Zoom)

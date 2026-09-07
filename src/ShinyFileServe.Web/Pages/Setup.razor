@@ -92,7 +92,7 @@
     bool passwordOk;
     bool canSetUpHere = true;
     string? error;
-    SessionPolicy policy = new(true, true, true, 30, 0, PasswordPolicyInfo.Off);
+    SessionPolicy policy = new(true, true, true, 30, 0, PasswordPolicyInfo.Off, []);
 
     bool CanSubmit => !String.IsNullOrWhiteSpace(this.username) && this.passwordOk;
 

@@ -26,7 +26,7 @@ public class FileServeApi(HttpClient http)
         using var response = await http.GetAsync("api/auth/policy", ct);
         await Ensure(response);
         return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.SessionPolicy, ct)
-            ?? new SessionPolicy(false, false, true, 30, 0, PasswordPolicyInfo.Off);
+            ?? new SessionPolicy(false, false, true, 30, 0, PasswordPolicyInfo.Off, []);
     }
 
     /// <summary>Creates the first administrator and signs them in.</summary>
@@ -62,8 +62,34 @@ public class FileServeApi(HttpClient http)
             ct
         );
 
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        // A bare 401 is the deliberately vague refusal; one with a body has something specific to
+        // say - an expired account - and that message is the server's to write, not this method's.
+        if (response.StatusCode == HttpStatusCode.Unauthorized
+            && (await response.Content.ReadAsStringAsync(ct)).Trim().Length == 0)
+        {
             throw new ApiException(HttpStatusCode.Unauthorized, "That username and password do not match an account.");
+        }
+
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.CurrentUser, ct)
+            ?? throw new ApiException(HttpStatusCode.InternalServerError, "The server signed you in but sent nothing back.");
+    }
+
+    /// <summary>
+    /// Signs in as one of the accounts the policy named as anonymous. There is no password to send,
+    /// and the server refuses any id that is not one of them.
+    /// </summary>
+    public async Task<CurrentUser> SignInAnonymous(string userId, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync(
+            "api/auth/anonymous",
+            new AnonymousSignInRequest(userId),
+            ClientJsonContext.Default.AnonymousSignInRequest,
+            ct
+        );
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+            throw new ApiException(HttpStatusCode.Unauthorized, "That guest account is no longer available.");
 
         await Ensure(response);
         return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.CurrentUser, ct)
@@ -73,6 +99,27 @@ public class FileServeApi(HttpClient http)
     public async Task SignOut(CancellationToken ct = default)
     {
         using var response = await http.PostAsync("api/auth/logout", null, ct);
+        await Ensure(response);
+    }
+
+    // -- your own account ---------------------------------------------------
+
+    public async Task<AccountProfile> GetProfile(CancellationToken ct = default)
+    {
+        using var response = await http.GetAsync("api/account/profile", ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.AccountProfile, ct)
+            ?? throw new ApiException(HttpStatusCode.InternalServerError, "The server sent back no account.");
+    }
+
+    public async Task ChangePassword(string currentPassword, string newPassword, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync(
+            "api/account/password",
+            new ChangePasswordRequest(currentPassword, newPassword),
+            ClientJsonContext.Default.ChangePasswordRequest,
+            ct
+        );
         await Ensure(response);
     }
 

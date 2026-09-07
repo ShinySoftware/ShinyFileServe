@@ -1,0 +1,227 @@
+@*
+    Picks a folder on the machine running the server. The path used to be typed, which meant reading
+    it off that machine and carrying it across - and a typo produced a share pointing at nothing.
+    The folders are listed over the API instead, so what can be chosen is what is actually there.
+*@
+@inject AdminApi Admin
+@inject IToastService Toasts
+
+<div class="picker">
+    <div class="picker__bar">
+        @* Titled, because a path too long for the bar truncates and the whole of it is still
+           worth being able to read. *@
+        <span class="picker__path num @(this.HasValue ? "" : "picker__path--empty")" title="@this.Value">
+            @(this.HasValue ? this.Value : "No folder chosen yet")
+        </span>
+        <button type="button" class="action" @onclick="this.Toggle">
+            @(this.open ? "Done" : this.HasValue ? "Change…" : "Choose…")
+        </button>
+    </div>
+
+    @if (this.open)
+    {
+        <div class="picker__panel">
+            <div class="picker__tools">
+                <label class="field--check">
+                    <input type="checkbox" checked="@this.showHidden" @onchange="this.ToggleHidden" />
+                    Show hidden folders
+                </label>
+
+                <button type="button" class="action"
+                        disabled="@(this.selected is null || this.busy || this.naming)"
+                        @onclick="this.StartNewFolder">
+                    New folder…
+                </button>
+            </div>
+
+            @if (this.naming && this.selected is { } parent)
+            {
+                <div class="picker__new">
+                    <input @bind="this.newName" @bind:event="oninput" @onkeydown="this.OnNameKey"
+                           placeholder="Folder name" aria-label="New folder name" />
+                    <button type="button" class="action action--primary" disabled="@this.busy" @onclick="this.CreateFolder">Create</button>
+                    <button type="button" class="action" disabled="@this.busy" @onclick="() => this.naming = false">Cancel</button>
+                    <span class="admin__hint picker__in">Inside @parent.Path</span>
+                </div>
+            }
+
+            <div class="picker__tree">
+                @if (this.loading)
+                {
+                    <p class="admin__loading">Reading folders…</p>
+                }
+                else
+                {
+                    <TreeView TItem="MachineFolderNode"
+                              @ref="this.tree"
+                              ItemsSource="this.roots"
+                              ChildrenLoader="this.LoadChildren"
+                              HasChildrenSelector="@(node => node.HasChildren)"
+                              SelectionMode="BlazorTreeSelectionMode.Single"
+                              SelectedItem="this.selected"
+                              SelectedItemChanged="this.OnSelected"
+                              ShowGuideLines="true"
+                              IndentSize="18"
+                              ChevronSize="11"
+                              ChevronColor="var(--ink-3)"
+                              LoadFailed="this.OnLoadFailed">
+                        <ItemTemplate Context="node">
+                            <span class="tree-row @(node.IsPlace ? "tree-row--share" : "")">
+                                <span class="tree-row__glyph" aria-hidden="true">@(node.IsPlace ? "▤" : "▸")</span>
+                                <span class="tree-row__name">@node.Name</span>
+                                @if (node.IsShared)
+                                {
+                                    <span class="picker__tag">shared</span>
+                                }
+                            </span>
+                        </ItemTemplate>
+                        <LoadingTemplate>
+                            <div class="empty-state"><p>Reading folders…</p></div>
+                        </LoadingTemplate>
+                    </TreeView>
+                }
+            </div>
+
+            <span class="admin__hint">
+                @if (this.selected is { } chosen)
+                {
+                    @(chosen.IsShared ? "Another share already publishes this folder." : "Using " + chosen.Path)
+                }
+                else
+                {
+                    @("Pick the folder to publish. Everything inside it becomes part of the share.")
+                }
+            </span>
+        </div>
+    }
+</div>
+
+@code {
+    TreeView<MachineFolderNode>? tree;
+    List<MachineFolderNode> roots = [];
+    MachineFolderNode? selected;
+
+    bool open;
+    bool loading;
+    bool busy;
+    bool showHidden;
+    bool naming;
+    string newName = "";
+
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    bool HasValue => !String.IsNullOrWhiteSpace(this.Value);
+
+    async Task Toggle()
+    {
+        this.open = !this.open;
+        this.naming = false;
+
+        if (this.open && this.roots.Count == 0)
+            await this.LoadRoots();
+    }
+
+    async Task LoadRoots()
+    {
+        this.loading = true;
+
+        try
+        {
+            var listing = await this.Admin.Browse(null, this.showHidden);
+            this.roots = listing.Folders.Select(f => MachineFolderNode.From(f, isPlace: true)).ToList();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+        finally
+        {
+            this.loading = false;
+        }
+    }
+
+    async Task<IEnumerable<MachineFolderNode>> LoadChildren(MachineFolderNode node)
+    {
+        var listing = await this.Admin.Browse(node.Path, this.showHidden);
+        return listing.Folders.Select(f => MachineFolderNode.From(f)).ToList();
+    }
+
+    async Task OnSelected(MachineFolderNode? node)
+    {
+        this.selected = node;
+        this.naming = false;
+
+        if (node is not null && node.Path != this.Value)
+        {
+            this.Value = node.Path;
+            await this.ValueChanged.InvokeAsync(node.Path);
+        }
+    }
+
+    async Task ToggleHidden(ChangeEventArgs args)
+    {
+        this.showHidden = (bool?)args.Value == true;
+
+        // Roots and every cached branch were filtered by the old answer, so both have to go.
+        await this.LoadRoots();
+
+        if (this.tree is not null)
+            await this.tree.ReloadAsync();
+    }
+
+    void StartNewFolder()
+    {
+        this.naming = true;
+        this.newName = "";
+    }
+
+    Task OnNameKey(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+            return this.CreateFolder();
+
+        if (args.Key == "Escape")
+            this.naming = false;
+
+        return Task.CompletedTask;
+    }
+
+    async Task CreateFolder()
+    {
+        if (this.selected is not { } parent || String.IsNullOrWhiteSpace(this.newName))
+            return;
+
+        this.busy = true;
+
+        try
+        {
+            var created = await this.Admin.CreateMachineFolder(parent.Path, this.newName.Trim());
+
+            // The branch it went into may have reported no children a moment ago; the tree reads
+            // that flag off this instance, so turning it on here is what lets the chevron appear.
+            parent.HasChildren = true;
+            this.naming = false;
+
+            if (this.tree is not null)
+            {
+                await this.tree.RefreshAsync(parent);
+                await this.tree.ExpandAsync(parent);
+            }
+
+            // A folder made to be shared is the folder they meant, so it is the one now chosen.
+            await this.OnSelected(MachineFolderNode.From(created));
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    Task OnLoadFailed(TreeLoadFailedEventArgs<MachineFolderNode> args)
+        => this.Toasts.DangerAsync($"Could not read that folder. {args.Exception.Message}");
+}
