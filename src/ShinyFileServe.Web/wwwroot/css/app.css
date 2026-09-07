@@ -136,41 +136,6 @@ button { font: inherit; }
     font-feature-settings: "zero" 1;
 }
 
-/* ---------------------------------------------------------------------------
-   Boot / loading
-   --------------------------------------------------------------------------- */
-
-.boot {
-    height: 100%;
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: 18px;
-    background: var(--paper);
-}
-
-.boot__mark {
-    width: 34px;
-    height: 34px;
-    border-radius: var(--r-md);
-    background: var(--accent);
-    animation: boot-pulse 1.4s var(--ease) infinite;
-}
-
-.boot__text {
-    font-size: 13px;
-    color: var(--ink-2);
-}
-
-@keyframes boot-pulse {
-    0%, 100% { opacity: .35; transform: scale(.9); }
-    50%      { opacity: 1;   transform: scale(1); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .boot__mark { animation: none; opacity: .8; }
-}
-
 #blazor-error-ui {
     display: none;
     position: fixed;
@@ -222,12 +187,28 @@ button { font: inherit; }
 
 .chrome__spacer { flex: 1; }
 
+/* Who you are, and the way into your own account. A button, so it takes focus and answers Enter
+   like every other control in the bar - but drawn as the identity it is rather than as a control. */
 .chrome__who {
     display: flex;
     align-items: center;
     gap: 9px;
+    font: inherit;
     font-size: 13px;
     color: var(--on-chrome-2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 3px 11px 3px 3px;
+    cursor: pointer;
+    transition: background var(--speed) var(--ease), border-color var(--speed) var(--ease), color var(--speed) var(--ease);
+}
+
+.chrome__who:hover,
+.chrome__who:focus-visible {
+    background: rgba(255, 255, 255, .08);
+    border-color: rgba(255, 255, 255, .22);
+    color: var(--on-chrome);
 }
 
 .chrome__avatar {

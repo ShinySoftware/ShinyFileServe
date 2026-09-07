@@ -18,7 +18,7 @@
            ShowCloseButton="@(!this.Forced)"
            Opened="this.Load">
 
-    <div class="admin" data-no-autofill>
+    <div class="admin">
         @if (this.profile is not { } me)
         {
             <p class="admin__loading">Looking…</p>
@@ -86,7 +86,7 @@
                     </label>
 
                     <PasswordField Label="New password"
-                                   Password="this.newPassword"
+                                   Password="@this.newPassword"
                                    PasswordChanged="this.OnNewPassword"
                                    Policy="me.Passwords"
                                    UserInputs="@(new[] { me.Username, me.DisplayName })"

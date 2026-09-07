@@ -63,7 +63,7 @@
 
             <PasswordField Label="Password"
                            Policy="this.policy.Passwords"
-                           Password="this.password"
+                           Password="@this.password"
                            PasswordChanged="v => this.password = v"
                            AcceptableChanged="v => this.passwordOk = v"
                            UserInputs="this.Identifiers"

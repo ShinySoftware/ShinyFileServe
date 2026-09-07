@@ -32,14 +32,14 @@
     }
 
     <div class="chrome__me">
-        <span class="chrome__who">
+        @* Who you are is the way to your own account - the same place every other application puts
+           it - so the name and the avatar are the control rather than a button sitting beside them.
+           An account with no password still opens it: that is where you find out why it has none. *@
+        <button type="button" class="chrome__who" title="Your account"
+                @onclick="() => this.profileOpen = true">
             <span class="chrome__avatar" aria-hidden="true">@Format.Initials(this.State.User?.DisplayName ?? "?")</span>
             @this.State.User?.DisplayName
-        </span>
-
-        @* The signed-in user's area of the bar is where somebody looks for their own password. An
-           account with no password still gets the entry: it is where you find out that is why. *@
-        <button type="button" class="chrome__btn" @onclick="() => this.profileOpen = true">Profile</button>
+        </button>
 
         @* A loopback session signs itself back in on the next request, so a Sign out button there
            would do nothing visible. *@

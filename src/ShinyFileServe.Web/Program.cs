@@ -4,6 +4,7 @@ using Shiny.Blazor.Controls;
 using Shiny.Blazor.Controls.Dialogs;
 using Shiny.Blazor.Controls.Docking;
 using Shiny.Blazor.Controls.FileDrop;
+using Shiny.Blazor.Controls.Splash;
 using ShinyFileServe.Web;
 using ShinyFileServe.Web.Panels;
 using ShinyFileServe.Web.Services;
@@ -20,6 +21,10 @@ builder.Services.AddScoped<WorkspaceState>();
 builder.Services.AddScoped<AdminApi>();
 builder.Services.AddScoped<IdleWatch>();
 builder.Services.AddScoped<SessionActions>();
+
+// The splash is painted before this code exists; this is what lets managed code talk to it -
+// a status line while the app works out who is here, and the dismissal when it knows.
+builder.Services.AddShinySplashScreen();
 
 builder.Services.AddShinyControls(cfg => cfg
     .ConfigureDialogs(o => o.DefaultAnimation = DialogAnimation.Zoom)

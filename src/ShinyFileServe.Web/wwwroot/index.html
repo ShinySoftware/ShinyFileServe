@@ -11,6 +11,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;600;700&display=swap" rel="stylesheet" />
 
+    <link rel="stylesheet" href="_content/Shiny.Blazor.Controls/css/shiny-splash.css" />
     <link rel="stylesheet" href="css/app.css" />
     <!-- The CSS-isolation bundle. Every Shiny control ships its styles through this, so without
          the link the dock host, tree and grid render as unstyled boxes. -->
@@ -19,12 +20,28 @@
     <link rel="modulepreload" href="_framework/blazor.webassembly.js" />
 </head>
 <body>
-    <div id="app">
-        <div class="boot">
-            <div class="boot__mark" aria-hidden="true"></div>
-            <p class="boot__text">Starting FileServe</p>
-        </div>
-    </div>
+    <div id="app"></div>
+
+    <!--
+        Outside #app on purpose. Blazor empties #app the moment it attaches its root component,
+        which happens long before the app has asked who you are - a splash inside it would go dark
+        at exactly the wrong moment. This one is painted by a classic script before the framework
+        boots and is dismissed by SplashScreenHost once the app is actually ready.
+    -->
+    <div id="shiny-splash" data-shiny-splash
+         data-title="FileServe"
+         data-subtitle="Your files, on your own machine"
+         data-logo="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230E6F70'/%3E%3Cpath d='M8 11h7l2 2.5h7v9.5H8z' fill='none' stroke='%23fff' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E"
+         data-logo-alt=""
+         data-spinner="ring"
+         data-status="Starting"
+         data-background="#101619"
+         data-foreground="#E7EDF0"
+         data-accent="#2FA7A8"
+         data-muted="#8FA1A9"
+         data-blazor-progress="true"
+         data-min-duration="350"
+         data-fade="320"></div>
 
     <div id="blazor-error-ui">
         Something went wrong. Reload the page to carry on.
@@ -32,26 +49,8 @@
         <span class="dismiss">&times;</span>
     </div>
 
+    <!-- Before the framework: the whole point is to be on screen while it boots. -->
+    <script src="_content/Shiny.Blazor.Controls/splash.js"></script>
     <script src="_framework/blazor.webassembly.js"></script>
-    <script>
-        // Shiny's PasswordStrength takes no arbitrary attributes and ships autocomplete="on", so
-        // the field cannot be marked new-password where it is declared. Left alone, a browser fills
-        // an administrator's own saved password into the box for somebody else's new account - a
-        // password nobody chose and nobody was told. The sign-in page is deliberately not marked:
-        // remembering your own password there is the point.
-        // Only the attribute. Emptying the box as well was tried and made things worse: the field
-        // cleared but PasswordStrength kept the value it had already evaluated, so the box and the
-        // model disagreed and the meter went on warning about a password that was no longer there.
-        // A filled box the administrator can see is safer than an empty one hiding a value.
-        function noAutofill() {
-            for (const box of document.querySelectorAll('[data-no-autofill] input[type="password"]:not([data-autofill-handled])')) {
-                box.setAttribute('autocomplete', 'new-password');
-                box.setAttribute('data-autofill-handled', '');
-            }
-        }
-
-        new MutationObserver(noAutofill).observe(document.body, { childList: true, subtree: true, attributeFilter: ['data-no-autofill'] });
-        noAutofill();
-    </script>
 </body>
 </html>

@@ -35,6 +35,7 @@ public class ConsoleWindowPage : ContentPage
     public ConsoleWindowPage(ServerController server)
     {
         this.server = server;
+        this.web.Navigating += this.OnNavigating;
         this.Title = "FileServe";
         this.BackgroundColor = Color.FromArgb("#F1F4F6");
         this.Padding = 0;
@@ -124,4 +125,30 @@ public class ConsoleWindowPage : ContentPage
             this.web.Source = url;
         }
     }
+
+    /// <summary>
+    /// A download must not become a navigation. The web view renders a PDF itself - and an image, and
+    /// a text file - whatever Content-Disposition says, which replaces the portal with a viewer this
+    /// window has no way back from: there is no address bar and no back button here. So anything
+    /// under /api is handed to the machine's own browser instead, which is also what puts the file
+    /// where the person expects to find it. A request from this machine is signed in without a
+    /// password, so it arrives there as the same person.
+    /// </summary>
+    /// <remarks>
+    /// Only navigations reach this. Everything the portal does for itself goes over fetch, which is
+    /// not a navigation and never lands here - so this sees exactly the download links and nothing
+    /// else.
+    /// </remarks>
+    void OnNavigating(object? sender, WebNavigatingEventArgs e)
+    {
+        if (!IsFileTransfer(e.Url))
+            return;
+
+        e.Cancel = true;
+        SystemBrowser.Open(e.Url);
+    }
+
+    static bool IsFileTransfer(string? url)
+        => Uri.TryCreate(url, UriKind.Absolute, out var uri)
+           && uri.AbsolutePath.StartsWith("/api/", StringComparison.OrdinalIgnoreCase);
 }

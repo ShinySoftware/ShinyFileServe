@@ -132,9 +132,7 @@
 
     @if (this.draft is { } draft)
     {
-        @* The password here belongs to somebody else, so the browser must not offer the one it
-           remembers for this site. See the note beside the observer in index.html. *@
-        <div class="admin" data-no-autofill>
+        <div class="admin">
             @if (this.editorError is { Length: > 0 } editorError)
             {
                 <p class="form-error" role="alert">@editorError</p>
@@ -167,7 +165,7 @@
             {
                 <PasswordField Label="@(draft.Id is null ? "Password" : "New password")"
                                Policy="this.passwords"
-                               Password="draft.Password"
+                               Password="@draft.Password"
                                PasswordChanged="v => draft.Password = v"
                                AcceptableChanged="v => this.passwordOk = v"
                                UserInputs="@(new[] { draft.Username, draft.DisplayName })"

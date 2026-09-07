@@ -14,6 +14,34 @@
     </NotFound>
 </Router>
 
+@* Holds the splash until the app knows who is here, so nobody watches an empty file browser
+   fill itself in. Any failure dismisses it first - an error behind a splash is invisible. *@
+<SplashScreenHost Until="this.Ready" Delay="120" />
+
 <FileDropHost />
 <ToastHost />
 <DialogHost />
+
+@code {
+    [Inject] public WorkspaceState State { get; set; } = null!;
+    [Inject] public ISplashScreen Splash { get; set; } = null!;
+
+    /// <summary>
+    /// The one question worth waiting on: a session that is already signed in goes straight to the
+    /// files, and one that is not goes to the sign-in page. Either way the answer decides what the
+    /// first painted screen is, so it is worth holding the splash for.
+    /// </summary>
+    async Task Ready()
+    {
+        try
+        {
+            await this.Splash.SetStatusAsync("Checking who you are");
+            await this.State.EnsureUser();
+        }
+        catch (ApiException)
+        {
+            // Not signed in, or the server is not answering yet. Both are ordinary, and both are
+            // the sign-in page's business rather than something to hold the splash over.
+        }
+    }
+}
