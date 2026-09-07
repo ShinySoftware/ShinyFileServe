@@ -202,7 +202,13 @@ public class FileServeApi(HttpClient http)
 
     public async Task<PagedResponse<ActivityEntryInfo>> GetActivity(ActivityQuery query, CancellationToken ct = default)
     {
-        var parts = new List<string> { $"page={query.Page}", $"pageSize={query.PageSize}" };
+        var parts = new List<string>
+        {
+            $"page={query.Page}",
+            $"pageSize={query.PageSize}",
+            $"sortBy={(int)query.SortBy}",
+            $"descending={(query.Descending ? "true" : "false")}"
+        };
 
         if (!String.IsNullOrEmpty(query.UserId))
             parts.Add($"userId={Uri.EscapeDataString(query.UserId)}");

@@ -1613,3 +1613,46 @@ button.cell-name__link:hover { color: var(--accent); text-decoration: underline;
 .profile__value--warn { color: var(--warn); font-weight: 550; }
 
 .row__sub--warn { color: var(--warn); }
+
+/* The share editor. Two columns where there is room: where it points on the left, who may do what
+   on the right - the second is as long as there are groups, and pairing it with a short column
+   keeps the folder picker's tree beside the rights rather than pushing them off the screen. */
+.editor {
+    display: grid;
+    grid-template-columns: minmax(320px, 26rem) 1fr;
+    gap: 16px;
+    align-items: start;
+}
+
+.editor__side,
+.editor__main { min-width: 0; }
+
+.editor__actions {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    gap: 10px;
+    padding: 12px 0 4px;
+    margin-top: 4px;
+    background: linear-gradient(to bottom, transparent, var(--surface-2) 22%);
+}
+
+/* A group with nothing ticked is still worth showing - it is how you find the group to grant - but
+   it should not read as loudly as one that has rights. */
+.grant--none { opacity: .72; }
+
+@media (max-width: 900px) {
+    .editor { grid-template-columns: 1fr; }
+}
+
+/* The log's grid fills what the screen gives it and scrolls inside itself, so the filters above and
+   the pager below stay where they were put. */
+.log__grid {
+    min-height: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.log__grid .shiny-dg { min-height: 0; }
+.log__what--failed { color: var(--danger); }

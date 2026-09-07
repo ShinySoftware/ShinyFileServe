@@ -184,9 +184,18 @@ interop, and the whole payload is a few hundred bytes.
 ## Screens, not modals
 
 Anything somebody **reads** — Activity, People, Shares, Right now, Settings — is a page with an
-address. Anything somebody **finishes** — the share editor, the account editor, the folder picker,
-Profile, a confirmation — is a modal. A log with filters, sorting and paging inside a dialog is a
-dialog being used as a window.
+address, and so is the **share editor** (`/shares/new`, `/shares/{id}`): choosing the folder means
+walking a tree, and a tree inside a dialog grows the dialog with every branch until its buttons are
+below the bottom of the window. Anything somebody **finishes** — the account editor, Profile, a
+confirmation — is a modal. A log with filters, sorting and paging inside a dialog is a dialog being
+used as a window.
+
+The share editor puts where it points on the left and one block per group on the right, because
+rights and quotas are granted to a group and never to a person.
+
+Activity is Shiny's `DataGrid` driven by its `ServerData` delegate, so the sort and the page it
+shows are the ones the store applied — the columns that offer to sort are exactly the ones the
+query can order by, and Where and Machine, which it cannot, do not offer.
 
 The desktop shell has no address bar and no back button, so every page carries its own way back to
 the files.

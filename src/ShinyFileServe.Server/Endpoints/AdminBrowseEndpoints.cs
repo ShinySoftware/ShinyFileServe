@@ -141,8 +141,13 @@ public class AdminBrowseEndpoints(
             if (full.Length == 0)
                 full = Path.GetFullPath(path);
 
+            // Not probed for children. Each of these is somewhere a person keeps things, so the
+            // chevron is worth offering whatever is inside - and the probe is a directory read of
+            // home, Desktop, Documents and Downloads on the first request, which on macOS is where
+            // the system stops to decide whether this app may look at them at all. Paying five
+            // seconds for a chevron made the picker look hung.
             if (seen.Add(full))
-                places.Add(new MachineFolder(full, name, HasChildren(full), IsShared(full, shared)));
+                places.Add(new MachineFolder(full, name, true, IsShared(full, shared)));
         }
 
         Add(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Home");

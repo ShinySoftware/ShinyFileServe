@@ -1,16 +1,18 @@
 @*
     Shares and the rights on them. One screen for both, because a share with no grants is invisible
     to everyone and a grant with no share is nothing at all - the two are only meaningful together.
-    The list is a page; editing one share is a task with an end, so that stays a modal.
+    The list is a page and so is the editor: choosing the folder means walking a tree, which grows a
+    dialog until its buttons fall off the bottom of the window.
 *@
 @inject AdminApi Admin
 @inject IToastService Toasts
 @inject IDialogService Dialogs
+@inject NavigationManager Nav
 
 <div class="admin">
     <div class="screen__bar">
         <span class="admin__hint">@this.CountText</span>
-        <button type="button" class="action action--primary" @onclick="() => this.Edit(null)">Add a share</button>
+        <button type="button" class="action action--primary" @onclick='() => this.Nav.NavigateTo("shares/new")'>Add a share</button>
     </div>
 
     @if (this.shares.Count == 0)
@@ -34,7 +36,7 @@
                     </div>
 
                     <span class="row__actions">
-                        <button type="button" class="action" @onclick="() => this.Edit(share)">Edit</button>
+                        <button type="button" class="action" @onclick='() => this.Nav.NavigateTo($"shares/{share.Id}")'>Edit</button>
                         <button type="button" class="action action--danger" @onclick="() => this.Delete(share)">Stop sharing</button>
                     </span>
                 </li>
@@ -43,130 +45,8 @@
     }
 </div>
 
-<ModalView @bind-IsOpen="this.editorOpen"
-           Title="@(this.draft?.Id is null ? "New share" : this.draft?.Name ?? "Share")"
-           Size="ModalSize.Large"
-           CloseOnBackdropClick="false">
-
-    @if (this.draft is { } draft)
-    {
-        <div class="admin">
-            @if (this.editorError is { Length: > 0 } editorError)
-            {
-                <p class="form-error" role="alert">@editorError</p>
-            }
-
-            <label class="field">
-                <span class="field__label">Name</span>
-                <input @bind="draft.Name" placeholder="Marketing Assets" />
-                <span class="admin__hint">What people see when they sign in.</span>
-            </label>
-
-            <div class="field">
-                <span class="field__label">Folder on this machine</span>
-                <FolderPicker @bind-Value="draft.PhysicalPath" />
-            </div>
-
-            <label class="field">
-                <span class="field__label">Description</span>
-                <input @bind="draft.Description" placeholder="Optional" />
-            </label>
-
-            <label class="field--check">
-                <input type="checkbox" @bind="draft.IsEnabled" />
-                Available to signed-in users
-            </label>
-
-            <section class="admin__block">
-                <h3>Who can do what</h3>
-                <span class="admin__hint">
-                    Rights go to a group, never to a person. Someone in two groups gets everything both
-                    allow, and the more generous quota of the two.
-                </span>
-
-                @foreach (var grant in draft.Grants)
-                {
-                    <div class="grant">
-                        <div class="grant__head">
-                            <strong>@grant.RoleName</strong>
-                            @if (grant.Permissions != FolderPermissions.None && !grant.Permissions.Has(FolderPermissions.List))
-                            {
-                                <span class="grant__warn">Without List this group cannot see the share at all.</span>
-                            }
-                        </div>
-
-                        <div class="grant__perms">
-                            @foreach (var permission in FolderPermissionsExtensions.All)
-                            {
-                                var flag = permission;
-                                <label class="field--check">
-                                    <input type="checkbox" checked="@grant.Permissions.Has(flag)"
-                                           @onchange="e => SetPermission(grant, flag, (bool?)e.Value == true)" />
-                                    @flag.ToDisplay()
-                                </label>
-                            }
-                        </div>
-
-                        @if (grant.Permissions != FolderPermissions.None)
-                        {
-                            <div class="grant__quotas">
-                                <label class="field">
-                                    <span class="field__label">Download quota</span>
-                                    <select @bind="grant.DownloadWindow">
-                                        @foreach (var window in Windows)
-                                        {
-                                            <option value="@window">@WindowText(window)</option>
-                                        }
-                                    </select>
-                                </label>
-                                <label class="field">
-                                    <span class="field__label">MB</span>
-                                    <input type="number" min="0" step="any" @bind="grant.DownloadMb" />
-                                </label>
-
-                                <label class="field">
-                                    <span class="field__label">Upload quota</span>
-                                    <select @bind="grant.UploadWindow">
-                                        @foreach (var window in Windows)
-                                        {
-                                            <option value="@window">@WindowText(window)</option>
-                                        }
-                                    </select>
-                                </label>
-                                <label class="field">
-                                    <span class="field__label">MB</span>
-                                    <input type="number" min="0" step="any" @bind="grant.UploadMb" />
-                                </label>
-
-                                <label class="field">
-                                    <span class="field__label">Largest single upload (MB)</span>
-                                    <input type="number" min="0" step="any" @bind="grant.MaxFileMb" />
-                                </label>
-                            </div>
-                        }
-                    </div>
-                }
-            </section>
-
-            <div class="admin__actions">
-                <button type="button" class="action action--primary" disabled="@this.busy" @onclick="this.Save">Save share</button>
-                <button type="button" class="action" @onclick="() => this.editorOpen = false">Cancel</button>
-            </div>
-        </div>
-    }
-</ModalView>
-
 @code {
-    const long BytesPerMb = 1024L * 1024L;
-
-    static readonly QuotaWindow[] Windows =
-        [QuotaWindow.None, QuotaWindow.Daily, QuotaWindow.Weekly, QuotaWindow.Monthly, QuotaWindow.Total];
-
     List<ShareInfo> shares = [];
-    ShareDraft? draft;
-    bool editorOpen;
-    bool busy;
-    string? editorError;
 
     /// <summary>
     /// Raised whenever the set of shares changes, so the workspace behind this screen can re-read
@@ -187,51 +67,14 @@
     /// Editable copies. Quotas are entered in megabytes because that is the unit people reason in;
     /// what is stored is bytes.
     /// </summary>
-    class ShareDraft
-    {
-        public string? Id;
-        public string Name = "";
-        public string PhysicalPath = "";
-        public string? Description;
-        public bool IsEnabled = true;
-        public List<GrantDraft> Grants = [];
-    }
-
-    class GrantDraft
-    {
-        public string RoleId = "";
-        public string RoleName = "";
-        public FolderPermissions Permissions;
-        public QuotaWindow DownloadWindow;
-        public double? DownloadMb;
-        public QuotaWindow UploadWindow;
-        public double? UploadMb;
-        public double? MaxFileMb;
-    }
-
-    static string WindowText(QuotaWindow window) => window switch
-    {
-        QuotaWindow.Daily => "Per day",
-        QuotaWindow.Weekly => "Per week",
-        QuotaWindow.Monthly => "Per month",
-        QuotaWindow.Total => "Total, never resets",
-        _ => "No quota"
-    };
-
     static string Summary(ShareInfo share)
     {
         var groups = share.GrantCount == 1 ? "1 group" : $"{share.GrantCount} groups";
         if (!share.PathExists)
-            return $"{groups} · the folder is missing";
+            return $"{groups} \u00b7 the folder is missing";
 
-        return share.IsEnabled ? groups : $"{groups} · disabled";
+        return share.IsEnabled ? groups : $"{groups} \u00b7 disabled";
     }
-
-    static void SetPermission(GrantDraft grant, FolderPermissions flag, bool on)
-        => grant.Permissions = on ? grant.Permissions | flag : grant.Permissions & ~flag;
-
-    static double? ToMb(long? bytes) => bytes is null ? null : Math.Round(bytes.Value / (double)BytesPerMb, 2);
-    static long? ToBytes(double? mb) => mb is > 0 ? (long)(mb.Value * BytesPerMb) : null;
 
     async Task Reload()
     {
@@ -242,97 +85,6 @@
         catch (ApiException ex)
         {
             await this.Toasts.DangerAsync(ex.Message);
-        }
-    }
-
-    async Task Edit(ShareInfo? share)
-    {
-        this.editorError = null;
-
-        try
-        {
-            // Every group gets a row, granted or not - an editor that only listed the groups
-            // already granted would give no way to add the others. For an existing share the
-            // server has already merged the two; for a new one the group list is the whole answer.
-            var rows = share is null
-                ? (await this.Admin.GetRoles())
-                    .Select(r => new GrantInfo(r.Id, r.Name, FolderPermissions.None, QuotaWindow.None, null, QuotaWindow.None, null, null))
-                    .ToList()
-                : (await this.Admin.GetShare(share.Id)).Grants.ToList();
-
-            this.draft = new ShareDraft
-            {
-                Id = share?.Id,
-                Name = share?.Name ?? "",
-                PhysicalPath = share?.PhysicalPath ?? "",
-                Description = share?.Description,
-                IsEnabled = share?.IsEnabled ?? true,
-                Grants = rows.Select(g => new GrantDraft
-                {
-                    RoleId = g.RoleId,
-                    RoleName = g.RoleName,
-                    Permissions = g.Permissions,
-                    DownloadWindow = g.DownloadWindow,
-                    DownloadMb = ToMb(g.DownloadBytes),
-                    UploadWindow = g.UploadWindow,
-                    UploadMb = ToMb(g.UploadBytes),
-                    MaxFileMb = ToMb(g.MaxUploadFileSizeBytes)
-                }).ToList()
-            };
-
-            this.editorOpen = true;
-        }
-        catch (ApiException ex)
-        {
-            await this.Toasts.DangerAsync(ex.Message);
-        }
-    }
-
-    async Task Save()
-    {
-        if (this.draft is not { } draft)
-            return;
-
-        this.busy = true;
-        this.editorError = null;
-
-        try
-        {
-            await this.Admin.SaveShare(new SaveShareRequest(
-                draft.Id,
-                draft.Name,
-                draft.PhysicalPath,
-                draft.Description,
-                draft.IsEnabled,
-
-                // The picker only offers folders that are there, and makes one on the spot when it
-                // is not - so a path that has gone missing between choosing and saving is news, and
-                // should be reported rather than quietly recreated.
-                false,
-                draft.Grants.Select(g => new GrantInfo(
-                    g.RoleId,
-                    g.RoleName,
-                    g.Permissions,
-                    g.DownloadWindow,
-                    ToBytes(g.DownloadMb),
-                    g.UploadWindow,
-                    ToBytes(g.UploadMb),
-                    ToBytes(g.MaxFileMb)
-                )).ToList()
-            ));
-
-            this.editorOpen = false;
-            await this.Reload();
-            await this.Changed.InvokeAsync();
-            await this.Toasts.SuccessAsync("Saved.");
-        }
-        catch (ApiException ex)
-        {
-            this.editorError = ex.Message;
-        }
-        finally
-        {
-            this.busy = false;
         }
     }
 

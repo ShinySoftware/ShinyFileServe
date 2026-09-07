@@ -95,7 +95,24 @@ public class ActivityLogger(IDocumentStore store, TimeProvider time) : IActivity
         var pageSize = Math.Clamp(query.PageSize, 1, 500);
         var page = Math.Max(1, query.Page);
 
-        var result = await q.OrderByDescending(x => x.TimestampUtc).PageResult(page, pageSize, ct: ct);
+        // Ordered by the asked-for column. The store's query has no secondary key to offer, so rows
+        // that tie on one can sit in either order - which is why time, where nothing ties, stays the
+        // default a page arrives in.
+        var ordered = (query.SortBy, query.Descending) switch
+        {
+            (ActivitySort.Who, true) => q.OrderByDescending(x => x.Username),
+            (ActivitySort.Who, false) => q.OrderBy(x => x.Username),
+            (ActivitySort.What, true) => q.OrderByDescending(x => x.Action),
+            (ActivitySort.What, false) => q.OrderBy(x => x.Action),
+            (ActivitySort.Address, true) => q.OrderByDescending(x => x.IpAddress ?? ""),
+            (ActivitySort.Address, false) => q.OrderBy(x => x.IpAddress ?? ""),
+            (ActivitySort.Size, true) => q.OrderByDescending(x => x.Bytes),
+            (ActivitySort.Size, false) => q.OrderBy(x => x.Bytes),
+            (_, false) => q.OrderBy(x => x.TimestampUtc),
+            _ => q.OrderByDescending(x => x.TimestampUtc)
+        };
+
+        var result = await ordered.PageResult(page, pageSize, ct: ct);
 
         var items = result.Records.Select(ToInfo).ToList();
         return new PagedResponse<ActivityEntryInfo>(items, result.TotalCount, result.Page, result.PageSize);

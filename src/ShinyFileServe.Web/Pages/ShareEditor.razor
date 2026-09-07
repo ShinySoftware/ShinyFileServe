@@ -1,0 +1,309 @@
+@page "/shares/new"
+@page "/shares/{Id}"
+
+@*
+    One share: where it points, and what each group may do inside it. A page rather than a modal.
+    Picking the folder means walking a tree, and a tree inside a dialog grows the dialog with every
+    branch you open until the buttons are somewhere below the bottom of the window. Here the tree
+    has a box of its own to scroll in, and the page stays the size of the page.
+
+    Rights and quotas are granted to a group, never to a person, so the second half of this screen
+    is one block per group rather than a list of people.
+*@
+@inject AdminApi Admin
+@inject WorkspaceState State
+@inject IToastService Toasts
+@inject NavigationManager Nav
+
+<AdminScreen Title="@(this.IsNew ? "New share" : this.draft?.Name is { Length: > 0 } name ? name : "Share")"
+             Subtitle="@(this.IsNew ? "Publish a folder on this machine to a group" : "Where it points, and who may do what inside it")">
+
+    @if (this.draft is not { } draft)
+    {
+        <p class="admin__loading">@(this.error ?? "Reading the share…")</p>
+    }
+    else
+    {
+        <div class="admin">
+            @if (this.error is { Length: > 0 } problem)
+            {
+                <p class="form-error" role="alert">@problem</p>
+            }
+
+            <div class="editor">
+                <section class="admin__block editor__side">
+                    <h3>The folder</h3>
+
+                    <label class="field">
+                        <span class="field__label">Name</span>
+                        <input @bind="draft.Name" placeholder="Marketing Assets" />
+                        <span class="admin__hint">What people see when they sign in.</span>
+                    </label>
+
+                    <div class="field">
+                        <span class="field__label">Folder on this machine</span>
+                        <FolderPicker @bind-Value="draft.PhysicalPath" />
+                    </div>
+
+                    <label class="field">
+                        <span class="field__label">Description</span>
+                        <input @bind="draft.Description" placeholder="Optional" />
+                    </label>
+
+                    <label class="field--check">
+                        <input type="checkbox" @bind="draft.IsEnabled" />
+                        Available to signed-in users
+                    </label>
+                </section>
+
+                <section class="admin__block editor__main">
+                    <h3>Who can do what</h3>
+                    <span class="admin__hint">
+                        Rights and quotas go to a group, never to a person. Someone in two groups gets
+                        everything both allow, and the more generous quota of the two.
+                    </span>
+
+                    @if (draft.Grants.Count == 0)
+                    {
+                        <p class="admin__loading">
+                            There are no groups yet. Make one on the People screen, then come back and
+                            give it rights here.
+                        </p>
+                    }
+
+                    @foreach (var grant in draft.Grants)
+                    {
+                        <div class="grant @(grant.Permissions == FolderPermissions.None ? "grant--none" : "")">
+                            <div class="grant__head">
+                                <strong>@grant.RoleName</strong>
+                                @if (grant.Permissions == FolderPermissions.None)
+                                {
+                                    <span class="admin__hint">No access</span>
+                                }
+                                else if (!grant.Permissions.Has(FolderPermissions.List))
+                                {
+                                    <span class="grant__warn">Without List this group cannot see the share at all.</span>
+                                }
+                            </div>
+
+                            <div class="grant__perms">
+                                @foreach (var permission in FolderPermissionsExtensions.All)
+                                {
+                                    var flag = permission;
+                                    <label class="field--check">
+                                        <input type="checkbox" checked="@grant.Permissions.Has(flag)"
+                                               @onchange="e => SetPermission(grant, flag, (bool?)e.Value == true)" />
+                                        @flag.ToDisplay()
+                                    </label>
+                                }
+                            </div>
+
+                            @* Quotas only mean something once there is something to meter. *@
+                            @if (grant.Permissions != FolderPermissions.None)
+                            {
+                                <div class="grant__quotas">
+                                    <label class="field">
+                                        <span class="field__label">Download quota</span>
+                                        <select @bind="grant.DownloadWindow">
+                                            @foreach (var window in Windows)
+                                            {
+                                                <option value="@window">@WindowText(window)</option>
+                                            }
+                                        </select>
+                                    </label>
+                                    <label class="field">
+                                        <span class="field__label">MB</span>
+                                        <input type="number" min="0" step="any" @bind="grant.DownloadMb" />
+                                    </label>
+
+                                    <label class="field">
+                                        <span class="field__label">Upload quota</span>
+                                        <select @bind="grant.UploadWindow">
+                                            @foreach (var window in Windows)
+                                            {
+                                                <option value="@window">@WindowText(window)</option>
+                                            }
+                                        </select>
+                                    </label>
+                                    <label class="field">
+                                        <span class="field__label">MB</span>
+                                        <input type="number" min="0" step="any" @bind="grant.UploadMb" />
+                                    </label>
+
+                                    <label class="field">
+                                        <span class="field__label">Largest single upload (MB)</span>
+                                        <input type="number" min="0" step="any" @bind="grant.MaxFileMb" />
+                                    </label>
+                                </div>
+                            }
+                        </div>
+                    }
+                </section>
+            </div>
+
+            @* Pinned, because the grants list is as long as there are groups and a Save button that
+               scrolled away with it would be a Save button nobody finds. *@
+            <div class="editor__actions">
+                <button type="button" class="action action--primary" disabled="@this.busy" @onclick="this.Save">
+                    @(this.IsNew ? "Publish this folder" : "Save changes")
+                </button>
+                <button type="button" class="action" @onclick="this.Cancel">Cancel</button>
+            </div>
+        </div>
+    }
+</AdminScreen>
+
+@code {
+    const long BytesPerMb = 1024L * 1024L;
+
+    static readonly QuotaWindow[] Windows =
+        [QuotaWindow.None, QuotaWindow.Daily, QuotaWindow.Weekly, QuotaWindow.Monthly, QuotaWindow.Total];
+
+    ShareDraft? draft;
+    bool busy;
+    string? error;
+
+    /// <summary>The share being edited. Absent on <c>/shares/new</c>.</summary>
+    [Parameter] public string? Id { get; set; }
+
+    bool IsNew => String.IsNullOrEmpty(this.Id);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Re-read on every navigation: /shares/new and /shares/{id} are the same component, so
+        // arriving at one from the other has to replace the draft rather than keep the old one.
+        this.error = null;
+
+        try
+        {
+            // Every group gets a row, granted or not - an editor that only listed the groups already
+            // granted would give no way to add the others. For an existing share the server has
+            // already merged the two; for a new one the group list is the whole answer.
+            var detail = this.IsNew ? null : await this.Admin.GetShare(this.Id!);
+            var share = detail?.Share;
+
+            var rows = detail is null
+                ? (await this.Admin.GetRoles())
+                    .Select(r => new GrantInfo(r.Id, r.Name, FolderPermissions.None, QuotaWindow.None, null, QuotaWindow.None, null, null))
+                    .ToList()
+                : detail.Grants.ToList();
+
+            this.draft = new ShareDraft
+            {
+                Id = share?.Id,
+                Name = share?.Name ?? "",
+                PhysicalPath = share?.PhysicalPath ?? "",
+                Description = share?.Description,
+                IsEnabled = share?.IsEnabled ?? true,
+                Grants = rows.Select(g => new GrantDraft
+                {
+                    RoleId = g.RoleId,
+                    RoleName = g.RoleName,
+                    Permissions = g.Permissions,
+                    DownloadWindow = g.DownloadWindow,
+                    DownloadMb = ToMb(g.DownloadBytes),
+                    UploadWindow = g.UploadWindow,
+                    UploadMb = ToMb(g.UploadBytes),
+                    MaxFileMb = ToMb(g.MaxUploadFileSizeBytes)
+                }).ToList()
+            };
+        }
+        catch (ApiException ex)
+        {
+            this.error = ex.Message;
+        }
+    }
+
+    async Task Save()
+    {
+        if (this.draft is not { } draft)
+            return;
+
+        this.busy = true;
+        this.error = null;
+
+        try
+        {
+            await this.Admin.SaveShare(new SaveShareRequest(
+                draft.Id,
+                draft.Name,
+                draft.PhysicalPath,
+                draft.Description,
+                draft.IsEnabled,
+
+                // The picker only offers folders that are there, and makes one on the spot when it
+                // is not - so a path that has gone missing between choosing and saving is news, and
+                // should be reported rather than quietly recreated.
+                false,
+
+                draft.Grants.Select(g => new GrantInfo(
+                    g.RoleId,
+                    g.RoleName,
+                    g.Permissions,
+                    g.DownloadWindow,
+                    ToBytes(g.DownloadMb),
+                    g.UploadWindow,
+                    ToBytes(g.UploadMb),
+                    ToBytes(g.MaxFileMb)
+                )).ToList()
+            ));
+
+            // Publishing changes what the signed-in user can see, so the workspace is re-read before
+            // the list comes back into view.
+            await this.State.LoadFolders();
+            await this.Toasts.SuccessAsync("Saved.");
+            this.Nav.NavigateTo("shares");
+        }
+        catch (ApiException ex)
+        {
+            this.error = ex.Message;
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    void Cancel() => this.Nav.NavigateTo("shares");
+
+    static void SetPermission(GrantDraft grant, FolderPermissions flag, bool on)
+        => grant.Permissions = on ? grant.Permissions | flag : grant.Permissions & ~flag;
+
+    static double? ToMb(long? bytes) => bytes is null ? null : Math.Round(bytes.Value / (double)BytesPerMb, 2);
+    static long? ToBytes(double? mb) => mb is > 0 ? (long)(mb.Value * BytesPerMb) : null;
+
+    static string WindowText(QuotaWindow window) => window switch
+    {
+        QuotaWindow.Daily => "Per day",
+        QuotaWindow.Weekly => "Per week",
+        QuotaWindow.Monthly => "Per month",
+        QuotaWindow.Total => "Total, never resets",
+        _ => "No quota"
+    };
+
+    /// <summary>
+    /// Editable copies. Quotas are entered in megabytes because that is the unit people reason in;
+    /// what is stored is bytes.
+    /// </summary>
+    class ShareDraft
+    {
+        public string? Id;
+        public string Name = "";
+        public string PhysicalPath = "";
+        public string? Description;
+        public bool IsEnabled = true;
+        public List<GrantDraft> Grants = [];
+    }
+
+    class GrantDraft
+    {
+        public string RoleId = "";
+        public string RoleName = "";
+        public FolderPermissions Permissions;
+        public QuotaWindow DownloadWindow;
+        public double? DownloadMb;
+        public QuotaWindow UploadWindow;
+        public double? UploadMb;
+        public double? MaxFileMb;
+    }
+}

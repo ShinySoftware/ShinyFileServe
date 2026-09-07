@@ -307,8 +307,27 @@ public record ActivityQuery(
     DateTimeOffset? FromUtc = null,
     DateTimeOffset? ToUtc = null,
     int Page = 1,
-    int PageSize = 50
+    int PageSize = 50,
+
+    /// <summary>
+    /// Which column orders the result: when, who, what, address or size. Sorted on the server
+    /// because the page is fetched from the server - a column that reordered the sixty rows in
+    /// hand would be claiming to have sorted forty thousand.
+    /// </summary>
+    ActivitySort SortBy = ActivitySort.When,
+
+    bool Descending = true
 );
+
+/// <summary>The columns of the log worth ordering by. Anything else is a detail, not a key.</summary>
+public enum ActivitySort
+{
+    When,
+    Who,
+    What,
+    Address,
+    Size
+}
 
 // ---------------------------------------------------------------------------
 // Administration (server, tunnel, settings) - all admin-only

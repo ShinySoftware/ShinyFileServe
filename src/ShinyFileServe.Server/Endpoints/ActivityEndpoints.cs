@@ -22,10 +22,12 @@ public class ActivityEndpoints(IActivityLogger activity, IHostNameResolver hosts
         DateTimeOffset? toUtc = null,
         int page = 1,
         int pageSize = 50,
+        ActivitySort sortBy = ActivitySort.When,
+        bool descending = true,
         CancellationToken ct = default)
     {
         var result = await activity.Query(
-            new ActivityQuery(userId, folderId, action, fromUtc, toUtc, page, pageSize),
+            new ActivityQuery(userId, folderId, action, fromUtc, toUtc, page, pageSize, sortBy, descending),
             ct
         );
 

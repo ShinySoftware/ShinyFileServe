@@ -1,12 +1,11 @@
 @*
-    The audit trail, for administrators. The same query the desktop app runs, so the two can never
-    disagree about what happened - and the filters are the questions anyone actually asks of a log:
-    who, what, where and when.
+    The audit trail, for administrators. The filters above the grid are the questions anyone actually
+    asks of a log - who, what, where and when - and they are answered by the store rather than by
+    whatever rows happen to be in hand.
 
-    A plain table rather than a DataGrid. The grid's sorting, filtering and paging are all client
-    side, over whatever rows it was handed; this log is filtered and paged on the server, over a
-    store that will hold months of entries. A column header that reordered sixty rows out of forty
-    thousand would be telling the reader something untrue.
+    The grid is Shiny's DataGrid driven by ServerData, so sorting and paging are the server's job
+    too: a header that reordered sixty rows out of forty thousand would be telling the reader
+    something untrue. Only the columns the store can actually order by offer to sort.
 *@
 @implements IDisposable
 @inject FileServeApi Api
@@ -58,97 +57,98 @@
             <input type="date" @bind="this.to" @bind:after="this.Restart" />
         </label>
 
-        <label class="log__filter">
-            <span class="field__label">Rows</span>
-            <select @bind="this.pageSize" @bind:after="this.Restart">
-                @foreach (var size in PageSizes)
-                {
-                    <option value="@size">@size</option>
-                }
-            </select>
-        </label>
-
         <button type="button" class="action" disabled="@(!this.HasFilters)" @onclick="this.Clear">Clear filters</button>
     </div>
 
-    @* The table keeps its rows while the next page is fetched and the scroll box keeps its height,
-       so paging moves the contents rather than the furniture. *@
-    <div class="log__panel @(this.busy ? "is-busy" : "")">
-        <div class="log__scroll">
-            <table class="log__table">
-                <thead>
-                    <tr>
-                        <th class="log__col-when">When</th>
-                        <th class="log__col-who">Who</th>
-                        <th class="log__col-what">What</th>
-                        <th class="log__col-where">Where</th>
-                        <th class="log__col-addr">Address</th>
-                        <th class="log__col-host">Machine</th>
-                        <th class="log__right log__col-size">Size</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var entry in this.page.Items)
-                    {
-                        <tr class="@(entry.Success ? "" : "log__row--failed")">
-                            <td class="num log__when" title="@entry.TimestampUtc.UtcDateTime.ToString("u")">@Stamp(entry.TimestampUtc)</td>
-                            <td class="log__who">@entry.Username</td>
-                            <td>
-                                <span class="log__what">@entry.Action.ToDisplay()</span>
-                                @if (entry.Detail is { Length: > 0 } detail)
-                                {
-                                    <span class="log__detail">@detail</span>
-                                }
-                            </td>
-                            <td class="log__where" title="@Where(entry)">@(Where(entry) is { Length: > 0 } where ? where : Nothing)</td>
-                            <td class="num log__addr">@(entry.IpAddress is { Length: > 0 } ip ? ip : Nothing)</td>
-                            <td class="num log__host" title="@entry.HostName">@(entry.HostName is { Length: > 0 } host ? host : Nothing)</td>
-                            <td class="num log__right">@(entry.Bytes > 0 ? Format.Bytes(entry.Bytes) : "")</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+    <div class="log__grid">
+        @* Keyed on the filters. The grid has no public way to be told its query changed, and a
+           filter change means page one anyway - so the grid is rebuilt rather than nudged. *@
+        <DataGrid TItem="ActivityEntryInfo"
+                  @key="this.FilterKey"
+                  ServerData="this.LoadPage"
+                  SortMode="DataGridSortMode.Single"
+                  RowsPerPage="50"
+                  FixedHeader="true"
+                  Height="100%"
+                  Dense="true"
+                  Hover="true"
+                  Striped="true"
+                  NoRecordsText="Nothing matches those filters.">
+            <Columns>
+                <TemplateColumn TItem="ActivityEntryInfo" Title="When" Width="170px" Sortable="true">
+                    <CellTemplate>
+                        @* Local time to the second: a log is read by lining events up against each
+                           other, and two downloads in the same minute are otherwise the same row
+                           twice. The tooltip carries the UTC instant, which is what is stored. *@
+                        <span class="num" title="@context.Item.TimestampUtc.UtcDateTime.ToString("u")">
+                            @Stamp(context.Item.TimestampUtc)
+                        </span>
+                    </CellTemplate>
+                </TemplateColumn>
 
-            @if (this.page.Items.Count == 0)
-            {
-                <p class="log__none">@(this.busy ? "Reading the log…" : "Nothing matches those filters.")</p>
-            }
-        </div>
+                <PropertyColumn TItem="ActivityEntryInfo" TProperty="string"
+                                Property="x => x.Username" Title="Who" Width="130px" />
 
-        <div class="log__pager">
-            <button type="button" class="action" disabled="@(this.busy || this.page.Page <= 1)"
-                    @onclick="() => this.Load(1)" title="The newest entries">Newest</button>
-            <button type="button" class="action" disabled="@(this.busy || this.page.Page <= 1)"
-                    @onclick="() => this.Load(this.page.Page - 1)">Newer</button>
-            <button type="button" class="action" disabled="@(this.busy || !this.HasMore)"
-                    @onclick="() => this.Load(this.page.Page + 1)">Older</button>
+                <TemplateColumn TItem="ActivityEntryInfo" Title="What" Sortable="true">
+                    <CellTemplate>
+                        <span class="log__what @(context.Item.Success ? "" : "log__what--failed")">
+                            @context.Item.Action.ToDisplay()
+                        </span>
+                        @if (context.Item.Detail is { Length: > 0 } detail)
+                        {
+                            <span class="log__detail">@detail</span>
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
 
-            <span class="log__spacer"></span>
-            <span class="admin__hint">@this.RangeText</span>
-        </div>
+                <TemplateColumn TItem="ActivityEntryInfo" Title="Where" Sortable="false">
+                    <CellTemplate>
+                        <span class="log__where" title="@Where(context.Item)">
+                            @(Where(context.Item) is { Length: > 0 } where ? where : Nothing)
+                        </span>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn TItem="ActivityEntryInfo" Title="Address" Width="140px" Sortable="true">
+                    <CellTemplate>
+                        <span class="num">@(context.Item.IpAddress is { Length: > 0 } ip ? ip : Nothing)</span>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn TItem="ActivityEntryInfo" Title="Machine" Width="170px" Sortable="false">
+                    <CellTemplate>
+                        <span class="num log__host" title="@context.Item.HostName">
+                            @(context.Item.HostName is { Length: > 0 } host ? host : Nothing)
+                        </span>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn TItem="ActivityEntryInfo" Title="Size" Width="90px" Sortable="true">
+                    <CellTemplate>
+                        <span class="num log__right">@(context.Item.Bytes > 0 ? Format.Bytes(context.Item.Bytes) : "")</span>
+                    </CellTemplate>
+                </TemplateColumn>
+            </Columns>
+            <PagerContent>
+                @* The sizes the pager offers have to include the one the grid starts on, or its box shows a
+                   number the grid is not using. A log is read by scanning, so they start where scanning does. *@
+                <DataGridPager TItem="ActivityEntryInfo" PageSizeOptions="new[] { 25, 50, 100, 250 }" />
+            </PagerContent>
+        </DataGrid>
     </div>
 </div>
 
 @code {
-    /// <summary>
-    /// A log is read by scanning, so the default page is long enough to scan and the choices go up
-    /// from there. The server clamps anything past 500 regardless.
-    /// </summary>
-    static readonly int[] PageSizes = [60, 120, 250];
-
     /// <summary>What an empty cell says. A blank one reads as a rendering fault.</summary>
     const string Nothing = "—";
 
-    PagedResponse<ActivityEntryInfo> page = new([], 0, 1, 60);
     List<UserSummary> users = [];
     List<ShareInfo> shares = [];
     string userId = "";
     string action = "";
     string folderId = "";
-    int pageSize = 60;
     DateTime? from;
     DateTime? to;
-    bool busy;
     CancellationTokenSource? inflight;
 
     protected override async Task OnInitializedAsync()
@@ -170,8 +170,6 @@
         catch (ApiException)
         {
         }
-
-        await this.Load(1);
     }
 
     public void Dispose()
@@ -180,28 +178,17 @@
         this.inflight?.Dispose();
     }
 
-    bool HasMore => this.page.Page * this.page.PageSize < this.page.Total;
-
     bool HasFilters => this.userId.Length > 0
         || this.action.Length > 0
         || this.folderId.Length > 0
         || this.from is not null
         || this.to is not null;
 
-    string RangeText => this.page.Total == 0
-        ? "Nothing yet"
-        : $"{(this.page.Page - 1) * this.page.PageSize + 1}–{Math.Min(this.page.Page * this.page.PageSize, this.page.Total)} of {this.page.Total}";
-
-    /// <summary>
-    /// Local time to the second. A log is read by lining events up against each other, and two
-    /// downloads in the same minute are indistinguishable without the seconds. The cell's tooltip
-    /// carries the UTC instant, which is what the store actually holds.
-    /// </summary>
     static string Stamp(DateTimeOffset value) => value.ToLocalTime().ToString("d MMM HH:mm:ss");
 
     /// <summary>
     /// The share and path the action touched. Sign-ins and refusals have neither, which is why the
-    /// address is its own column now rather than something this falls back to.
+    /// address is its own column rather than something this falls back to.
     /// </summary>
     static string Where(ActivityEntryInfo entry)
     {
@@ -211,10 +198,21 @@
         return String.IsNullOrEmpty(entry.Path) ? entry.FolderName : $"{entry.FolderName}/{entry.Path}";
     }
 
-    /// <summary>Any change to a filter means page one - page seven of the old query is not page seven of the new one.</summary>
-    Task Restart() => this.Load(1);
+    /// <summary>
+    /// Changes whenever a filter does, which is what rebuilds the grid. Page seven of the old query
+    /// is not page seven of the new one, so starting over is the correct answer rather than a
+    /// shortcut around one.
+    /// </summary>
+    string FilterKey => $"{this.userId}|{this.action}|{this.folderId}|{this.from:yyyy-MM-dd}|{this.to:yyyy-MM-dd}";
 
-    async Task Load(int target)
+    void Restart() => this.StateHasChanged();
+
+    /// <summary>
+    /// The grid asks for a page; the server answers it. Sorting arrives here as the column's own
+    /// <see cref="ActivitySort"/> rather than a property name, so a column that cannot be ordered by
+    /// cannot be asked for by mistake.
+    /// </summary>
+    async Task<GridData<ActivityEntryInfo>> LoadPage(GridState state)
     {
         // A filter changed while the last read was still out. Whichever answer came back last would
         // otherwise win, and it would not necessarily be the one that was asked for last.
@@ -224,10 +222,11 @@
         var cts = new CancellationTokenSource();
         this.inflight = cts;
 
-        this.busy = true;
+        var sort = state.SortDefinitions.FirstOrDefault();
+
         try
         {
-            this.page = await this.Api.GetActivity(new ActivityQuery(
+            var page = await this.Api.GetActivity(new ActivityQuery(
                 UserId: String.IsNullOrEmpty(this.userId) ? null : this.userId,
                 FolderId: String.IsNullOrEmpty(this.folderId) ? null : this.folderId,
                 Action: String.IsNullOrEmpty(this.action) ? null : (ActivityAction)Int32.Parse(this.action),
@@ -236,24 +235,48 @@
                 // A "to" date means the end of that day, not its first instant - otherwise picking
                 // today for both ends returns nothing, which reads as a broken filter.
                 ToUtc: this.to is { } t ? new DateTimeOffset(t.Date.AddDays(1).AddTicks(-1), TimeSpan.Zero) : null,
-                Page: Math.Max(1, target),
-                PageSize: this.pageSize
+
+                // The grid counts pages from zero; the API from one.
+                Page: state.Page + 1,
+                PageSize: state.PageSize,
+                SortBy: SortKey(sort),
+                Descending: sort is null || sort.Direction == DataGridSortDirection.Descending
             ), cts.Token);
+
+            return new GridData<ActivityEntryInfo>(page.Items, page.Total);
         }
         catch (OperationCanceledException)
         {
-            return;
+            return new GridData<ActivityEntryInfo>([], 0);
         }
         catch (ApiException ex)
         {
             await this.Toasts.DangerAsync(ex.Message);
+            return new GridData<ActivityEntryInfo>([], 0);
         }
         finally
         {
             if (this.inflight == cts)
-                this.busy = false;
+            {
+                this.inflight = null;
+                cts.Dispose();
+            }
         }
     }
+
+    /// <summary>
+    /// Which stored column the grid's sort means. Anything unrecognised falls back to time, which is
+    /// the order a log is read in and the only key nothing ties on.
+    /// </summary>
+    static ActivitySort SortKey(SortDefinition? sort) => sort?.ColumnId switch
+    {
+        // A column identifies itself by its title, and a property column by its property name.
+        "Who" or nameof(ActivityEntryInfo.Username) => ActivitySort.Who,
+        "What" => ActivitySort.What,
+        "Address" => ActivitySort.Address,
+        "Size" => ActivitySort.Size,
+        _ => ActivitySort.When
+    };
 
     async Task Clear()
     {
@@ -262,6 +285,6 @@
         this.folderId = "";
         this.from = null;
         this.to = null;
-        await this.Load(1);
+        this.Restart();
     }
 }
