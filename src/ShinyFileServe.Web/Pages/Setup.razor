@@ -1,0 +1,118 @@
+@page "/setup"
+@inject FileServeApi Api
+@inject WorkspaceState State
+@inject NavigationManager Nav
+
+<PageTitle>Set up FileServe</PageTitle>
+
+<div class="signin">
+    <aside class="signin__aside">
+        <span class="chrome__mark">
+            <span class="chrome__glyph" aria-hidden="true"></span>
+            FileServe
+        </span>
+
+        <p class="signin__lede">Nobody has an account yet. The first one is yours.</p>
+
+        <p class="signin__note">
+            This account administers the server: every share, the activity log, and the settings.
+            You can rename it and change its password later, but it cannot be deleted — a server
+            with no way back into its own settings is a server nobody can fix.
+        </p>
+    </aside>
+
+    <div class="signin__form">
+        <form class="signin__card" @onsubmit="this.Submit" @onsubmit:preventDefault>
+            <div>
+                <h1>Create the administrator</h1>
+                <p style="color:var(--ink-2); margin-top:4px;">You will be signed in straight away.</p>
+            </div>
+
+            @if (this.error is { Length: > 0 })
+            {
+                <p class="form-error" role="alert">@this.error</p>
+            }
+
+            <label class="field">
+                <span class="field__label">Your name</span>
+                <input type="text" autocomplete="name" autofocus @bind="this.displayName" @bind:event="oninput" />
+            </label>
+
+            <label class="field">
+                <span class="field__label">Username</span>
+                <input type="text" autocomplete="username" @bind="this.username" @bind:event="oninput" />
+            </label>
+
+            <label class="field">
+                <span class="field__label">Password</span>
+                <input type="password" autocomplete="new-password" @bind="this.password" @bind:event="oninput" />
+                <span class="admin__hint">At least 8 characters. There is no reset link — write it down.</span>
+            </label>
+
+            <label class="field">
+                <span class="field__label">Password again</span>
+                <input type="password" autocomplete="new-password" @bind="this.confirm" @bind:event="oninput" />
+            </label>
+
+            <button type="submit" class="action action--primary" style="justify-content:center; padding:9px;"
+                    disabled="@(this.busy || !this.CanSubmit)">
+                @(this.busy ? "Creating…" : "Create account")
+            </button>
+        </form>
+    </div>
+</div>
+
+@code {
+    string displayName = "";
+    string username = "";
+    string password = "";
+    string confirm = "";
+    bool busy;
+    string? error;
+
+    bool CanSubmit => !String.IsNullOrWhiteSpace(this.username) && this.password.Length >= 8;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Someone else may have set the server up between the page loading and this running.
+        try
+        {
+            if (!(await this.Api.GetSessionPolicy()).NeedsSetup)
+                this.Nav.NavigateTo("signin");
+        }
+        catch (ApiException)
+        {
+            // The server will refuse the submit too, with a message worth showing.
+        }
+    }
+
+    async Task Submit()
+    {
+        if (this.busy || !this.CanSubmit)
+            return;
+
+        if (this.password != this.confirm)
+        {
+            this.error = "Those two passwords do not match.";
+            return;
+        }
+
+        this.busy = true;
+        this.error = null;
+
+        try
+        {
+            var user = await this.Api.CompleteSetup(this.username.Trim(), this.password, this.displayName.Trim());
+            this.State.SetUser(user);
+            this.Nav.NavigateTo("");
+        }
+        catch (ApiException ex)
+        {
+            this.error = ex.Message;
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+}

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!--
+      There is no official -linux TFM, so the GTK4 backend from dotnet/maui-labs is consumed by a
+      plain net10.0 head that project-references the shared UI. That is the whole reason
+      ShinyFileServe.App targets net10.0 rather than the platform TFMs.
+    -->
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <UseMaui>true</UseMaui>
+    <RootNamespace>ShinyFileServe.Linux</RootNamespace>
+
+    <ApplicationTitle>FileServe</ApplicationTitle>
+    <ApplicationId>net.shinylib.fileserve</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" />
+    <PackageReference Include="Microsoft.Maui.Platforms.Linux.Gtk4" />
+    <PackageReference Include="Microsoft.Maui.Platforms.Linux.Gtk4.Essentials" />
+    <PackageReference Include="Shiny.Maui.Controls.Desktop" />
+    <!-- Notifications on Linux are the freedesktop D-Bus service; the implementation ships separately. -->
+    <PackageReference Include="Shiny.Notifications.Linux" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ShinyFileServe.App\ShinyFileServe.App.csproj" />
+  </ItemGroup>
+</Project>

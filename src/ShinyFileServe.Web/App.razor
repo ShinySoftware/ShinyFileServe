@@ -1,0 +1,19 @@
+<Router AppAssembly="@typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="@typeof(MainLayout)">
+            <div class="empty-state">
+                <h1>No such page</h1>
+                <p>The address you followed does not exist here.</p>
+                <a href="">Back to your files</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>
+
+<FileDropHost />
+<ToastHost />
+<DialogHost />

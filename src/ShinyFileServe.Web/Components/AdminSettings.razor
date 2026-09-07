@@ -1,0 +1,317 @@
+@*
+    Server administration from the browser. Same surface the desktop app drives, so the two can
+    never show different answers. Only rendered for an administrator - and the endpoints behind it
+    are role-gated regardless, so hiding this is a courtesy, not the security boundary.
+*@
+@inject FileServeApi Api
+@inject IToastService Toasts
+
+<ModalView IsOpen="this.IsOpen" IsOpenChanged="this.SetOpen"
+           Title="Server settings"
+           Subtitle="How this machine is reached"
+           Size="ModalSize.Medium"
+           CloseOnBackdropClick="true"
+           Opened="this.Refresh">
+
+    @if (this.status is null)
+    {
+        <p class="admin__loading">Reading the server…</p>
+    }
+    else
+    {
+        <div class="admin">
+
+            <section class="admin__block">
+                <div class="admin__head">
+                    <span class="admin__dot @(this.status.IsServing ? "is-on" : "")"></span>
+                    <div>
+                        <h3>@(this.status.IsServing ? "Serving" : "Stopped")</h3>
+                        <p class="admin__sub">
+                            @(this.status.ActiveConnections == 1
+                                ? "1 open connection"
+                                : $"{this.status.ActiveConnections} open connections")
+                        </p>
+                    </div>
+                    <button type="button" class="action" disabled="@this.busy" @onclick="this.ToggleServer">
+                        @(this.status.IsServing ? "Stop" : "Start")
+                    </button>
+                </div>
+
+                @if (this.status.LocalUrls.Count > 0)
+                {
+                    <ul class="admin__urls">
+                        @foreach (var url in this.status.LocalUrls)
+                        {
+                            <li class="num">@url</li>
+                        }
+                    </ul>
+                }
+            </section>
+
+            <section class="admin__block">
+                <div class="admin__head">
+                    <span class="admin__dot @(this.status.Tunnel == TunnelStatus.Open ? "is-on" : "")"></span>
+                    <div>
+                        <h3>@this.TunnelText</h3>
+                        <p class="admin__sub">A public address that reaches this machine from anywhere.</p>
+                    </div>
+                    <button type="button" class="action" disabled="@(this.busy || !this.status.IsServing)"
+                            @onclick="this.ToggleTunnel">
+                        @(this.status.Tunnel is TunnelStatus.Open or TunnelStatus.Connecting ? "Close" : "Open")
+                    </button>
+                </div>
+
+                @if (this.status.TunnelUrl is { Length: > 0 } tunnelUrl)
+                {
+                    <ul class="admin__urls"><li class="num">@tunnelUrl</li></ul>
+                }
+                @if (this.status.Tunnel == TunnelStatus.Failed && this.status.TunnelError is { Length: > 0 } tunnelError)
+                {
+                    <p class="form-error">@tunnelError</p>
+                }
+            </section>
+
+            <section class="admin__block">
+                <h3>Configuration</h3>
+
+                <label class="field">
+                    <span class="field__label">Port</span>
+                    <input type="number" min="1" max="65535" @bind="this.port" />
+                    <span class="admin__hint">The server always listens on every network interface on this machine.</span>
+                </label>
+
+                <label class="field">
+                    <span class="field__label">Pinggy access token</span>
+                    <input type="password" placeholder="@this.TokenPlaceholder" @bind="this.token" @bind:event="oninput" />
+                    <span class="admin__hint">@this.TokenHint</span>
+                </label>
+
+                <label class="field--check">
+                    <input type="checkbox" @bind="this.autoStartServer" />
+                    Start serving when the app opens
+                </label>
+
+                <label class="field--check">
+                    <input type="checkbox" @bind="this.autoStartTunnel" />
+                    Open the tunnel whenever the server starts
+                </label>
+
+            </section>
+
+            <section class="admin__block">
+                <h3>Sessions</h3>
+
+                <label class="field--check">
+                    <input type="checkbox" @bind="this.allowRememberMe" />
+                    Offer "keep me signed in" on the sign-in page
+                </label>
+
+                @if (this.allowRememberMe)
+                {
+                    <label class="field">
+                        <span class="field__label">A remembered session lasts</span>
+                        <input type="number" min="1" max="3650" @bind="this.rememberMeDays" />
+                        <span class="admin__hint">Days. Without this, every session ends when the browser closes.</span>
+                    </label>
+                }
+
+                <label class="field">
+                    <span class="field__label">Sign out after</span>
+                    <input type="number" min="0" max="1440" @bind="this.idleLogoffMinutes" />
+                    <span class="admin__hint">
+                        Minutes with no keyboard or mouse. 0 never signs anyone out for being idle.
+                    </span>
+                </label>
+            </section>
+
+            <section class="admin__block">
+                <h3>Notifications</h3>
+
+                <label class="field--check">
+                    <input type="checkbox" @bind="this.notificationsEnabled" />
+                    Show a desktop notification on the server machine
+                </label>
+
+                @if (this.notificationsEnabled)
+                {
+                    <div class="admin__checks">
+                        @foreach (var action in ActivityActions.Notifiable)
+                        {
+                            var selected = this.notifyOn.Contains(action);
+                            <label class="field--check">
+                                <input type="checkbox" checked="@selected"
+                                       @onchange="e => this.ToggleNotify(action, (bool?)e.Value == true)" />
+                                @action.ToDisplay()
+                            </label>
+                        }
+                    </div>
+                }
+
+                <span class="admin__hint">
+                    Notifications land on the machine running the server, not here. Everything is written
+                    to the activity log either way.
+                </span>
+
+                <div class="admin__actions">
+                    <button type="button" class="action action--primary" disabled="@this.busy" @onclick="this.Save">
+                        Save settings
+                    </button>
+                    @if (this.status.Config.HasPinggyToken)
+                    {
+                        <button type="button" class="action" disabled="@this.busy" @onclick="this.ClearToken">
+                            Clear token
+                        </button>
+                    }
+                </div>
+            </section>
+        </div>
+    }
+</ModalView>
+
+@code {
+    ServerStatus? status;
+    int port = 8080;
+    string token = "";
+    bool autoStartServer;
+    bool autoStartTunnel;
+    bool allowRememberMe = true;
+    int rememberMeDays = 30;
+    int idleLogoffMinutes;
+    bool notificationsEnabled;
+    HashSet<ActivityAction> notifyOn = [];
+    bool busy;
+
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+
+    /// <summary>
+    /// Passes the modal's own close back up to whoever opened it. Binding the inner ModalView
+    /// straight to this component's IsOpen would write the parameter and stop there, leaving the
+    /// parent still believing the modal is open - so the next click would set true over true,
+    /// change nothing, and the modal would never come back.
+    /// </summary>
+    async Task SetOpen(bool value)
+    {
+        if (this.IsOpen == value)
+            return;
+
+        this.IsOpen = value;
+        await this.IsOpenChanged.InvokeAsync(value);
+    }
+
+    string TunnelText => this.status?.Tunnel switch
+    {
+        TunnelStatus.Open => "Open to the internet",
+        TunnelStatus.Connecting => "Opening…",
+        TunnelStatus.Reconnecting => "Reconnecting…",
+        TunnelStatus.Failed => "Tunnel failed",
+        _ => "Tunnel closed"
+    };
+
+    string TokenPlaceholder => this.status?.Config.HasPinggyToken == true
+        ? "A token is stored"
+        : "None stored";
+
+    string TokenHint => this.status?.Config.HasPinggyToken == true
+        ? "Type a new token to replace the stored one, or leave it blank to keep it."
+        : "Without a token, pinggy gives you an anonymous tunnel: it expires after an hour and takes a new address each time it reconnects.";
+
+    async Task Refresh()
+    {
+        try
+        {
+            this.status = await this.Api.GetServerStatus();
+            this.port = this.status.Config.Port;
+            this.autoStartServer = this.status.Config.AutoStartServer;
+            this.autoStartTunnel = this.status.Config.AutoStartTunnel;
+            this.allowRememberMe = this.status.Config.AllowRememberMe;
+            this.rememberMeDays = this.status.Config.RememberMeDays;
+            this.idleLogoffMinutes = this.status.Config.IdleLogoffMinutes;
+            this.notificationsEnabled = this.status.Config.NotificationsEnabled;
+            this.notifyOn = [.. this.status.Config.NotifyOn];
+            this.token = "";
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    async Task Run(Func<Task> work)
+    {
+        this.busy = true;
+        try
+        {
+            await work();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    Task ToggleServer() => this.Run(async () =>
+    {
+        var starting = this.status?.IsServing != true;
+        var next = await this.Api.ControlServer(starting);
+
+        if (next is not null)
+        {
+            this.status = next;
+            return;
+        }
+
+        // Stop answers 202 and then closes the socket this page is talking to. Say so plainly
+        // rather than leaving a spinner against a server that is no longer there.
+        await this.Toasts.WarningAsync("Stopping. This page will lose its connection.");
+        this.status = this.status! with { IsServing = false, Tunnel = TunnelStatus.Off, TunnelUrl = null };
+    });
+
+    Task ToggleTunnel() => this.Run(async () =>
+    {
+        var opening = this.status?.Tunnel is not (TunnelStatus.Open or TunnelStatus.Connecting);
+        this.status = await this.Api.ControlTunnel(opening);
+
+        if (opening && this.status.Tunnel == TunnelStatus.Open)
+            await this.Toasts.SuccessAsync($"Tunnel open at {this.status.TunnelUrl}");
+    });
+
+    void ToggleNotify(ActivityAction action, bool selected)
+    {
+        if (selected)
+            this.notifyOn.Add(action);
+        else
+            this.notifyOn.Remove(action);
+    }
+
+    UpdateServerConfig Build(string? token) => new(
+        this.port,
+        this.autoStartServer,
+        this.autoStartTunnel,
+        token,
+        this.notificationsEnabled,
+        [.. this.notifyOn],
+        this.allowRememberMe,
+        this.rememberMeDays,
+        this.idleLogoffMinutes
+    );
+
+    Task Save() => this.Run(async () =>
+    {
+        // Null leaves the stored token alone; the box is blank unless the admin typed a new one.
+        this.status = await this.Api.SaveServerConfig(this.Build(this.token.Length == 0 ? null : this.token));
+        this.token = "";
+        await this.Toasts.SuccessAsync("Saved.");
+    });
+
+    Task ClearToken() => this.Run(async () =>
+    {
+        this.status = await this.Api.SaveServerConfig(this.Build(""));
+        this.token = "";
+        await this.Toasts.SuccessAsync("Token cleared. The tunnel will be anonymous.");
+    });
+}

@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ShinyFileServe.Shared/ShinyFileServe.Shared.csproj" />
+    <Project Path="src/ShinyFileServe.Core/ShinyFileServe.Core.csproj" />
+    <Project Path="src/ShinyFileServe.Server/ShinyFileServe.Server.csproj" />
+    <Project Path="src/ShinyFileServe.Web/ShinyFileServe.Web.csproj" />
+    <Project Path="src/ShinyFileServe.App/ShinyFileServe.App.csproj" />
+  </Folder>
+  <Folder Name="/heads/">
+    <Project Path="heads/ShinyFileServe.MacOS/ShinyFileServe.MacOS.csproj" />
+    <Project Path="heads/ShinyFileServe.Linux/ShinyFileServe.Linux.csproj" />
+    <Project Path="heads/ShinyFileServe.Windows/ShinyFileServe.Windows.csproj" />
+  </Folder>
+</Solution>

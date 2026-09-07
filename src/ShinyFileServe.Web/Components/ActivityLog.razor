@@ -1,0 +1,201 @@
+@*
+    The audit trail, for administrators. The same query the desktop app runs, so the two can never
+    disagree about what happened - and the filters are the three questions anyone actually asks of
+    a log: who, what, and when.
+*@
+@inject FileServeApi Api
+@inject IToastService Toasts
+
+<ModalView IsOpen="this.IsOpen" IsOpenChanged="this.SetOpen"
+           Title="Activity"
+           Subtitle="Every sign-in, transfer and refusal"
+           Size="ModalSize.Large"
+           CloseOnBackdropClick="true"
+           Opened="this.Reload">
+
+    <div class="log">
+        <div class="log__filters">
+            <label class="log__filter">
+                <span class="field__label">Who</span>
+                <select @bind="this.userId" @bind:after="this.Reload">
+                    <option value="">Everyone</option>
+                    @foreach (var user in this.users)
+                    {
+                        <option value="@user.Id">@user.DisplayName (@user.Username)</option>
+                    }
+                </select>
+            </label>
+
+            <label class="log__filter">
+                <span class="field__label">What</span>
+                <select @bind="this.action" @bind:after="this.Reload">
+                    <option value="">Everything</option>
+                    @foreach (var value in Enum.GetValues<ActivityAction>())
+                    {
+                        <option value="@((int)value)">@value.ToDisplay()</option>
+                    }
+                </select>
+            </label>
+
+            <label class="log__filter">
+                <span class="field__label">From</span>
+                <input type="date" @bind="this.from" @bind:after="this.Reload" />
+            </label>
+
+            <label class="log__filter">
+                <span class="field__label">To</span>
+                <input type="date" @bind="this.to" @bind:after="this.Reload" />
+            </label>
+
+            <button type="button" class="action" @onclick="this.Clear">Clear</button>
+        </div>
+
+        @if (this.busy)
+        {
+            <p class="admin__loading">Reading the log…</p>
+        }
+        else if (this.page.Items.Count == 0)
+        {
+            <p class="admin__loading">Nothing matches those filters.</p>
+        }
+        else
+        {
+            <div class="log__scroll">
+                <table class="log__table">
+                    <thead>
+                        <tr>
+                            <th>When</th>
+                            <th>Who</th>
+                            <th>What</th>
+                            <th>Where</th>
+                            <th class="log__right">Size</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entry in this.page.Items)
+                        {
+                            <tr class="@(entry.Success ? "" : "log__row--failed")">
+                                <td class="num">@Format.When(entry.TimestampUtc)</td>
+                                <td>@entry.Username</td>
+                                <td>
+                                    <span class="log__what">@entry.Action.ToDisplay()</span>
+                                    @if (entry.Detail is { Length: > 0 } detail)
+                                    {
+                                        <span class="log__detail">@detail</span>
+                                    }
+                                </td>
+                                <td class="num log__where">@Where(entry)</td>
+                                <td class="num log__right">@(entry.Bytes > 0 ? Format.Bytes(entry.Bytes) : "")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="log__pager">
+                <button type="button" class="action" disabled="@(this.page.Page <= 1)"
+                        @onclick="() => this.Load(this.page.Page - 1)">Newer</button>
+                <button type="button" class="action" disabled="@(!this.HasMore)"
+                        @onclick="() => this.Load(this.page.Page + 1)">Older</button>
+                <span class="admin__hint">@this.RangeText</span>
+            </div>
+        }
+    </div>
+</ModalView>
+
+@code {
+    const int PageSize = 60;
+
+    PagedResponse<ActivityEntryInfo> page = new([], 0, 1, PageSize);
+    List<UserSummary> users = [];
+    string userId = "";
+    string action = "";
+    DateTime? from;
+    DateTime? to;
+    bool busy;
+
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+
+    /// <summary>
+    /// Passes the modal's own close back up to whoever opened it. Binding the inner ModalView
+    /// straight to this component's IsOpen would write the parameter and stop there, leaving the
+    /// parent still believing the modal is open - so the next click would set true over true,
+    /// change nothing, and the modal would never come back.
+    /// </summary>
+    async Task SetOpen(bool value)
+    {
+        if (this.IsOpen == value)
+            return;
+
+        this.IsOpen = value;
+        await this.IsOpenChanged.InvokeAsync(value);
+    }
+
+    bool HasMore => this.page.Page * this.page.PageSize < this.page.Total;
+
+    string RangeText => this.page.Total == 0
+        ? "Nothing yet"
+        : $"{(this.page.Page - 1) * this.page.PageSize + 1}–{Math.Min(this.page.Page * this.page.PageSize, this.page.Total)} of {this.page.Total}";
+
+    static string Where(ActivityEntryInfo entry)
+    {
+        if (entry.FolderName is null)
+            return entry.IpAddress ?? "";
+
+        return String.IsNullOrEmpty(entry.Path) ? entry.FolderName : $"{entry.FolderName}/{entry.Path}";
+    }
+
+    async Task Reload()
+    {
+        if (this.users.Count == 0)
+        {
+            try
+            {
+                this.users = await this.Api.GetUsers();
+            }
+            catch (ApiException)
+            {
+                // The "who" filter degrades to "everyone"; the log itself still reads.
+            }
+        }
+
+        await this.Load(1);
+    }
+
+    async Task Load(int target)
+    {
+        this.busy = true;
+        try
+        {
+            this.page = await this.Api.GetActivity(new ActivityQuery(
+                UserId: String.IsNullOrEmpty(this.userId) ? null : this.userId,
+                Action: String.IsNullOrEmpty(this.action) ? null : (ActivityAction)Int32.Parse(this.action),
+                FromUtc: this.from is { } f ? new DateTimeOffset(f.Date, TimeSpan.Zero) : null,
+
+                // A "to" date means the end of that day, not its first instant - otherwise picking
+                // today for both ends returns nothing, which reads as a broken filter.
+                ToUtc: this.to is { } t ? new DateTimeOffset(t.Date.AddDays(1).AddTicks(-1), TimeSpan.Zero) : null,
+                Page: Math.Max(1, target),
+                PageSize: PageSize
+            ));
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    async Task Clear()
+    {
+        this.userId = "";
+        this.action = "";
+        this.from = null;
+        this.to = null;
+        await this.Load(1);
+    }
+}

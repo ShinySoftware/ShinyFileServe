@@ -1,0 +1,126 @@
+@page "/signin"
+@inject FileServeApi Api
+@inject NavigationManager Nav
+@inject WorkspaceState State
+@inject NavigationManager Nav
+
+<PageTitle>Sign in · FileServe</PageTitle>
+
+<div class="signin">
+    <aside class="signin__aside">
+        <span class="chrome__mark">
+            <span class="chrome__glyph" aria-hidden="true"></span>
+            FileServe
+        </span>
+
+        <p class="signin__lede">Your files, on your own machine, with the rules written down.</p>
+
+        <p class="signin__note">
+            Every share you can reach spells out what you may do in it and how much room is left,
+            and every action is written to the log. Nothing to install — this page is the client.
+        </p>
+    </aside>
+
+    <div class="signin__form">
+        <form class="signin__card" @onsubmit="this.Submit" @onsubmit:preventDefault>
+            <div>
+                <h1>Sign in</h1>
+                <p style="color:var(--ink-2); margin-top:4px;">Use the account your administrator gave you.</p>
+            </div>
+
+            @if (this.error is { Length: > 0 })
+            {
+                <p class="form-error" role="alert">@this.error</p>
+            }
+            else if (this.signedOutForIdle)
+            {
+                <p class="form-note" role="status">You were signed out after a spell of inactivity.</p>
+            }
+
+            <label class="field">
+                <span class="field__label">Username</span>
+                <input type="text" autocomplete="username" autofocus @bind="this.username" @bind:event="oninput" />
+            </label>
+
+            <label class="field">
+                <span class="field__label">Password</span>
+                <input type="password" autocomplete="current-password" @bind="this.password" @bind:event="oninput" />
+            </label>
+
+            @if (this.policy.AllowRememberMe)
+            {
+                <label class="field--check">
+                    <input type="checkbox" @bind="this.remember" />
+                    Keep me signed in for @(this.policy.RememberMeDays == 1 ? "a day" : $"{this.policy.RememberMeDays} days")
+                </label>
+            }
+
+            <button type="submit" class="action action--primary" style="justify-content:center; padding:9px;"
+                    disabled="@(this.busy || String.IsNullOrWhiteSpace(this.username))">
+                @(this.busy ? "Signing in…" : "Sign in")
+            </button>
+        </form>
+    </div>
+</div>
+
+@code {
+    string username = "";
+    string password = "";
+    bool remember;
+    bool busy;
+    string? error;
+    SessionPolicy policy = new(false, false, 30, 0);
+    bool signedOutForIdle;
+
+    protected override async Task OnInitializedAsync()
+    {
+        this.signedOutForIdle = new Uri(this.Nav.Uri).Query.Contains("idle=1", StringComparison.Ordinal);
+
+        try
+        {
+            this.policy = await this.Api.GetSessionPolicy();
+
+            if (this.policy.NeedsSetup)
+            {
+                this.Nav.NavigateTo("setup");
+                return;
+            }
+        }
+        catch (ApiException)
+        {
+            // Falling back to "no remembering" is the safe half of this choice.
+        }
+
+        // A live cookie means the user reached this page by accident (a bookmark, a back button).
+        if (await this.Api.GetCurrentUser() is { } existing)
+        {
+            this.State.SetUser(existing);
+            this.Nav.NavigateTo("");
+        }
+    }
+
+    async Task Submit()
+    {
+        if (this.busy)
+            return;
+
+        this.busy = true;
+        this.error = null;
+
+        try
+        {
+            var user = await this.Api.SignIn(this.username.Trim(), this.password, this.remember);
+            this.State.SetUser(user);
+            this.Nav.NavigateTo("");
+        }
+        catch (ApiException ex)
+        {
+            this.error = ex.Message;
+            this.password = "";
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+}

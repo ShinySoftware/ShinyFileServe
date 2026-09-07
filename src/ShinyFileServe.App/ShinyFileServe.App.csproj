@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!--
+      One net10.0 target serves all three heads. The macOS (net10.0-macos) and Windows
+      (net10.0-windows...) heads reference this happily, and the Linux GTK4 head is itself plain
+      net10.0 - which is the only reason the shared UI cannot multi-target platform TFMs.
+    -->
+    <TargetFramework>net10.0</TargetFramework>
+    <UseMaui>true</UseMaui>
+    <SingleProject>false</SingleProject>
+    <RootNamespace>ShinyFileServe.App</RootNamespace>
+    <EnableDefaultMauiItems>true</EnableDefaultMauiItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" />
+    <PackageReference Include="Shiny.Maui.Controls.Desktop" />
+    <PackageReference Include="Shiny.Notifications" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Read straight out of the assembly: the three heads lay out their app bundles differently
+         and a missing package file would mean no tray icon at all. -->
+    <EmbeddedResource Include="Resources\trayicon.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ShinyFileServe.Server\ShinyFileServe.Server.csproj" />
+    <ProjectReference Include="..\ShinyFileServe.Core\ShinyFileServe.Core.csproj" />
+    <ProjectReference Include="..\ShinyFileServe.Shared\ShinyFileServe.Shared.csproj" />
+  </ItemGroup>
+</Project>

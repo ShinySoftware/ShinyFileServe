@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ShinyFileServe.Server</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Shiny.Net.HttpServer" />
+    <PackageReference Include="Shiny.Net.HttpServer.Ssh" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ShinyFileServe.Core\ShinyFileServe.Core.csproj" />
+    <ProjectReference Include="..\ShinyFileServe.Shared\ShinyFileServe.Shared.csproj" />
+  </ItemGroup>
+
+  <!--
+    The Blazor WebAssembly frontend is published, zipped, and embedded into this assembly as
+    "ShinyFileServe.Server.wwwroot.zip". At runtime a ZipFileSource reads straight out of the
+    resource, so a head only has to ship one file to serve the whole SPA.
+
+    ShinyFileServe.Web is deliberately NOT a ProjectReference - referencing a Blazor WASM app from a
+    library drags its whole runtime in. It is built out-of-band and consumed purely as a zip.
+
+    Everything below lives inside targets because $(IntermediateOutputPath) is not set until the SDK
+    targets are imported, which happens after this file's own property groups are evaluated. The hook
+    is AssignTargetPaths rather than BeforeCompile: resource manifest names are assigned before
+    BeforeCompile runs, so an EmbeddedResource added there is silently dropped.
+    Build a head with -p:SkipFrontendBuild=true to skip the frontend publish during inner-loop work.
+  -->
+  <Target Name="_FrontendProps">
+    <PropertyGroup>
+      <FrontendProject>$(MSBuildThisFileDirectory)..\ShinyFileServe.Web\ShinyFileServe.Web.csproj</FrontendProject>
+      <FrontendPublishDir>$(IntermediateOutputPath)frontend\</FrontendPublishDir>
+      <FrontendPlaceholderDir>$(IntermediateOutputPath)frontend-placeholder\</FrontendPlaceholderDir>
+      <FrontendZip>$(IntermediateOutputPath)wwwroot.zip</FrontendZip>
+    </PropertyGroup>
+    <ItemGroup>
+      <FrontendSource Include="$(MSBuildThisFileDirectory)..\ShinyFileServe.Web\**\*.cs;$(MSBuildThisFileDirectory)..\ShinyFileServe.Web\**\*.razor;$(MSBuildThisFileDirectory)..\ShinyFileServe.Web\**\*.css;$(MSBuildThisFileDirectory)..\ShinyFileServe.Web\**\*.html;$(MSBuildThisFileDirectory)..\ShinyFileServe.Web\**\*.json;$(MSBuildThisFileDirectory)..\ShinyFileServe.Web\*.csproj"
+                      Exclude="$(MSBuildThisFileDirectory)..\ShinyFileServe.Web\bin\**;$(MSBuildThisFileDirectory)..\ShinyFileServe.Web\obj\**" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="_BuildFrontendZip"
+          DependsOnTargets="_FrontendProps"
+          Condition="'$(SkipFrontendBuild)' != 'true'"
+          Inputs="@(FrontendSource)"
+          Outputs="$(FrontendZip)">
+    <RemoveDir Directories="$(FrontendPublishDir)" />
+    <Exec Command="dotnet publish &quot;$(FrontendProject)&quot; -c $(Configuration) -o &quot;$(FrontendPublishDir)&quot; --nologo"
+          StandardOutputImportance="low" />
+    <Delete Files="$(FrontendZip)" />
+    <ZipDirectory SourceDirectory="$(FrontendPublishDir)wwwroot" DestinationFile="$(FrontendZip)" Overwrite="true" />
+  </Target>
+
+  <Target Name="EmbedFrontend"
+          DependsOnTargets="_FrontendProps;_BuildFrontendZip"
+          BeforeTargets="AssignTargetPaths">
+    <!-- Placeholder so the assembly still compiles with -p:SkipFrontendBuild=true.
+         TryOpenFrontend() finds no index.html inside it and simply serves no SPA. -->
+    <MakeDir Directories="$(FrontendPlaceholderDir)" Condition="!Exists('$(FrontendZip)')" />
+    <WriteLinesToFile File="$(FrontendPlaceholderDir)README.txt" Overwrite="true"
+                      Lines="The Blazor frontend was not built into this assembly."
+                      Condition="!Exists('$(FrontendZip)')" />
+    <ZipDirectory SourceDirectory="$(FrontendPlaceholderDir)" DestinationFile="$(FrontendZip)"
+                  Overwrite="true" Condition="!Exists('$(FrontendZip)')" />
+
+    <ItemGroup>
+      <EmbeddedResource Include="$(FrontendZip)" LogicalName="ShinyFileServe.Server.wwwroot.zip" Visible="false" />
+    </ItemGroup>
+  </Target>
+</Project>

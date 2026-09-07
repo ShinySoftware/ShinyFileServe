@@ -1,0 +1,83 @@
+@*
+    A quota rendered as an instrument: a hairline track, a fill that shifts teal → amber → red as
+    the ceiling approaches, and the numbers set in the mono face so two meters stacked together
+    line up digit for digit. An unmetered folder shows a dashed, empty track rather than a full
+    bar or nothing at all, so "unlimited" is a visible state rather than an absence.
+*@
+
+<div class="meter @this.ToneClass">
+    <div class="meter__head">
+        <span class="meter__label">@this.Label</span>
+        <span class="meter__value num">
+            @if (this.Quota.IsUnlimited)
+            {
+                <span>No limit</span>
+            }
+            else
+            {
+                <b>@Format.Bytes(this.Quota.UsedBytes)</b>
+                <span> / @Format.Bytes(this.Quota.LimitBytes!.Value)</span>
+            }
+        </span>
+    </div>
+
+    <div class="meter__track"
+         role="progressbar"
+         aria-label="@(this.Label + " quota")"
+         aria-valuemin="0"
+         aria-valuemax="100"
+         aria-valuenow="@((int)Math.Round(this.Quota.Fraction * 100))">
+        @if (!this.Quota.IsUnlimited)
+        {
+            <div class="meter__fill" style="width:@(this.width.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+        }
+    </div>
+
+    @if (this.Foot is { Length: > 0 } foot)
+    {
+        <div class="meter__foot">@foot</div>
+    }
+</div>
+
+@code {
+    double width;
+
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public QuotaState Quota { get; set; } = new(QuotaWindow.None, null, 0, null);
+
+    string ToneClass => this.Quota switch
+    {
+        { IsUnlimited: true } => "meter--unlimited",
+        { Fraction: >= .92 } => "meter--danger",
+        { Fraction: >= .75 } => "meter--warn",
+        _ => ""
+    };
+
+    string? Foot
+    {
+        get
+        {
+            if (this.Quota.IsUnlimited)
+                return null;
+
+            var reset = Format.ResetHint(this.Quota.ResetsUtc);
+            var left = $"{Format.Bytes(this.Quota.RemainingBytes)} left";
+            return reset is null ? left : $"{left} · {reset}";
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // The one piece of non-interactive motion in the app: the bar grows from empty to its value
+        // once, so a meter that moved since the last look actually reads as having moved.
+        var target = this.Quota.IsUnlimited ? 0 : this.Quota.Fraction * 100;
+        if (Math.Abs(this.width - target) < 0.01)
+            return;
+
+        if (firstRender)
+            await Task.Yield();
+
+        this.width = target;
+        this.StateHasChanged();
+    }
+}

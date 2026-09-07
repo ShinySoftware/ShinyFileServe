@@ -1,0 +1,220 @@
+@page "/"
+@implements IDisposable
+@inject WorkspaceState State
+@inject FileServeApi Api
+@inject IToastService Toasts
+@inject IdleWatch Idle
+@inject NavigationManager Nav
+
+<PageTitle>@(this.State.Folder?.Name ?? "FileServe")</PageTitle>
+
+@if (this.booting)
+{
+    <div class="boot">
+        <div class="boot__mark" aria-hidden="true"></div>
+        <p class="boot__text">Loading your shares</p>
+    </div>
+}
+else
+{
+    <AppLayout Height="100dvh" Background="var(--paper)" BorderColor="var(--rule)">
+
+        <AppLayoutHeader Height="52">
+            <div class="chrome">
+                <span class="chrome__mark">
+                    <span class="chrome__glyph" aria-hidden="true"></span>
+                    FileServe
+                </span>
+
+                @if (this.State.Folders.Count > 1)
+                {
+                    <div class="chrome__spacer" style="flex:0 0 8px"></div>
+                    <select class="share-switch" value="@this.State.Folder?.Id" @onchange="this.OnShareChanged"
+                            aria-label="Switch share">
+                        @foreach (var folder in this.State.Folders)
+                        {
+                            <option value="@folder.Id">@folder.Name</option>
+                        }
+                    </select>
+                }
+
+                <div class="chrome__spacer"></div>
+
+                @if (this.State.User is { IsAdmin: true })
+                {
+                    <button type="button" class="chrome__btn" @onclick="() => this.sharesOpen = true"
+                            title="Shares and permissions">Shares</button>
+                    <button type="button" class="chrome__btn" @onclick="() => this.peopleOpen = true"
+                            title="Accounts and groups">People</button>
+                    <button type="button" class="chrome__btn" @onclick="() => this.logOpen = true"
+                            title="Activity log">Activity</button>
+                    <button type="button" class="chrome__btn" @onclick="() => this.settingsOpen = true"
+                            title="Server settings">Settings</button>
+                }
+
+                <span class="chrome__who">
+                    <span class="chrome__avatar" aria-hidden="true">@Format.Initials(this.State.User?.DisplayName ?? "?")</span>
+                    @this.State.User?.DisplayName
+                </span>
+                @* A loopback session signs itself back in on the next request, so a Sign out
+                   button there would do nothing visible. *@
+                @if (this.State.User is not { IsLocalSession: true })
+                {
+                    <button type="button" class="chrome__btn" @onclick="this.SignOut">Sign out</button>
+                }
+            </div>
+        </AppLayoutHeader>
+
+        <AppLayoutContent Scrollable="false">
+            <div style="display:flex; flex-direction:column; height:100%; min-height:0;">
+                @if (this.State.Folder is { } folder)
+                {
+                    <InfoBar Folder="folder" />
+                }
+
+                <div style="flex:1; min-height:0;">
+                    <DockHost InitialLayout="this.layout" BackgroundColor="var(--paper)" />
+                </div>
+            </div>
+        </AppLayoutContent>
+
+        <AppLayoutFooter Height="30">
+            <div class="status">
+                <span>@this.CountText</span>
+                <span class="status__spacer"></span>
+                @if (this.State.User is { IsAdmin: true })
+                {
+                    <span>Administrator</span>
+                }
+                <span class="status__addr">@this.Nav.BaseUri</span>
+            </div>
+        </AppLayoutFooter>
+
+    </AppLayout>
+
+    @if (this.State.User is { IsAdmin: true })
+    {
+        <AdminSettings @bind-IsOpen="this.settingsOpen" />
+        <AdminShares IsOpen="this.sharesOpen" IsOpenChanged="this.OnSharesClosed" />
+        <AdminPeople @bind-IsOpen="this.peopleOpen" />
+        <ActivityLog @bind-IsOpen="this.logOpen" />
+    }
+}
+
+@code {
+    bool booting = true;
+    bool settingsOpen;
+    bool logOpen;
+    bool sharesOpen;
+    bool peopleOpen;
+
+    // The tree sits in a left rail; the file pane owns the document area. Both are unclosable, so
+    // this layout is the only one the user can end up in - no reset button needed.
+    readonly DockRoot layout = new()
+    {
+        MainWindow = new DockWindowState
+        {
+            LeftRailSize = 268,
+            LeftRail = new DockGroup { Tabs = { new DockTab { PanelTypeId = "explorer-tree" } } },
+            DocumentArea = new DockGroup { Tabs = { new DockTab { PanelTypeId = "explorer-files" } } }
+        }
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        this.State.Changed += this.OnStateChanged;
+
+        try
+        {
+            var user = await this.Api.GetCurrentUser();
+            if (user is null)
+            {
+                this.Nav.NavigateTo((await this.Api.GetSessionPolicy()).NeedsSetup ? "setup" : "signin");
+                return;
+            }
+
+            this.State.SetUser(user);
+            await this.State.LoadFolders();
+
+            var policy = await this.Api.GetSessionPolicy();
+            await this.Idle.Start(policy.IdleLogoffMinutes, this.OnIdle);
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+        finally
+        {
+            this.booting = false;
+        }
+    }
+
+    public void Dispose() => this.State.Changed -= this.OnStateChanged;
+
+    /// <summary>
+    /// Nothing has been touched for the configured window. Sign out and say why on the way past -
+    /// coming back to a login screen with no explanation reads as a bug.
+    /// </summary>
+    async Task OnIdle()
+    {
+        await this.Idle.Stop();
+        await this.SignOut(idle: true);
+    }
+
+    void OnStateChanged() => this.InvokeAsync(this.StateHasChanged);
+
+    /// <summary>Shares changed underneath the workspace, so re-read what this user can now see.</summary>
+    async Task OnSharesClosed(bool open)
+    {
+        this.sharesOpen = open;
+        if (!open)
+            await this.State.LoadFolders();
+    }
+
+    string CountText
+    {
+        get
+        {
+            var entries = this.State.Entries;
+            if (entries.Count == 0)
+                return "Empty";
+
+            var files = entries.Count(e => !e.IsDirectory);
+            var dirs = entries.Count - files;
+            var bytes = entries.Where(e => !e.IsDirectory).Sum(e => e.Size);
+
+            var parts = new List<string>();
+            if (dirs > 0)
+                parts.Add(dirs == 1 ? "1 folder" : $"{dirs} folders");
+            if (files > 0)
+                parts.Add(files == 1 ? "1 file" : $"{files} files");
+
+            return $"{String.Join(" · ", parts)} · {Format.Bytes(bytes)}";
+        }
+    }
+
+    Task OnShareChanged(ChangeEventArgs args)
+    {
+        var id = args.Value?.ToString();
+        var folder = this.State.Folders.FirstOrDefault(f => f.Id == id);
+        return folder is null ? Task.CompletedTask : this.State.OpenFolder(folder);
+    }
+
+    Task SignOut() => this.SignOut(idle: false);
+
+    async Task SignOut(bool idle)
+    {
+        try
+        {
+            await this.Api.SignOut();
+        }
+        catch (ApiException)
+        {
+            // the cookie is gone either way; there is nothing useful to tell the user here
+        }
+
+        await this.Idle.Stop();
+        this.State.SetUser(null);
+        this.Nav.NavigateTo(idle ? "signin?idle=1" : "signin", forceLoad: true);
+    }
+}

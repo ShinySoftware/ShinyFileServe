@@ -1,0 +1,437 @@
+@implements IAsyncDisposable
+@inject WorkspaceState State
+@inject FileServeApi Api
+@inject IToastService Toasts
+@inject IDialogService Dialogs
+@inject IFileDropService FileDrop
+@inject NavigationManager Nav
+
+<div class="pane">
+    <div class="pane__head">
+        <Breadcrumbs State="this.State" />
+        <div class="pane__spacer"></div>
+
+        <div class="actions">
+            <button type="button" class="action" @onclick="this.Refresh" title="Read this folder again">
+                <span aria-hidden="true">↻</span> Refresh
+            </button>
+
+            @if (this.Can(FolderPermissions.CreateDirectory))
+            {
+                <button type="button" class="action" @onclick="this.NewFolder">
+                    <span aria-hidden="true">＋</span> New folder
+                </button>
+            }
+
+            @if (this.Can(FolderPermissions.CreateFile))
+            {
+                <label class="action action--primary" title="Add files to this folder">
+                    <span aria-hidden="true">↑</span> Upload
+                    <InputFile OnChange="this.OnFilesPicked" multiple style="display:none" />
+                </label>
+            }
+        </div>
+    </div>
+
+    <div class="pane__body">
+        @if (this.dragging)
+        {
+            @* The drop target is the whole window, so the cue has to be too - and it says up front
+               whether this folder will accept the files, rather than refusing after the drop. *@
+            <div class="dropzone @(this.CanDrop ? "" : "dropzone--refused")">
+                <div class="dropzone__card">
+                    <span class="dropzone__glyph" aria-hidden="true">@(this.CanDrop ? "↓" : "✕")</span>
+                    <p class="dropzone__title">@this.DropTitle</p>
+                    <p class="dropzone__sub">@this.DropSubtitle</p>
+                </div>
+            </div>
+        }
+
+        @if (this.State.Folder is null)
+        {
+            <div class="empty-state">
+                <h2>Pick a folder</h2>
+                <p>Choose a share on the left to see what is in it.</p>
+            </div>
+        }
+        else if (this.State.Error is { } error)
+        {
+            <div class="empty-state">
+                <h2>That folder would not open</h2>
+                <p>@error</p>
+                <button type="button" class="action" @onclick="this.Refresh">Try again</button>
+            </div>
+        }
+        else
+        {
+            <DataGrid TItem="FileEntryInfo"
+                      Items="this.State.Entries"
+                      Loading="this.State.IsLoading"
+                      Dense="true"
+                      Hover="true"
+                      FixedHeader="true"
+                      Height="100%"
+                      SortMode="DataGridSortMode.Single"
+                      NoRecordsText="@this.EmptyText">
+                <Columns>
+                    <TemplateColumn TItem="FileEntryInfo" Title="Name" Sortable="false">
+                        <CellTemplate Context="cell">
+                            <span class="cell-name @(cell.Item.IsDirectory ? "cell-name--dir" : "")">
+                                <span class="cell-name__glyph" aria-hidden="true">@(cell.Item.IsDirectory ? "▸" : "▪")</span>
+                                <span class="cell-name__text">
+                                    @if (cell.Item.IsDirectory)
+                                    {
+                                        <button type="button" class="cell-name__link" @onclick="() => this.Open(cell.Item)">@cell.Item.Label</button>
+                                    }
+                                    else
+                                    {
+                                        <span class="cell-name__link" style="cursor:default">@cell.Item.Label</span>
+                                    }
+
+                                    @* A renamed entry still has to be findable by what it is called on
+                                       disk, so the real name stays visible rather than being replaced. *@
+                                    @if (cell.Item.HasAlias)
+                                    {
+                                        <span class="cell-name__real num">@cell.Item.Name</span>
+                                    }
+                                    @if (cell.Item.Description is { Length: > 0 } note)
+                                    {
+                                        <span class="cell-name__note">@note</span>
+                                    }
+                                </span>
+                            </span>
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn TItem="FileEntryInfo" Title="Size" Width="110px" Alignment="DataGridCellAlignment.End" Sortable="false">
+                        <CellTemplate Context="cell">
+                            <span class="cell-size">@(cell.Item.IsDirectory ? "—" : Format.Bytes(cell.Item.Size))</span>
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn TItem="FileEntryInfo" Title="Modified" Width="150px" Sortable="false">
+                        <CellTemplate Context="cell">
+                            <span class="cell-when">@Format.When(cell.Item.ModifiedUtc)</span>
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn TItem="FileEntryInfo" Title="" Width="118px" Sortable="false" Alignment="DataGridCellAlignment.End">
+                        <CellTemplate Context="cell">
+                            <span class="cell-actions">
+                                @if (this.State.User is { IsAdmin: true })
+                                {
+                                    <button type="button" class="icon-btn" title="Name and note for @cell.Item.Name"
+                                            @onclick="() => this.Annotate(cell.Item)">✎</button>
+                                }
+                                @if (!cell.Item.IsDirectory && this.Can(FolderPermissions.DownloadFile))
+                                {
+                                    <button type="button" class="icon-btn" title="Download @cell.Item.Name"
+                                            @onclick="() => this.Download(cell.Item)">⤓</button>
+                                }
+                                @if (!cell.Item.IsDirectory && this.Can(FolderPermissions.DeleteFile))
+                                {
+                                    <button type="button" class="icon-btn icon-btn--danger" title="Delete @cell.Item.Name"
+                                            @onclick="() => this.Delete(cell.Item)">✕</button>
+                                }
+                            </span>
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+            </DataGrid>
+        }
+    </div>
+</div>
+
+@code {
+    const long MaxBrowserReadBytes = 4L * 1024 * 1024 * 1024;
+
+    bool dragging;
+
+    protected override void OnInitialized()
+    {
+        this.State.Changed += this.OnStateChanged;
+
+        this.FileDrop.DragEnter += this.OnDragEnter;
+        this.FileDrop.DragLeave += this.OnDragLeave;
+        this.FileDrop.Dropped += this.OnDropped;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        this.State.Changed -= this.OnStateChanged;
+        this.FileDrop.DragEnter -= this.OnDragEnter;
+        this.FileDrop.DragLeave -= this.OnDragLeave;
+        this.FileDrop.Dropped -= this.OnDropped;
+        return ValueTask.CompletedTask;
+    }
+
+    // -- drag and drop ------------------------------------------------------
+
+    /// <summary>
+    /// Whether a drop right now would be accepted: the folder has to exist, allow uploads, and have
+    /// quota left. Checked while dragging so the cue can say no before the files are let go.
+    /// </summary>
+    bool CanDrop => this.State.Folder is { } folder
+        && folder.Permissions.Has(FolderPermissions.CreateFile)
+        && (folder.Upload.IsUnlimited || folder.Upload.RemainingBytes > 0);
+
+    string DropTitle => this.CanDrop
+        ? $"Drop to upload to {this.State.Folder!.Name}"
+        : "These files cannot go here";
+
+    string DropSubtitle
+    {
+        get
+        {
+            if (this.State.Folder is not { } folder)
+                return "Open a folder first.";
+
+            if (!folder.Permissions.Has(FolderPermissions.CreateFile))
+                return "You do not have permission to upload to this folder.";
+
+            if (!folder.Upload.IsUnlimited && folder.Upload.RemainingBytes <= 0)
+                return "Your upload quota for this folder is used up.";
+
+            var into = this.State.Path.Length == 0 ? folder.Name : $"{folder.Name}/{this.State.Path}";
+            return folder.Upload.IsUnlimited
+                ? into
+                : $"{into} · {Format.Bytes(folder.Upload.RemainingBytes)} of quota left";
+        }
+    }
+
+    void OnDragEnter(object? sender, FileDragEventArgs args)
+    {
+        this.dragging = true;
+        this.InvokeAsync(this.StateHasChanged);
+    }
+
+    void OnDragLeave(object? sender, FileDragEventArgs args)
+    {
+        this.dragging = false;
+        this.InvokeAsync(this.StateHasChanged);
+    }
+
+    async void OnDropped(object? sender, FileDropEventArgs args)
+    {
+        this.dragging = false;
+        await this.InvokeAsync(this.StateHasChanged);
+
+        if (this.State.Folder is not { } folder)
+            return;
+
+        if (!folder.Permissions.Has(FolderPermissions.CreateFile))
+        {
+            await this.Toasts.WarningAsync($"You cannot upload to {folder.Name}.");
+            return;
+        }
+
+        if (args.Files.Count == 0)
+        {
+            if (args.RejectedCount > 0)
+                await this.Toasts.WarningAsync("Those files were not accepted. Folders cannot be dropped.");
+            return;
+        }
+
+        var streams = new List<Stream>();
+        try
+        {
+            var payload = new List<(string, Stream, long)>();
+            foreach (var file in args.Files)
+            {
+                var stream = await file.OpenReadAsync(MaxBrowserReadBytes);
+                streams.Add(stream);
+                payload.Add((file.FileName, stream, file.Length));
+            }
+
+            await this.UploadAll(folder, payload, args.Files.Select(f => (f.FileName, f.Length)).ToList());
+        }
+        finally
+        {
+            foreach (var stream in streams)
+                await stream.DisposeAsync();
+
+            // Hand the browser its file handles back - the service holds them until told otherwise.
+            await this.FileDrop.ReleaseAsync(args.Files);
+        }
+    }
+
+    void OnStateChanged() => this.InvokeAsync(this.StateHasChanged);
+
+    bool Can(FolderPermissions permission) => this.State.Folder?.Permissions.Has(permission) ?? false;
+
+    string EmptyText => this.Can(FolderPermissions.CreateFile)
+        ? "Nothing here yet. Upload a file to get started."
+        : "This folder is empty.";
+
+    Task Refresh() => this.State.Reload();
+
+    Task Open(FileEntryInfo entry) => this.State.Navigate(entry.Path);
+
+    void Download(FileEntryInfo entry)
+    {
+        // A plain navigation, not a fetch: the browser streams it straight to disk with the same
+        // session cookie, so a multi-gigabyte file never passes through the WASM heap.
+        var url = this.Api.DownloadUrl(this.State.Folder!.Id, entry.Path);
+        this.Nav.NavigateTo(url, forceLoad: true);
+    }
+
+    async Task NewFolder()
+    {
+        var result = await this.Dialogs.Prompt(
+            "New folder",
+            "What should it be called?",
+            placeholder: "Name",
+            okText: "Create folder"
+        );
+
+        if (result is not { Ok: true } || String.IsNullOrWhiteSpace(result.Value))
+            return;
+
+        try
+        {
+            await this.Api.CreateDirectory(this.State.Folder!.Id, this.State.Path, result.Value.Trim());
+            await this.Toasts.SuccessAsync($"Created {result.Value.Trim()}");
+            await this.State.Reload();
+            await this.State.InvalidateDirectory(this.State.Path);
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Give a file or folder a friendly name and a note. Admin-only, and the endpoint behind it is
+    /// role-gated regardless - hiding the pencil is a courtesy, not the boundary.
+    /// </summary>
+    async Task Annotate(FileEntryInfo entry)
+    {
+        var folder = this.State.Folder;
+        if (folder is null)
+            return;
+
+        var named = await this.Dialogs.Prompt(
+            $"Name for {entry.Name}",
+            "What should people see instead? Leave it blank to show the real name.",
+            placeholder: entry.Name,
+            okText: "Next",
+            initialValue: entry.DisplayName ?? ""
+        );
+
+        if (named is not { Ok: true })
+            return;
+
+        var noted = await this.Dialogs.Prompt(
+            $"Note for {entry.Name}",
+            "A line explaining what this is for. Leave it blank for none.",
+            placeholder: "Optional",
+            okText: "Save",
+            initialValue: entry.Description ?? ""
+        );
+
+        if (noted is not { Ok: true })
+            return;
+
+        try
+        {
+            await this.Api.SetAnnotation(folder.Id, entry.Path, named.Value, noted.Value);
+            await this.State.Reload();
+            await this.State.InvalidateDirectory(this.State.Path);
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    async Task Delete(FileEntryInfo entry)
+    {
+        var confirmed = await this.Dialogs.Confirm(
+            "Delete this file?",
+            $"{entry.Name} will be removed from {this.State.Folder!.Name}. This cannot be undone.",
+            okText: "Delete",
+            cancelText: "Keep"
+        );
+
+        if (!confirmed)
+            return;
+
+        try
+        {
+            await this.Api.Delete(this.State.Folder!.Id, entry.Path);
+            await this.Toasts.SuccessAsync($"Deleted {entry.Name}");
+            await this.State.Reload();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    async Task OnFilesPicked(InputFileChangeEventArgs args)
+    {
+        var folder = this.State.Folder;
+        if (folder is null || args.FileCount == 0)
+            return;
+
+        var picked = args.GetMultipleFiles(50);
+        var streams = new List<Stream>();
+        try
+        {
+            var payload = new List<(string, Stream, long)>();
+            foreach (var file in picked)
+            {
+                var stream = file.OpenReadStream(MaxBrowserReadBytes);
+                streams.Add(stream);
+                payload.Add((file.Name, stream, file.Size));
+            }
+
+            await this.UploadAll(folder, payload, picked.Select(f => (f.Name, f.Size)).ToList());
+        }
+        finally
+        {
+            foreach (var stream in streams)
+                await stream.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// The one upload path, shared by the button and by drag and drop. Everything refusable is
+    /// refused here rather than after a long transfer the server was always going to reject.
+    /// </summary>
+    async Task UploadAll(
+        FolderInfo folder,
+        List<(string Name, Stream Content, long Length)> payload,
+        IReadOnlyList<(string Name, long Size)> sizes)
+    {
+        if (folder.MaxUploadFileSizeBytes is { } cap && sizes.FirstOrDefault(f => f.Size > cap) is { Name: not null } tooBig)
+        {
+            await this.Toasts.WarningAsync(
+                $"{tooBig.Name} is {Format.Bytes(tooBig.Size)}. This folder accepts files up to {Format.Bytes(cap)}."
+            );
+            return;
+        }
+
+        var total = sizes.Sum(f => f.Size);
+        if (!folder.Upload.IsUnlimited && total > folder.Upload.RemainingBytes)
+        {
+            await this.Toasts.WarningAsync(
+                $"That is {Format.Bytes(total)}, and you have {Format.Bytes(folder.Upload.RemainingBytes)} of upload quota left."
+            );
+            return;
+        }
+
+        try
+        {
+            var uploaded = await this.Api.Upload(folder.Id, this.State.Path, payload, overwrite: true);
+            await this.Toasts.SuccessAsync(
+                uploaded.Count == 1 ? $"Uploaded {uploaded[0].Name}" : $"Uploaded {uploaded.Count} files"
+            );
+            await this.State.Reload();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+}

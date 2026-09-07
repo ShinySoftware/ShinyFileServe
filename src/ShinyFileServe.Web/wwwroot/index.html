@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>FileServe</title>
+    <base href="/" />
+
+    <!-- Plex is the house face; the stack below carries the design on a LAN with no internet. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;600;700&display=swap" rel="stylesheet" />
+
+    <link rel="stylesheet" href="css/app.css" />
+    <!-- The CSS-isolation bundle. Every Shiny control ships its styles through this, so without
+         the link the dock host, tree and grid render as unstyled boxes. -->
+    <link rel="stylesheet" href="ShinyFileServe.Web.styles.css" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230E6F70'/%3E%3Cpath d='M8 11h7l2 2.5h7v9.5H8z' fill='none' stroke='%23fff' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E" />
+    <link rel="modulepreload" href="_framework/blazor.webassembly.js" />
+</head>
+<body>
+    <div id="app">
+        <div class="boot">
+            <div class="boot__mark" aria-hidden="true"></div>
+            <p class="boot__text">Starting FileServe</p>
+        </div>
+    </div>
+
+    <div id="blazor-error-ui">
+        Something went wrong. Reload the page to carry on.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">&times;</span>
+    </div>
+
+    <script src="_framework/blazor.webassembly.js"></script>
+</body>
+</html>

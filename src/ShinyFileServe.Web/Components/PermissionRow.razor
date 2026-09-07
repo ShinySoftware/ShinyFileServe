@@ -1,0 +1,22 @@
+@*
+    The rights row. A granted right is a filled dot on a tinted chip; a withheld one is a hollow
+    ring with the label struck through. Both are always shown — knowing what you *cannot* do here
+    is as useful as knowing what you can, and it explains a missing button before it is missed.
+*@
+
+<div class="rights" role="list" aria-label="Your permissions in this folder">
+    @foreach (var permission in FolderPermissionsExtensions.All)
+    {
+        var granted = this.Permissions.Has(permission);
+        <span role="listitem"
+              class="right @(granted ? "right--on" : "right--off")"
+              title="@(granted ? $"You can {permission.ToDisplay().ToLowerInvariant()} here" : $"You cannot {permission.ToDisplay().ToLowerInvariant()} here")">
+            <span class="right__mark" aria-hidden="true"></span>
+            <span class="right__label">@permission.ToDisplay()</span>
+        </span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public FolderPermissions Permissions { get; set; }
+}

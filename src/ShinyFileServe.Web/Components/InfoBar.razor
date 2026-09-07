@@ -1,0 +1,28 @@
+@*
+    Everything a person needs to know about where they are, above the workspace and always visible:
+    the share, what they may do in it, and how much room is left. This is the one place the design
+    spends colour and precision; the panes below it stay quiet.
+*@
+
+<div class="infobar">
+    <div class="infobar__folder">
+        <span class="infobar__name">@this.Folder.Name</span>
+        @if (!String.IsNullOrWhiteSpace(this.Folder.Description))
+        {
+            <span class="infobar__desc">@this.Folder.Description</span>
+        }
+    </div>
+
+    <PermissionRow Permissions="@this.Folder.Permissions" />
+
+    <div class="infobar__spacer"></div>
+
+    <div class="meters">
+        <QuotaMeter Label="Download" Quota="@this.Folder.Download" />
+        <QuotaMeter Label="Upload" Quota="@this.Folder.Upload" />
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public FolderInfo Folder { get; set; } = default!;
+}

@@ -1,0 +1,118 @@
+@implements IDisposable
+@inject WorkspaceState State
+@inject FileServeApi Api
+@inject IToastService Toasts
+
+<div class="pane">
+    <div class="pane__body">
+        @if (this.roots.Count == 0)
+        {
+            <div class="empty-state">
+                <h2>Nothing shared with you yet</h2>
+                <p>Once an administrator gives one of your groups access to a folder, it appears here.</p>
+            </div>
+        }
+        else
+        {
+            <TreeView TItem="ExplorerNode"
+                      @ref="this.tree"
+                      ItemsSource="this.roots"
+                      ChildrenLoader="this.LoadChildren"
+                      HasChildrenSelector="@(_ => true)"
+                      SelectionMode="BlazorTreeSelectionMode.Single"
+                      SelectedItem="this.selected"
+                      SelectedItemChanged="this.OnSelected"
+                      ShowGuideLines="true"
+                      IndentSize="18"
+                      ChevronSize="11"
+                      ChevronColor="var(--ink-3)"
+                      LoadFailed="this.OnLoadFailed">
+                <ItemTemplate Context="node">
+                    <span class="tree-row @(node.IsShare ? "tree-row--share" : "")">
+                        @* Only shares get a mark. A sub-folder's chevron and indent already say
+                           what it is, and a second glyph beside them just reads as noise. *@
+                        @if (node.IsShare)
+                        {
+                            <span class="tree-row__glyph" aria-hidden="true">▤</span>
+                        }
+                        <span class="tree-row__name">@node.Name</span>
+                    </span>
+                </ItemTemplate>
+                <LoadingTemplate>
+                    <div class="empty-state"><p>Reading folders…</p></div>
+                </LoadingTemplate>
+            </TreeView>
+        }
+    </div>
+</div>
+
+@code {
+    TreeView<ExplorerNode>? tree;
+    List<ExplorerNode> roots = [];
+    ExplorerNode? selected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        this.State.Changed += this.OnStateChanged;
+        this.State.DirectoryInvalidated += this.OnDirectoryInvalidated;
+        this.Rebuild();
+
+        if (this.State.Folders.Count == 0)
+            await this.State.LoadFolders();
+    }
+
+    public void Dispose()
+    {
+        this.State.Changed -= this.OnStateChanged;
+        this.State.DirectoryInvalidated -= this.OnDirectoryInvalidated;
+    }
+
+    void OnStateChanged()
+    {
+        this.Rebuild();
+        this.InvokeAsync(this.StateHasChanged);
+    }
+
+    void Rebuild()
+    {
+        // Roots are rebuilt from the shares the server last reported. Keeping the same ExplorerNode
+        // identity (Key) means the tree's expansion state survives a quota refresh.
+        var next = this.State.Folders
+            .Select(f => new ExplorerNode { Folder = f, Path = "", Name = f.Name })
+            .ToList();
+
+        if (next.Count != this.roots.Count || !next.SequenceEqual(this.roots))
+            this.roots = next;
+
+        if (this.State.Folder is { } folder)
+            this.selected = new ExplorerNode { Folder = folder, Path = this.State.Path, Name = folder.Name };
+    }
+
+    async Task<IEnumerable<ExplorerNode>> LoadChildren(ExplorerNode node)
+    {
+        var listing = await this.Api.List(node.Folder.Id, node.Path);
+        return listing.Entries
+            .Where(e => e.IsDirectory)
+            .Select(e => new ExplorerNode { Folder = node.Folder, Path = e.Path, Name = e.Label })
+            .ToList();
+    }
+
+    Task OnSelected(ExplorerNode? node)
+    {
+        this.selected = node;
+        return node is null ? Task.CompletedTask : this.State.OpenFolder(node.Folder, node.Path);
+    }
+
+    async Task OnDirectoryInvalidated(string path)
+    {
+        if (this.tree is null || this.State.Folder is null)
+            return;
+
+        // Refresh drops the cached children for that branch; collapsing would only hide them.
+        var node = new ExplorerNode { Folder = this.State.Folder, Path = path, Name = this.State.Folder.Name };
+        await this.tree.RefreshAsync(node);
+    }
+
+    Task OnLoadFailed(TreeLoadFailedEventArgs<ExplorerNode> args)
+        => this.Toasts.DangerAsync($"Could not read that folder. {args.Exception.Message}");
+}

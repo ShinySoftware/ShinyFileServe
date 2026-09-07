@@ -1,0 +1,27 @@
+<nav class="crumbs" aria-label="Folder path">
+    @{
+        var crumbs = this.State.Crumbs();
+    }
+    @for (var i = 0; i < crumbs.Count; i++)
+    {
+        var crumb = crumbs[i];
+        var isLast = i == crumbs.Count - 1;
+
+        if (i > 0)
+        {
+            <span class="crumbs__sep" aria-hidden="true">/</span>
+        }
+
+        <button type="button"
+                class="crumbs__link"
+                aria-current="@(isLast ? "page" : null)"
+                disabled="@isLast"
+                @onclick="() => this.Go(crumb.Path)">@crumb.Label</button>
+    }
+</nav>
+
+@code {
+    [Parameter, EditorRequired] public WorkspaceState State { get; set; } = default!;
+
+    Task Go(string path) => this.State.Navigate(path);
+}

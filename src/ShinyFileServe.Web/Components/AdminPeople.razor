@@ -1,0 +1,398 @@
+@*
+    Accounts and groups. Rights are granted to a group and people are put in groups, so the two
+    belong on one screen - a group with nobody in it and a person in no group are both mistakes
+    that only show up when you can see both lists at once.
+*@
+@inject AdminApi Admin
+@inject IToastService Toasts
+@inject IDialogService Dialogs
+
+<ModalView IsOpen="this.IsOpen" IsOpenChanged="this.SetOpen"
+           Title="People"
+           Subtitle="Accounts and the groups that carry their rights"
+           Size="ModalSize.Large"
+           CloseOnBackdropClick="false"
+           Opened="this.Reload">
+
+    <div class="people">
+        <section class="admin__block">
+            <div class="people__head">
+                <h3>Accounts</h3>
+                <button type="button" class="action action--primary" @onclick="() => this.Edit(null)">Add someone</button>
+            </div>
+
+            @if (this.users.Count == 0)
+            {
+                <p class="admin__loading">Nobody yet.</p>
+            }
+            else
+            {
+                <ul class="rows">
+                    @foreach (var user in this.users)
+                    {
+                        <li class="row">
+                            <div class="row__main">
+                                <span class="row__title">
+                                    @user.DisplayName
+                                    <span class="row__id num">@user.Username</span>
+                                </span>
+                                <span class="row__sub">
+                                    @(user.RoleNames.Count == 0 ? "No groups" : String.Join(", ", user.RoleNames))
+                                    @if (user.LastLoginUtc is { } last)
+                                    {
+                                        <span> · last in @Format.When(last)</span>
+                                    }
+                                </span>
+                            </div>
+
+                            <span class="tag @TagClass(user)">@Status(user)</span>
+
+                            <span class="row__actions">
+                                <button type="button" class="action" @onclick="() => this.Edit(user)">Edit</button>
+                                @if (!user.IsProtected)
+                                {
+                                    <button type="button" class="action action--danger" @onclick="() => this.Delete(user)">Delete</button>
+                                }
+                            </span>
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
+
+        <section class="admin__block">
+            <div class="people__head">
+                <h3>Groups</h3>
+                <div class="people__add">
+                    <input placeholder="New group name" @bind="this.newGroup" @bind:event="oninput" />
+                    <button type="button" class="action" disabled="@String.IsNullOrWhiteSpace(this.newGroup)"
+                            @onclick="this.AddGroup">Add group</button>
+                </div>
+            </div>
+
+            <ul class="rows">
+                @foreach (var role in this.roles)
+                {
+                    <li class="row">
+                        <div class="row__main">
+                            <span class="row__title">@role.Name</span>
+                            <span class="row__sub">
+                                @(role.MemberCount == 1 ? "1 member" : $"{role.MemberCount} members")
+                                @if (role.Description is { Length: > 0 } description)
+                                {
+                                    <span> · @description</span>
+                                }
+                            </span>
+                        </div>
+
+                        <label class="row__toggle" title="Administrators reach every share, the log and the settings">
+                            <input type="checkbox" checked="@role.IsAdmin" disabled="@role.IsProtected"
+                                   @onchange="e => this.SetRoleAdmin(role, (bool?)e.Value == true)" />
+                            Administrator
+                        </label>
+
+                        <span class="row__actions">
+                            @if (!role.IsProtected)
+                            {
+                                <button type="button" class="action action--danger" @onclick="() => this.DeleteRole(role)">Delete</button>
+                            }
+                            else
+                            {
+                                <span class="tag tag--locked">Built in</span>
+                            }
+                        </span>
+                    </li>
+                }
+            </ul>
+        </section>
+    </div>
+</ModalView>
+
+@* The account editor. A second modal rather than an inline form, because the list is the thing
+   you come back to and losing your place in it to edit one row is worse than a second layer. *@
+<ModalView @bind-IsOpen="this.editorOpen"
+           Title="@(this.draft?.Id is null ? "New account" : this.draft?.DisplayName ?? "Account")"
+           Size="ModalSize.Medium"
+           CloseOnBackdropClick="false">
+
+    @if (this.draft is { } draft)
+    {
+        <div class="admin">
+            @if (this.editorError is { Length: > 0 } editorError)
+            {
+                <p class="form-error" role="alert">@editorError</p>
+            }
+
+            @if (draft.IsProtected)
+            {
+                <p class="form-note">
+                    This is the account this server was set up with. You can rename it and change its
+                    password; it stays an administrator and it cannot be deleted.
+                </p>
+            }
+
+            <label class="field">
+                <span class="field__label">Name</span>
+                <input @bind="draft.DisplayName" />
+            </label>
+
+            <label class="field">
+                <span class="field__label">Username</span>
+                <input @bind="draft.Username" />
+            </label>
+
+            <label class="field">
+                <span class="field__label">Email</span>
+                <input type="email" @bind="draft.Email" placeholder="Optional" />
+            </label>
+
+            <label class="field">
+                <span class="field__label">@(draft.Id is null ? "Password" : "New password")</span>
+                <input type="password" @bind="draft.Password" />
+                <span class="admin__hint">
+                    @(draft.Id is null ? "At least 8 characters." : "Leave blank to keep the current password.")
+                </span>
+            </label>
+
+            <div class="admin__block">
+                <h3>Groups</h3>
+                <div class="admin__checks">
+                    @foreach (var role in this.roles)
+                    {
+                        <label class="field--check">
+                            <input type="checkbox" checked="@draft.RoleIds.Contains(role.Id)"
+                                   @onchange="e => Toggle(draft.RoleIds, role.Id, (bool?)e.Value == true)" />
+                            @role.Name
+                        </label>
+                    }
+                </div>
+            </div>
+
+            <label class="field--check">
+                <input type="checkbox" @bind="draft.IsAdmin" disabled="@draft.IsProtected" />
+                Administrator
+            </label>
+
+            <label class="field--check">
+                <input type="checkbox" @bind="draft.IsActive" disabled="@draft.IsProtected" />
+                Can sign in
+            </label>
+
+            <div class="admin__actions">
+                <button type="button" class="action action--primary" disabled="@this.busy" @onclick="this.Save">Save</button>
+                <button type="button" class="action" @onclick="() => this.editorOpen = false">Cancel</button>
+            </div>
+        </div>
+    }
+</ModalView>
+
+@code {
+    List<UserDetail> users = [];
+    List<RoleInfo> roles = [];
+    string newGroup = "";
+    bool busy;
+    bool editorOpen;
+    Draft? draft;
+    string? editorError;
+
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+
+    /// <summary>
+    /// Passes the modal's own close back up to whoever opened it. Binding the inner ModalView
+    /// straight to this component's IsOpen would write the parameter and stop there, leaving the
+    /// parent still believing the modal is open - so the next click would set true over true,
+    /// change nothing, and the modal would never come back.
+    /// </summary>
+    async Task SetOpen(bool value)
+    {
+        if (this.IsOpen == value)
+            return;
+
+        this.IsOpen = value;
+        await this.IsOpenChanged.InvokeAsync(value);
+    }
+
+    /// <summary>A mutable copy so a cancelled edit leaves the list untouched.</summary>
+    class Draft
+    {
+        public string? Id;
+        public string Username = "";
+        public string DisplayName = "";
+        public string? Email;
+        public string Password = "";
+        public bool IsAdmin;
+        public bool IsActive = true;
+        public bool IsProtected;
+        public List<string> RoleIds = [];
+    }
+
+    static string Status(UserDetail user) => user switch
+    {
+        { IsActive: false } => "Disabled",
+        { IsProtected: true } => "Owner",
+        { IsAdmin: true } => "Administrator",
+        _ => "Active"
+    };
+
+    static string TagClass(UserDetail user) => user switch
+    {
+        { IsActive: false } => "tag--off",
+        { IsProtected: true } or { IsAdmin: true } => "tag--admin",
+        _ => ""
+    };
+
+    static void Toggle(List<string> list, string value, bool on)
+    {
+        if (on)
+        {
+            if (!list.Contains(value))
+                list.Add(value);
+        }
+        else
+        {
+            list.Remove(value);
+        }
+    }
+
+    async Task Reload()
+    {
+        try
+        {
+            this.users = await this.Admin.GetUsers();
+            this.roles = await this.Admin.GetRoles();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    void Edit(UserDetail? user)
+    {
+        this.editorError = null;
+        this.draft = user is null
+            ? new Draft()
+            : new Draft
+            {
+                Id = user.Id,
+                Username = user.Username,
+                DisplayName = user.DisplayName,
+                Email = user.Email,
+                IsAdmin = user.IsAdmin,
+                IsActive = user.IsActive,
+                IsProtected = user.IsProtected,
+                RoleIds = [.. user.RoleIds]
+            };
+
+        this.editorOpen = true;
+    }
+
+    async Task Save()
+    {
+        if (this.draft is not { } draft)
+            return;
+
+        this.busy = true;
+        this.editorError = null;
+
+        try
+        {
+            await this.Admin.SaveUser(new SaveUserRequest(
+                draft.Id,
+                draft.Username,
+                draft.DisplayName,
+                draft.Email,
+                draft.Password.Length > 0 ? draft.Password : null,
+                draft.IsAdmin,
+                draft.IsActive,
+                draft.RoleIds
+            ));
+
+            this.editorOpen = false;
+            await this.Reload();
+            await this.Toasts.SuccessAsync("Saved.");
+        }
+        catch (ApiException ex)
+        {
+            this.editorError = ex.Message;
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    async Task Delete(UserDetail user)
+    {
+        var confirmed = await this.Dialogs.Confirm(
+            $"Delete {user.DisplayName}?",
+            "They lose access immediately. Their entries in the activity log stay.",
+            okText: "Delete",
+            cancelText: "Keep"
+        );
+
+        if (!confirmed)
+            return;
+
+        try
+        {
+            await this.Admin.DeleteUser(user.Id);
+            await this.Reload();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    async Task AddGroup()
+    {
+        try
+        {
+            await this.Admin.SaveRole(new SaveRoleRequest(null, this.newGroup.Trim(), null, false));
+            this.newGroup = "";
+            await this.Reload();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    async Task SetRoleAdmin(RoleInfo role, bool isAdmin)
+    {
+        try
+        {
+            await this.Admin.SaveRole(new SaveRoleRequest(role.Id, role.Name, role.Description, isAdmin));
+            await this.Reload();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    async Task DeleteRole(RoleInfo role)
+    {
+        var confirmed = await this.Dialogs.Confirm(
+            $"Delete {role.Name}?",
+            "Everyone in this group loses the access it grants, and its share permissions are removed.",
+            okText: "Delete",
+            cancelText: "Keep"
+        );
+
+        if (!confirmed)
+            return;
+
+        try
+        {
+            await this.Admin.DeleteRole(role.Id);
+            await this.Reload();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+}
