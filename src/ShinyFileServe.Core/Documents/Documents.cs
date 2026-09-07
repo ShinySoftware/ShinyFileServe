@@ -70,12 +70,15 @@ public class User
     /// </summary>
     public bool IsAnonymous { get; set; }
 
-    /// <summary>How many files this account may download per period. None, or a null cap, is unmetered.</summary>
-    public QuotaWindow DownloadCapWindow { get; set; } = QuotaWindow.None;
-    public int? MaxDownloads { get; set; }
+    /// <summary>
+    /// How many downloads this account may have running at the same time. Null is no limit. This is
+    /// about how much of the server one person may occupy at once, not how much they may move in
+    /// total - the byte quotas on the folder grant are what meter that.
+    /// </summary>
+    public int? MaxParallelDownloads { get; set; }
 
-    public QuotaWindow UploadCapWindow { get; set; } = QuotaWindow.None;
-    public int? MaxUploads { get; set; }
+    /// <summary>How many uploads this account may have running at the same time. Null is no limit.</summary>
+    public int? MaxParallelUploads { get; set; }
 
     /// <summary>
     /// The administrator created during first-run setup. It can be renamed and have its password
@@ -170,27 +173,6 @@ public class QuotaUsage
 
     public static string MakeId(string userId, string folderId, QuotaWindow window, string periodKey)
         => $"{userId}|{folderId}|{window}|{periodKey}";
-}
-
-/// <summary>
-/// How many files one account moved during one period. Separate from <see cref="QuotaUsage"/>
-/// because it counts transfers rather than bytes and it is per account rather than per folder - a
-/// cap of "twenty downloads a day" is about the person, not about where they got the files from.
-/// </summary>
-public class TransferCount
-{
-    /// <summary>Composite: <c>{userId}|{window}|{periodKey}</c>.</summary>
-    public string Id { get; set; } = "";
-    public string UserId { get; set; } = "";
-    public QuotaWindow Window { get; set; }
-    public string PeriodKey { get; set; } = "";
-    public int Downloads { get; set; }
-    public int Uploads { get; set; }
-    public DateTimeOffset PeriodStartUtc { get; set; }
-    public DateTimeOffset? PeriodEndUtc { get; set; }
-
-    public static string MakeId(string userId, QuotaWindow window, string periodKey)
-        => $"{userId}|{window}|{periodKey}";
 }
 
 /// <summary>One line in the audit trail. Written for every action a user takes, allowed or denied.</summary>

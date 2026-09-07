@@ -9,6 +9,8 @@
     <RootNamespace>ShinyFileServe.Windows</RootNamespace>
     <WindowsPackageType>None</WindowsPackageType>
     <UseWinUI>true</UseWinUI>
+    <!-- The AMSI imports are source-generated with LibraryImport, which emits unsafe marshalling code. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnableMsixTooling>true</EnableMsixTooling>
 
     <ApplicationTitle>FileServe</ApplicationTitle>

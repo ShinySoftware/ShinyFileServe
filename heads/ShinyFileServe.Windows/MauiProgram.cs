@@ -30,6 +30,11 @@ public static class MauiProgram
                     };
                 })));
 
+        // Windows is the one platform with an antimalware engine already present and callable, so
+        // uploads are scanned through AMSI - Defender, or whatever replaced it - with nothing for the
+        // operator to install. The other heads need a clamd; see ConfigureFileServe.
+        builder.Services.AddAmsiScanner();
+
         // Started here rather than from App.CreateWindow: the tray icon has to outlive every
         // window, so it is created before the first one exists.
         return builder.Build().StartFileServe();

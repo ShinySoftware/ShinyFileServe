@@ -8,9 +8,10 @@ namespace ShinyFileServe.App.Services;
 public interface IPlatformShell
 {
     /// <summary>
-    /// Take the app out of the Dock / taskbar / app switcher. Called the first time the console
-    /// window is closed, not at startup - an app that vanished before anyone had seen it would be
-    /// unreachable if the tray icon failed to appear.
+    /// Take the app out of the Dock / taskbar / app switcher. Called every time the console window
+    /// closes, and never at startup - an app that vanished before anyone had seen it would be
+    /// unreachable if the tray icon failed to appear. <see cref="BringToFront"/> undoes it, so this
+    /// has to be able to run more than once.
     /// </summary>
     void EnterBackgroundMode();
 

@@ -14,7 +14,23 @@ public interface IFileService
 
     IReadOnlyList<FileEntryInfo> List(FolderAccess access, string? virtualPath);
     FileInfo GetFile(FolderAccess access, string virtualPath);
-    Task<long> Save(FolderAccess access, string virtualPath, Stream content, bool overwrite, CancellationToken ct = default);
+
+    /// <summary>
+    /// Writes <paramref name="content"/> to a temporary file beside the target and moves it into
+    /// place once it is whole. <paramref name="inspect"/> is handed the temporary path after the
+    /// last byte is written and before the move: throw from it and nothing is ever published - which
+    /// is how a virus scan gets its look at a finished file without the file existing at a path
+    /// anyone could list or download first.
+    /// </summary>
+    Task<long> Save(
+        FolderAccess access,
+        string virtualPath,
+        Stream content,
+        bool overwrite,
+        Func<string, CancellationToken, Task>? inspect = null,
+        CancellationToken ct = default
+    );
+
     void Delete(FolderAccess access, string virtualPath);
     FileEntryInfo CreateDirectory(FolderAccess access, string? parentVirtualPath, string name);
 }
@@ -93,7 +109,13 @@ public class FileService : IFileService
         return info;
     }
 
-    public async Task<long> Save(FolderAccess access, string virtualPath, Stream content, bool overwrite, CancellationToken ct = default)
+    public async Task<long> Save(
+        FolderAccess access,
+        string virtualPath,
+        Stream content,
+        bool overwrite,
+        Func<string, CancellationToken, Task>? inspect = null,
+        CancellationToken ct = default)
     {
         var full = this.ResolvePath(access, virtualPath);
         if (Directory.Exists(full))
@@ -116,6 +138,12 @@ public class FileService : IFileService
                 await content.CopyToAsync(fs, ct);
                 written = fs.Length;
             }
+
+            // The file is complete and closed, and still nowhere a user can reach. Anything that
+            // wants to refuse it says so now, by throwing; the catch below takes the bytes away.
+            if (inspect is not null)
+                await inspect(temp, ct);
+
             File.Move(temp, full, overwrite: true);
         }
         catch

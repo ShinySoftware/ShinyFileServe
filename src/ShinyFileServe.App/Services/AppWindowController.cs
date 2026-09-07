@@ -27,7 +27,6 @@ public interface IAppWindowController
 public class AppWindowController(IPlatformShell shell, IServiceProvider services) : IAppWindowController
 {
     Window? window;
-    bool everClosed;
 
     public bool IsWindowOpen => this.window is not null;
 
@@ -52,17 +51,21 @@ public class AppWindowController(IPlatformShell shell, IServiceProvider services
 
         created.Destroying += (_, _) =>
         {
+            // A window that is no longer the tracked one has already been replaced by a newer one,
+            // and that newer one is still open - so there is nothing to forget and nowhere to go.
+            if (!ReferenceEquals(this.window, created))
+                return;
+
             // Nothing is torn down beyond forgetting the reference: the server keeps serving and
             // Show() builds a fresh window from the same container when it is next asked for.
             this.window = null;
 
-            // The app leaves the Dock the first time its window is closed rather than at launch,
-            // so it is always reachable the normal way until the user has actually put it away.
-            if (!this.everClosed)
-            {
-                this.everClosed = true;
-                shell.EnterBackgroundMode();
-            }
+            // Every close, not just the first. The app is only out of the Dock while it has no
+            // window - Show() has to put it back to raise one, because an app that is not in the
+            // Dock cannot be fronted - so a one-shot here would leave the icon behind from the
+            // second close onwards. At launch it is in the Dock, which is where it belongs until
+            // the user has actually put it away.
+            shell.EnterBackgroundMode();
         };
     }
 

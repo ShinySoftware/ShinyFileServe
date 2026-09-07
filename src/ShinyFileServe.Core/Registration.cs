@@ -46,7 +46,6 @@ public static class Registration
         services.AddSingleton<IUserManager, UserManager>();
         services.AddSingleton<IFolderManager, FolderManager>();
         services.AddSingleton<IQuotaTracker, QuotaTracker>();
-        services.AddSingleton<ITransferCounter, TransferCounter>();
         services.AddSingleton<IAccessResolver, AccessResolver>();
         services.AddSingleton<IActivityLogger, ActivityLogger>();
         services.AddSingleton<ISettingsManager, SettingsManager>();
@@ -55,6 +54,47 @@ public static class Registration
         services.AddSingleton<IFileService, FileService>();
         services.AddSingleton<FileServeInitializer>();
 
+        // Always resolvable, with no engines behind it until a head adds one - an unscanned server
+        // is then the same code path as a scanned one, and every file comes back skipped.
+        services.AddFileScanning();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the policy that runs over a finished upload. Engines are added separately with
+    /// <see cref="AddClamAvScanner"/> or by a head registering its own <see cref="IFileScanner"/>.
+    /// </summary>
+    public static IServiceCollection AddFileScanning(this IServiceCollection services, Action<FileScanOptions>? configure = null)
+    {
+        if (configure is not null)
+        {
+            var options = new FileScanOptions();
+            configure(options);
+            services.RemoveAll<FileScanOptions>();
+            services.AddSingleton(options);
+        }
+        else
+        {
+            services.TryAddSingleton<FileScanOptions>();
+        }
+
+        services.TryAddSingleton<IUploadScanner, UploadScanner>();
+        return services;
+    }
+
+    /// <summary>
+    /// Scans uploads with a ClamAV daemon. clamd is not shipped with the app: the operator installs
+    /// it and keeps its signatures current with freshclam, and this only speaks to its socket.
+    /// </summary>
+    public static IServiceCollection AddClamAvScanner(this IServiceCollection services, Action<ClamAvOptions>? configure = null)
+    {
+        var options = new ClamAvOptions();
+        configure?.Invoke(options);
+
+        services.AddFileScanning();
+        services.AddSingleton(options);
+        services.AddSingleton<IFileScanner, ClamAvFileScanner>();
         return services;
     }
 }
@@ -67,6 +107,7 @@ public class FileServeInitializer(
     IUserManager users,
     IActivityLogger activity,
     ISettingsManager settings,
+    IUploadScanner scanner,
     FileServeOptions options,
     TimeProvider time,
     ILogger<FileServeInitializer> logger
@@ -85,6 +126,19 @@ public class FileServeInitializer(
         // account at all, so the first person to open the site creates the administrator.
         if (await users.NeedsSetup(ct))
             logger.LogInformation("No accounts yet. Open the server in a browser to create the administrator.");
+
+        // Asked once, at startup, rather than discovered on the first upload of the day: a scanner
+        // that is configured but not answering is something an operator wants to hear about before
+        // anyone has trusted it with a file.
+        if (scanner.IsEnabled)
+        {
+            foreach (var line in await scanner.Describe(ct))
+                logger.LogInformation("Virus scanning - {Engine}", line);
+        }
+        else
+        {
+            logger.LogInformation("Virus scanning is off: no engine is configured");
+        }
 
         if (options.ActivityRetention is { } retention)
         {

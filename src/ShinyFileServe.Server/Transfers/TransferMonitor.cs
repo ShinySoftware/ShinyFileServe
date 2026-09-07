@@ -29,6 +29,13 @@ public interface ITransferMonitor
         long? totalBytes
     );
 
+    /// <summary>
+    /// How many transfers this account has running in one direction right now. This is what the
+    /// per-account parallel limit is measured against: the cap is about how much of the server one
+    /// person may occupy at once, and the set of live transfers is that, exactly.
+    /// </summary>
+    int CountLive(string userId, TransferDirection direction);
+
     TransferSnapshot Snapshot();
 }
 
@@ -111,6 +118,21 @@ public class TransferMonitor : ITransferMonitor, IDisposable
         }
 
         return entry;
+    }
+
+    public int CountLive(string userId, TransferDirection direction)
+    {
+        lock (this.gate)
+        {
+            var count = 0;
+            foreach (var entry in this.live.Values)
+            {
+                if (entry.Direction == direction && entry.UserId == userId)
+                    count++;
+            }
+
+            return count;
+        }
     }
 
     public TransferSnapshot Snapshot()
@@ -206,6 +228,8 @@ public class TransferMonitor : ITransferMonitor, IDisposable
         string? problem;
 
         public string Id => id;
+        public string UserId => userId;
+        public TransferDirection Direction => direction;
 
         public void Advance(long count)
         {

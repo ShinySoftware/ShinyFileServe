@@ -117,6 +117,56 @@ A download charges the whole file the moment it is authorised, even for a range 
 per range would let a client fetch a file in pieces for free. An upload that turns out to exceed
 the quota is deleted rather than left on disk.
 
+## Virus scanning
+
+Uploads are scanned once they are whole and **before they are published**. The bytes are written to
+a temporary file beside the target, the scan looks at that, and only a file nobody objected to is
+moved into place — so an infected upload is never a path anyone could list or download, not even for
+the moment it would take to delete it again. A refusal is `422`, is written to the activity log as a
+denial, and reaches the person uploading as the signature that matched.
+
+There is no antivirus engine written in .NET, so nothing is shipped in the app: each head asks
+something that is already on the machine.
+
+| Head | Engine | Installed by |
+| --- | --- | --- |
+| Windows | AMSI — Defender, or whatever replaced it | Already there |
+| macOS, Linux, Windows | ClamAV (`clamd`) | The operator |
+
+**Windows** needs nothing. `AmsiFileScanner` hands the buffer to whichever antimalware provider is
+registered, which on a stock machine is Defender, with its signatures already current because
+Windows keeps them that way.
+
+**Everywhere else** it is a ClamAV daemon the operator runs, and it is off until they say otherwise:
+
+```bash
+brew install clamav          # macOS         (then freshclam, then clamd)
+sudo apt install clamav-daemon clamav-freshclam   # Debian/Ubuntu
+
+FILESERVE_CLAMD=1 dotnet run --project heads/ShinyFileServe.MacOS
+```
+
+| Variable | What it does |
+| --- | --- |
+| `FILESERVE_CLAMD` | `1` for a clamd at `127.0.0.1:3310`, or `host:port` for one elsewhere |
+| `FILESERVE_CLAMD_PATHSCAN` | Let clamd open the file itself instead of streaming it — faster, and past the stream size cap, but only if clamd can read the share |
+| `FILESERVE_SCAN_STRICT` | Refuse anything that could not be scanned, rather than letting it through |
+
+An environment variable rather than a setting in the portal on purpose: which engine can be reached
+is a fact about the machine the server runs on, and an administrator on the other side of the
+network cannot see whether the daemon they just pointed at exists.
+
+Two limits are worth knowing. Files over **25MB are not scanned** by default, because clamd's own
+`StreamMaxLength` is 25MB and AMSI wants the whole file in one buffer; raising
+`FileScanOptions.MaxScanBytes` means raising clamd's limit to match, or scanning by path, which has
+no limit. And with no engine reachable an upload is **allowed** — a file server whose uploads stop
+because a daemon died is its own kind of outage, and `FILESERVE_SCAN_STRICT` is there for operators
+who would rather have the outage.
+
+Only ClamAV's socket protocol is spoken, never its library: `clamd` is GPL and stays a separate
+process on the other side of a socket, and [nClam](https://github.com/tekmaven/nClam), which is
+Apache-2.0, is all that is linked in.
+
 ## Passwords
 
 Configurable, and switchable off entirely — a cupboard server on a home network does not need a
@@ -149,9 +199,12 @@ never be an administrator — refused when set directly, refused through a group
 when the claim is built, so a database that arrived with the flag already set still grants nothing.
 Password sign-in against one is refused, and it is never remembered on a browser.
 
-Either kind can carry a **cap on the number of files it moves** — downloads and uploads counted
-separately, per day, week, month or in total. It sits beside the byte quotas on the folder grant
-rather than replacing them: one is about how much, the other about how often.
+Either kind can carry a **limit on how many transfers it runs at once** — downloads and uploads
+counted separately, whatever share the files come from. A request past the limit is refused with a
+429 while the earlier ones are still going, and a slot comes back the moment a transfer ends,
+however it ended. It sits beside the byte quotas on the folder grant rather than replacing them:
+one is about how much an account may move in total, the other about how much of the server it may
+occupy at once.
 
 ## Passwords over time
 

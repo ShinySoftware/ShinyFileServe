@@ -232,39 +232,20 @@
             <div class="admin__block">
                 <h3>Transfer limits</h3>
                 <span class="admin__hint">
-                    A cap on how many files this account may move, whatever share they come from.
-                    Leave the window at "No limit" for no cap at all.
+                    How many transfers this account may have running at the same time, whatever share
+                    they come from. Leave a box empty for no limit. This is about how much of the
+                    server one person may occupy at once - what they may move in total is the byte
+                    quota on the group's share.
                 </span>
 
                 <div class="caps">
                     <label class="field">
-                        <span class="field__label">Downloads</span>
-                        <select @bind="draft.DownloadCapWindow">
-                            @foreach (var window in Windows)
-                            {
-                                <option value="@window">@WindowText(window)</option>
-                            }
-                        </select>
+                        <span class="field__label">Downloads at once</span>
+                        <input type="number" min="1" step="1" placeholder="No limit" @bind="draft.MaxParallelDownloads" />
                     </label>
                     <label class="field">
-                        <span class="field__label">Files</span>
-                        <input type="number" min="0" step="1" @bind="draft.MaxDownloads"
-                               disabled="@(draft.DownloadCapWindow == QuotaWindow.None)" />
-                    </label>
-
-                    <label class="field">
-                        <span class="field__label">Uploads</span>
-                        <select @bind="draft.UploadCapWindow">
-                            @foreach (var window in Windows)
-                            {
-                                <option value="@window">@WindowText(window)</option>
-                            }
-                        </select>
-                    </label>
-                    <label class="field">
-                        <span class="field__label">Files</span>
-                        <input type="number" min="0" step="1" @bind="draft.MaxUploads"
-                               disabled="@(draft.UploadCapWindow == QuotaWindow.None)" />
+                        <span class="field__label">Uploads at once</span>
+                        <input type="number" min="1" step="1" placeholder="No limit" @bind="draft.MaxParallelUploads" />
                     </label>
                 </div>
             </div>
@@ -281,9 +262,6 @@
 </ModalView>
 
 @code {
-    static readonly QuotaWindow[] Windows =
-        [QuotaWindow.None, QuotaWindow.Daily, QuotaWindow.Weekly, QuotaWindow.Monthly, QuotaWindow.Total];
-
     List<UserDetail> users = [];
     List<RoleInfo> roles = [];
     string newGroup = "";
@@ -311,10 +289,8 @@
         public DateTime? ExpiresOn;
         public bool IsAnonymous;
         public bool IsProtected;
-        public QuotaWindow DownloadCapWindow;
-        public int? MaxDownloads;
-        public QuotaWindow UploadCapWindow;
-        public int? MaxUploads;
+        public int? MaxParallelDownloads;
+        public int? MaxParallelUploads;
         public List<string> RoleIds = [];
     }
 
@@ -329,15 +305,6 @@
 
         return draft.Password.Length == 0 ? draft.Id is not null : this.passwordOk;
     }
-
-    static string WindowText(QuotaWindow window) => window switch
-    {
-        QuotaWindow.Daily => "Per day",
-        QuotaWindow.Weekly => "Per week",
-        QuotaWindow.Monthly => "Per month",
-        QuotaWindow.Total => "Total, never resets",
-        _ => "No limit"
-    };
 
     /// <summary>
     /// One tag per row, so the order is the priority. A date the account is going to stop on says
@@ -370,27 +337,19 @@
         _ => ""
     };
 
-    /// <summary>"14 of 20 downloads today" - a cap is only readable next to what is left of it.</summary>
+    /// <summary>"2 of 3 downloads at once" - a limit is only readable next to what is running against it.</summary>
     static string CapText(UserDetail user)
     {
         var parts = new List<string>(2);
 
         if (!user.Downloads.IsUncapped)
-            parts.Add($"{user.Downloads.Used} of {user.Downloads.Limit} downloads {Span(user.Downloads.Window)}");
+            parts.Add($"{user.Downloads.Active} of {user.Downloads.Limit} downloads at once");
 
         if (!user.Uploads.IsUncapped)
-            parts.Add($"{user.Uploads.Used} of {user.Uploads.Limit} uploads {Span(user.Uploads.Window)}");
+            parts.Add($"{user.Uploads.Active} of {user.Uploads.Limit} uploads at once");
 
         return String.Join(" · ", parts);
     }
-
-    static string Span(QuotaWindow window) => window switch
-    {
-        QuotaWindow.Daily => "today",
-        QuotaWindow.Weekly => "this week",
-        QuotaWindow.Monthly => "this month",
-        _ => "in all"
-    };
 
     /// <summary>
     /// Ticking "never expires" drops the date; unticking it proposes a month out, because an empty
@@ -455,10 +414,8 @@
                 ExpiresOn = user.ExpiresAtUtc?.UtcDateTime.Date,
                 IsAnonymous = user.IsAnonymous,
                 IsProtected = user.IsProtected,
-                DownloadCapWindow = user.Downloads.Window,
-                MaxDownloads = user.Downloads.Limit,
-                UploadCapWindow = user.Uploads.Window,
-                MaxUploads = user.Uploads.Limit,
+                MaxParallelDownloads = user.Downloads.Limit,
+                MaxParallelUploads = user.Uploads.Limit,
                 RoleIds = [.. user.RoleIds]
             };
 
@@ -487,10 +444,8 @@
                 draft.ExpiresOn is { } day ? new DateTimeOffset(day.Date, TimeSpan.Zero) : null,
 
                 draft.IsAnonymous,
-                draft.DownloadCapWindow,
-                draft.MaxDownloads,
-                draft.UploadCapWindow,
-                draft.MaxUploads,
+                draft.MaxParallelDownloads,
+                draft.MaxParallelUploads,
                 draft.RoleIds
             ));
 

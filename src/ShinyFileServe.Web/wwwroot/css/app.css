@@ -1354,17 +1354,15 @@ button.cell-name__link:hover { color: var(--accent); text-decoration: underline;
 
 .guests__button { justify-content: center; padding: 8px; }
 
-/* The per-account caps. Two fixed columns rather than an auto-fitting grid: each window belongs to
-   the number beside it, and a layout free to wrap put one "Files" box between Downloads and
-   Uploads, where it read as belonging to neither. */
+/* The per-account parallel limits: downloads beside uploads, two equal columns, dropping to one on
+   a narrow screen rather than letting the pair squeeze. */
 .caps {
     display: grid;
-    grid-template-columns: minmax(140px, 1fr) minmax(110px, 0.6fr);
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
     gap: 10px 12px;
     align-items: end;
 }
 
-.caps select,
 .caps input {
     font: inherit;
     padding: 6px 9px;
@@ -1373,8 +1371,6 @@ button.cell-name__link:hover { color: var(--accent); text-decoration: underline;
     background: var(--surface);
     color: var(--ink);
 }
-
-.caps input:disabled { opacity: .5; }
 
 @media (max-width: 560px) {
     .caps { grid-template-columns: 1fr; }

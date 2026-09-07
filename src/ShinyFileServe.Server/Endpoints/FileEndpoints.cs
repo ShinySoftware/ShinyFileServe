@@ -16,8 +16,8 @@ public class FileEndpoints(
     IFolderManager folders,
     IFileService files,
     IQuotaTracker quotas,
-    ITransferCounter counts,
     ITransferMonitor transfers,
+    IUploadScanner scanner,
     IActivityLogger activity
 )
 {
@@ -96,28 +96,32 @@ public class FileEndpoints(
                 }
             }
 
-            // The account's own cap on how many files it may take, beside the folder's cap on how
-            // many bytes. Read once here and written once below - a download does no more counting
-            // work than that, whatever its size.
-            var downloads = await counts.GetCount(user!.Id, user.DownloadCapWindow, ct);
-            if (user.DownloadCapWindow != QuotaWindow.None && user.MaxDownloads is { } maxDownloads && downloads.Downloads >= maxDownloads)
+            // The account's own cap on how much of the server it may occupy at once, beside the
+            // folder's cap on how many bytes it may move. Counted from what is actually running, so
+            // a slot comes back the moment a transfer ends however it ended - there is nothing to
+            // reconcile and nothing that can leak a slot the way a stored count could.
+            //
+            // The check is here rather than where the transfer is registered because that happens
+            // inside the stream opener, by which time the 200 is already settled. Two downloads
+            // starting in the same instant can therefore both pass a check for the last free slot;
+            // one extra transfer for a moment is the right side of that trade, since the alternative
+            // is refusing a download after its headers have gone out.
+            if (user!.MaxParallelDownloads is { } maxParallel && transfers.CountLive(user.Id, TransferDirection.Download) >= maxParallel)
             {
                 await activity.Log(
                     ActivityAction.Denied, user.Id, user.Username, success: false,
                     folderId, folder.Folder.Name, path, info.Length,
-                    "Download count cap reached", current.GetActivityContext(ctx), ct
+                    "Parallel download limit reached", current.GetActivityContext(ctx), ct
                 );
                 return new ObjectResult(
-                    $"You have used all {maxDownloads} of your {Per(user.DownloadCapWindow)} downloads.",
+                    $"You already have {maxParallel} {(maxParallel == 1 ? "download" : "downloads")} running. Wait for one to finish and try again.",
                     StatusCodes.Status429TooManyRequests
                 );
             }
 
             // The whole file counts against the quota the moment it is authorised, even for a range
-            // request. Charging per-range would let a client fetch a file in pieces for free - and
-            // the count is charged the same way, once per file rather than once per request.
+            // request. Charging per-range would let a client fetch a file in pieces for free.
             await quotas.RecordDownload(user.Id, folderId, folder.DownloadWindow, info.Length, ct);
-            await counts.Record(user.Id, user.DownloadCapWindow, download: true, ct);
             await activity.Log(
                 ActivityAction.Download, user.Id, user.Username, success: true,
                 folderId, folder.Folder.Name, path, info.Length,
@@ -177,7 +181,9 @@ public class FileEndpoints(
     [Produces(200, typeof(IReadOnlyList<FileEntryInfo>))]
     [Produces(403)]
     [Produces(413)]
+    [Produces(422)]
     [Produces(429)]
+    [Produces(503)]
     public async Task<IActionResult> Upload(string folderId, HttpContext ctx, string? path = null, bool overwrite = false, CancellationToken ct = default)
     {
         var (user, folder, denied) = await this.Authorize(ctx, folderId, FolderPermissions.CreateFile, path, ct);
@@ -215,17 +221,17 @@ public class FileEndpoints(
                     return new StatusCodeResult(StatusCodes.Status413PayloadTooLarge);
                 }
 
-                // The account's cap on how many files it may send, read once per file and written
-                // once beside the byte quota below.
-                var uploads = await counts.GetCount(user!.Id, user.UploadCapWindow, ct);
-                if (user.UploadCapWindow != QuotaWindow.None && user.MaxUploads is { } maxUploads && uploads.Uploads >= maxUploads)
+                // The account's cap on how many uploads it may have running at once. Files inside one
+                // request are read one after another, so this refuses a second request while the
+                // first is still arriving rather than the second file of a batch.
+                if (user!.MaxParallelUploads is { } maxParallel && transfers.CountLive(user.Id, TransferDirection.Upload) >= maxParallel)
                 {
                     await activity.Log(
                         ActivityAction.Denied, user.Id, user.Username, false, folderId, folder!.Folder.Name,
-                        target, 0, "Upload count cap reached", activityContext, ct
+                        target, 0, "Parallel upload limit reached", activityContext, ct
                     );
                     return new ObjectResult(
-                        $"You have used all {maxUploads} of your {Per(user.UploadCapWindow)} uploads.",
+                        $"You already have {maxParallel} {(maxParallel == 1 ? "upload" : "uploads")} running. Wait for one to finish and try again.",
                         StatusCodes.Status429TooManyRequests
                     );
                 }
@@ -254,8 +260,36 @@ public class FileEndpoints(
                 );
 
                 long written;
-                await using (var counted = new CountingStream(part.Body, transfer, leaveInnerOpen: true, ownsHandle: false))
-                    written = await files.Save(folder, target, counted, overwrite, ct);
+                try
+                {
+                    // The scan runs inside Save, on the finished temp file and before it is moved
+                    // into place, so an infected upload is never a file anyone could have listed or
+                    // downloaded - not even for the moment it would take to delete it again.
+                    await using var counted = new CountingStream(part.Body, transfer, leaveInnerOpen: true, ownsHandle: false);
+                    written = await files.Save(
+                        folder, target, counted, overwrite,
+                        inspect: (temp, token) => this.Inspect(temp, name, token),
+                        ct: ct
+                    );
+                }
+                catch (FileRejectedException ex)
+                {
+                    transfer.Fail(ex.Message);
+
+                    await activity.Log(
+                        ActivityAction.Denied, user!.Id, user.Username, false, folderId, folder!.Folder.Name,
+                        target, ex.Bytes, ex.Message, activityContext, ct
+                    );
+
+                    // 422 is the file itself being refused; anything else is the server admitting it
+                    // could not tell, which is a condition of the server and may pass on a retry.
+                    return new ObjectResult(ex.Message)
+                    {
+                        StatusCode = ex.Decision.Verdict == ScanVerdict.Infected
+                            ? StatusCodes.Status422UnprocessableEntity
+                            : StatusCodes.Status503ServiceUnavailable
+                    };
+                }
 
                 transfer.SetTotal(written);
 
@@ -277,7 +311,6 @@ public class FileEndpoints(
                 transfer.Complete();
 
                 await quotas.RecordUpload(user!.Id, folderId, folder.UploadWindow, written, ct);
-                await counts.Record(user!.Id, user.UploadCapWindow, download: false, ct);
                 await activity.Log(
                     ActivityAction.Upload, user.Id, user.Username, true, folderId, folder.Folder.Name,
                     target, written, context: activityContext, ct: ct
@@ -358,6 +391,17 @@ public class FileEndpoints(
         }
     }
 
+    /// <summary>
+    /// The hook <see cref="IFileService.Save"/> calls on a finished upload while it is still a temp
+    /// file. Throwing is how a file is refused - it is the only thing that stops the move.
+    /// </summary>
+    async Task Inspect(string tempPath, string fileName, CancellationToken ct)
+    {
+        var decision = await scanner.Scan(tempPath, fileName, ct);
+        if (!decision.Allowed)
+            throw new FileRejectedException(decision, new FileInfo(tempPath).Length);
+    }
+
     // -----------------------------------------------------------------------
     // Shared pre-flight
     // -----------------------------------------------------------------------
@@ -419,15 +463,6 @@ public class FileEndpoints(
         => Int64.TryParse(part.Headers.GetFirst("Content-Length"), out var length) && length >= 0
             ? length
             : null;
-
-    /// <summary>How a window reads inside a refusal: "all 20 of your daily downloads".</summary>
-    static string Per(QuotaWindow window) => window switch
-    {
-        QuotaWindow.Daily => "daily",
-        QuotaWindow.Weekly => "weekly",
-        QuotaWindow.Monthly => "monthly",
-        _ => "allowed"
-    };
 
     static string Normalize(string? path)
         => String.IsNullOrWhiteSpace(path) ? "" : path.Replace('\\', '/').Trim('/');

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Shiny;
 using ShinyFileServe.App.Services;
 using ShinyFileServe.Core;
+using ShinyFileServe.Core.Services;
 using ShinyFileServe.Server;
 
 namespace ShinyFileServe.App;
@@ -30,6 +31,8 @@ public static class MauiProgram
             // No account is seeded. The first person to open the portal creates the administrator.
             o.DatabasePath = AppPaths.DatabaseFile;
         });
+
+        ConfigureScanning(builder.Services);
 
         builder.Services.AddFileServeServer(
             o =>
@@ -59,6 +62,49 @@ public static class MauiProgram
 #endif
         return builder;
     }
+
+    /// <summary>
+    /// Uploads are scanned once they are whole and before they are published. Which engine does the
+    /// scanning is a property of the machine, not of the app: the Windows head calls AMSI, which is
+    /// already there, and everywhere else it is a clamd the operator chose to run - so it is an
+    /// environment variable rather than a setting, read where the server is started rather than from
+    /// a database an administrator could point at a daemon that does not exist.
+    ///
+    ///   FILESERVE_CLAMD=1                on for a clamd at 127.0.0.1:3310
+    ///   FILESERVE_CLAMD=clamav.lan:3310  on for a clamd elsewhere
+    ///   FILESERVE_CLAMD_PATHSCAN=1       let clamd open the file itself instead of streaming it
+    ///   FILESERVE_SCAN_STRICT=1          refuse anything that could not be scanned
+    /// </summary>
+    static void ConfigureScanning(IServiceCollection services)
+    {
+        var strict = IsOn(Environment.GetEnvironmentVariable("FILESERVE_SCAN_STRICT"));
+        services.AddFileScanning(o => o.RejectUnscannable = strict);
+
+        var clamd = Environment.GetEnvironmentVariable("FILESERVE_CLAMD");
+        if (String.IsNullOrWhiteSpace(clamd))
+            return;
+
+        var host = "127.0.0.1";
+        var port = 3310;
+
+        if (!IsOn(clamd))
+        {
+            var parts = clamd.Split(':', 2);
+            host = parts[0].Trim();
+            if (parts.Length == 2 && Int32.TryParse(parts[1], out var parsed))
+                port = parsed;
+        }
+
+        services.AddClamAvScanner(o =>
+        {
+            o.Host = host;
+            o.Port = port;
+            o.ScanByPath = IsOn(Environment.GetEnvironmentVariable("FILESERVE_CLAMD_PATHSCAN"));
+        });
+    }
+
+    static bool IsOn(string? value)
+        => value is not null && (value is "1" || value.Equals("true", StringComparison.OrdinalIgnoreCase) || value.Equals("on", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Starts the pieces that outlive every window. Called by each head straight after

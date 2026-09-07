@@ -2,6 +2,7 @@ using Shiny.Net.HttpServer;
 using ShinyFileServe.Core.Documents;
 using ShinyFileServe.Core.Services;
 using ShinyFileServe.Server.Security;
+using ShinyFileServe.Server.Transfers;
 using ShinyFileServe.Shared;
 
 namespace ShinyFileServe.Server.Endpoints;
@@ -17,8 +18,7 @@ public class AdminUsersEndpoints(
     IPasswordPolicy passwords,
     ICurrentUserResolver current,
     IActivityLogger activity,
-    ITransferCounter counts,
-    TimeProvider time
+    ITransferMonitor transfers
 )
 {
     // -- users --------------------------------------------------------------
@@ -32,7 +32,7 @@ public class AdminUsersEndpoints(
 
         var details = new List<UserDetail>(all.Count);
         foreach (var user in all)
-            details.Add(await this.ToDetail(user, roles, ct));
+            details.Add(this.ToDetail(user, roles));
 
         return new OkObjectResult(details);
     }
@@ -98,10 +98,8 @@ public class AdminUsersEndpoints(
         user.IsAdmin = request.IsAdmin;
         user.ExpiresAtUtc = request.ExpiresAtUtc;
         user.IsAnonymous = request.IsAnonymous;
-        user.DownloadCapWindow = request.DownloadCapWindow;
-        user.MaxDownloads = Cap(request.DownloadCapWindow, request.MaxDownloads);
-        user.UploadCapWindow = request.UploadCapWindow;
-        user.MaxUploads = Cap(request.UploadCapWindow, request.MaxUploads);
+        user.MaxParallelDownloads = Cap(request.MaxParallelDownloads);
+        user.MaxParallelUploads = Cap(request.MaxParallelUploads);
         user.RoleIds = request.RoleIds.Where(id => roles.Any(r => r.Id == id)).ToList();
 
         // The protected account keeps its admin and its perpetual life whatever was sent, and an
@@ -120,12 +118,15 @@ public class AdminUsersEndpoints(
             await users.SetPassword(user.Id, request.Password, ct);
 
         await this.Log(ctx, $"Saved the account '{user.Username}'", ct);
-        return new OkObjectResult(await this.ToDetail((await users.GetUser(user.Id, ct))!, roles, ct));
+        return new OkObjectResult(this.ToDetail((await users.GetUser(user.Id, ct))!, roles));
     }
 
-    /// <summary>A cap only means something with a window, and a window only with a number.</summary>
-    static int? Cap(QuotaWindow window, int? limit)
-        => window == QuotaWindow.None || limit is not > 0 ? null : limit;
+    /// <summary>
+    /// A limit of nothing at all and a limit of zero say the same thing - an account allowed no
+    /// transfers is an account with no access, which is what the grants are for - so both are
+    /// stored as no limit rather than as a cap nobody could ever satisfy.
+    /// </summary>
+    static int? Cap(int? limit) => limit is not > 0 ? null : limit;
 
     /// <summary>
     /// Ends a lockout. Administrator-only, and deliberately the only way out of one: an account that
@@ -256,7 +257,7 @@ public class AdminUsersEndpoints(
 
     // -----------------------------------------------------------------------
 
-    async Task<UserDetail> ToDetail(User user, IReadOnlyList<Role> roles, CancellationToken ct) => new(
+    UserDetail ToDetail(User user, IReadOnlyList<Role> roles) => new(
         user.Id,
         user.Username,
         user.DisplayName,
@@ -265,8 +266,8 @@ public class AdminUsersEndpoints(
         user.ExpiresAtUtc,
         user.IsProtected,
         user.IsAnonymous,
-        await this.CapState(user, user.DownloadCapWindow, user.MaxDownloads, download: true, ct),
-        await this.CapState(user, user.UploadCapWindow, user.MaxUploads, download: false, ct),
+        this.CapState(user.Id, user.MaxParallelDownloads, TransferDirection.Download),
+        this.CapState(user.Id, user.MaxParallelUploads, TransferDirection.Upload),
         user.RoleIds,
         roles.Where(r => user.RoleIds.Contains(r.Id)).Select(r => r.Name).ToList(),
         user.CreatedUtc,
@@ -275,16 +276,15 @@ public class AdminUsersEndpoints(
         user.FailedSignInCount
     );
 
-    /// <summary>The cap plus what has been spent against it, so the list can show one against the other.</summary>
-    async Task<TransferCapState> CapState(User user, QuotaWindow window, int? limit, bool download, CancellationToken ct)
-    {
-        if (window == QuotaWindow.None || limit is null)
-            return TransferCapState.Uncapped;
-
-        var count = await counts.GetCount(user.Id, window, ct);
-        var (_, _, end) = QuotaTracker.Period(window, time.GetUtcNow());
-        return new TransferCapState(window, limit, download ? count.Downloads : count.Uploads, end);
-    }
+    /// <summary>
+    /// The cap plus what is running against it right now, so the list can show one against the
+    /// other. An uncapped account is not counted at all - the number would mean nothing next to a
+    /// limit that does not exist, and the monitor would be walked once per account for it.
+    /// </summary>
+    TransferCapState CapState(string userId, int? limit, TransferDirection direction)
+        => limit is null
+            ? TransferCapState.Uncapped
+            : new TransferCapState(limit, transfers.CountLive(userId, direction));
 
     async Task Log(HttpContext ctx, string detail, CancellationToken ct)
     {

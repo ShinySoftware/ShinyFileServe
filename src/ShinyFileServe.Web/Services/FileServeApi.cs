@@ -319,6 +319,8 @@ public class FileServeApi(HttpClient http)
             HttpStatusCode.Conflict => "Something with that name already exists.",
             HttpStatusCode.RequestEntityTooLarge => "That file is larger than this folder allows.",
             HttpStatusCode.TooManyRequests => "You have used up your quota for this folder.",
+            HttpStatusCode.UnprocessableEntity => "That file was refused by the virus scanner.",
+            HttpStatusCode.ServiceUnavailable => "That file could not be scanned, so it was not accepted.",
             _ => $"The server returned {(int)status}."
         };
     }

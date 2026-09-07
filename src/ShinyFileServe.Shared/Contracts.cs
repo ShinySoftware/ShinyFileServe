@@ -456,7 +456,7 @@ public record UserDetail(
     /// <summary>No password, and anybody who reaches the server may sign in as it.</summary>
     bool IsAnonymous,
 
-    /// <summary>The cap on the number of downloads, and how much of it is spent this period.</summary>
+    /// <summary>The cap on downloads running at once, and how many are running right now.</summary>
     TransferCapState Downloads,
     TransferCapState Uploads,
 
@@ -484,15 +484,17 @@ public record UserDetail(
 }
 
 /// <summary>
-/// A cap on how many files an account may move, and how many it has moved in the current period.
-/// A null <see cref="Limit"/> - or a <see cref="QuotaWindow.None"/> window - means no cap.
+/// A cap on how many transfers an account may have running at the same time, and how many it has
+/// running right now. A null <see cref="Limit"/> means no cap.
 /// </summary>
-public record TransferCapState(QuotaWindow Window, int? Limit, int Used, DateTimeOffset? ResetsUtc)
+public record TransferCapState(int? Limit, int Active)
 {
-    public static TransferCapState Uncapped { get; } = new(QuotaWindow.None, null, 0, null);
+    public static TransferCapState Uncapped { get; } = new(null, 0);
 
-    public bool IsUncapped => this.Window == QuotaWindow.None || this.Limit is null;
-    public int Remaining => this.Limit is null ? int.MaxValue : Math.Max(0, this.Limit.Value - this.Used);
+    public bool IsUncapped => this.Limit is null;
+
+    /// <summary>How many more this account could start this instant. Meaningless when uncapped.</summary>
+    public int Available => this.Limit is null ? Int32.MaxValue : Math.Max(0, this.Limit.Value - this.Active);
 }
 
 /// <summary>A blank <see cref="Password"/> keeps the stored one. Required when <see cref="Id"/> is null.</summary>
@@ -513,10 +515,9 @@ public record SaveUserRequest(
     /// </summary>
     bool IsAnonymous,
 
-    QuotaWindow DownloadCapWindow,
-    int? MaxDownloads,
-    QuotaWindow UploadCapWindow,
-    int? MaxUploads,
+    /// <summary>How many downloads this account may run at once. Null, or anything below one, is no cap.</summary>
+    int? MaxParallelDownloads,
+    int? MaxParallelUploads,
 
     IReadOnlyList<string> RoleIds
 );

@@ -16,6 +16,10 @@
     <PackageVersion Include="Shiny.Notifications" Version="5.6.0-beta-0083" />
     <PackageVersion Include="Shiny.Notifications.Linux" Version="5.6.0-beta-0083" />
 
+    <!-- Virus scanning: a client for a ClamAV daemon, Apache-2.0. clamd itself is GPL and stays a
+         separate process on the other side of a socket. -->
+    <PackageVersion Include="nClam" Version="9.0.0" />
+
     <!-- Microsoft -->
     <PackageVersion Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.1" />

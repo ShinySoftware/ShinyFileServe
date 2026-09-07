@@ -9,6 +9,7 @@
     <!-- Already transitive; named here because BackupService uses SqliteConnection directly. -->
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="nClam" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ShinyFileServe.Shared\ShinyFileServe.Shared.csproj" />
