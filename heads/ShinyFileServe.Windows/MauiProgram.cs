@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.LifecycleEvents;
 using ShinyFileServe.App;
 using FileServeApp = ShinyFileServe.App.App;

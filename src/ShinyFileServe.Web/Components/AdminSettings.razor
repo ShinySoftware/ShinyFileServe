@@ -91,6 +91,15 @@ else
                 Open the tunnel whenever the server starts
             </label>
 
+            @* Shown and disabled rather than hidden where the machine cannot do it: an operator
+               looking for this switch is owed the reason it is not working, not its absence. *@
+            <label class="field--check">
+                <input type="checkbox" @bind="this.runAtStartup"
+                       disabled="@(this.status.Config.RunAtStartup is RunAtStartupState.NotSupported)" />
+                Start this app when I sign in to this machine
+            </label>
+            <span class="admin__hint">@RunAtStartupText.Explain(this.status.Config.RunAtStartup)</span>
+
         </section>
 
         <section class="admin__block">
@@ -286,6 +295,7 @@ else
     string token = "";
     bool autoStartServer;
     bool autoStartTunnel;
+    bool runAtStartup;
     BackupSummary? staged;
     bool passwordsEnabled = true;
     int passwordMinimum = 8;
@@ -330,6 +340,7 @@ else
             this.port = this.status.Config.Port;
             this.autoStartServer = this.status.Config.AutoStartServer;
             this.autoStartTunnel = this.status.Config.AutoStartTunnel;
+            this.runAtStartup = this.status.Config.RunAtStartup is RunAtStartupState.Enabled;
             var rules = this.status.Config.Passwords;
             this.passwordsEnabled = rules.Enabled;
             this.passwordMinimum = rules.MinimumLength;
@@ -485,7 +496,8 @@ else
             this.blockCommon,
             this.passwordMaxAgeDays
         ),
-        this.maxFailedSignIns
+        this.maxFailedSignIns,
+        this.runAtStartup
     );
 
     Task Save() => this.Run(async () =>
@@ -493,7 +505,18 @@ else
         // Null leaves the stored token alone; the box is blank unless the admin typed a new one.
         this.status = await this.Api.SaveServerConfig(this.Build(this.token.Length == 0 ? null : this.token));
         this.token = "";
-        await this.Toasts.SuccessAsync("Saved.");
+
+        // Starting at login is the one switch on this form the machine can refuse - or half-grant,
+        // as macOS does when it registers the app and then waits to be told it may run it. The box
+        // goes back to what actually happened rather than staying where it was left.
+        var landed = this.status.Config.RunAtStartup is RunAtStartupState.Enabled;
+        var refused = this.runAtStartup != landed;
+        this.runAtStartup = landed;
+
+        if (refused)
+            await this.Toasts.WarningAsync(this.status.StateText);
+        else
+            await this.Toasts.SuccessAsync("Saved.");
     });
 
     Task ClearToken() => this.Run(async () =>

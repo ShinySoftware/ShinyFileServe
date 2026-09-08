@@ -1,5 +1,6 @@
 using Shiny;
 using Microsoft.Maui.Platforms.Linux.Gtk4.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 using ShinyFileServe.App;
 using FileServeApp = ShinyFileServe.App.App;
 

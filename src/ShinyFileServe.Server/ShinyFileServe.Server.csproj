@@ -7,6 +7,10 @@
   <ItemGroup>
     <PackageReference Include="Shiny.Net.HttpServer" />
     <PackageReference Include="Shiny.Net.HttpServer.Ssh" />
+    <!-- IStartupService: the admin API exposes "start at login", and the package picks the
+         mechanism per platform. Referenced here rather than in Core because this is the only
+         project that touches the interface; every head gets the implementation for its own TFM. -->
+    <PackageReference Include="Shiny.Extensions.MauiHosting" />
   </ItemGroup>
 
   <ItemGroup>

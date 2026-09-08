@@ -49,6 +49,18 @@ public static class MauiProgram
             autoStart: false
         );
 
+        // One call for all three heads. Shiny picks the mechanism from the TFM the head resolved -
+        // the HKCU Run key on Windows, an SMAppService login item on macOS, an XDG autostart entry
+        // on the plain net10.0 Linux head - so there is nothing per-head to write or keep in step.
+        builder.AddStartupService(o =>
+        {
+            // Named rather than left to be inferred: the identifier becomes the Run value name and
+            // the .desktop file name, so it has to survive an upgrade, and MAUI Essentials' AppInfo
+            // is not answerable on the GTK4 head to be inferred from anyway.
+            o.Identifier = "net.shinylib.fileserve";
+            o.DisplayName = "FileServe";
+        });
+
         builder.Services.AddSingleton<ServerController>();
         builder.Services.TryAddSingleton<IPlatformShell, DefaultPlatformShell>();
         builder.Services.AddSingleton<IAppWindowController, AppWindowController>();

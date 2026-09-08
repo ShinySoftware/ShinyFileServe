@@ -344,6 +344,66 @@ public enum ActivitySort
 // Administration (server, tunnel, settings) - all admin-only
 // ---------------------------------------------------------------------------
 
+/// <summary>
+/// Whether the machine starts this app at login, and if not, why not. Mirrors Shiny's
+/// <c>StartupServiceState</c> member for member, the same way <see cref="TunnelStatus"/> mirrors the
+/// tunnel's own enum: the contract stays free of the hosting package and the server casts across.
+/// </summary>
+/// <remarks>
+/// There is deliberately no copy of this in the settings document. The registry value or the file on
+/// disk <i>is</i> the setting - a person can delete it from Task Manager, from GNOME Tweaks, or with
+/// <c>rm</c>, and a remembered flag would be a second answer that disagrees with the machine and
+/// wins the argument it should lose.
+/// </remarks>
+public enum RunAtStartupState
+{
+    /// <summary>No such concept here, or the app cannot work out where it is installed.</summary>
+    NotSupported,
+
+    /// <summary>Supported, and switched off.</summary>
+    NotRegistered,
+
+    /// <summary>Registered, and the machine will honour it at the next sign-in.</summary>
+    Enabled,
+
+    /// <summary>Registered, then switched off from outside this app - Task Manager, or an autostart editor.</summary>
+    DisabledByUser,
+
+    /// <summary>Registered, and blocked by a policy on this machine that this app cannot overrule.</summary>
+    DisabledByPolicy,
+
+    /// <summary>Registered, and waiting for the person to allow it in the operating system's own settings.</summary>
+    RequiresApproval
+}
+
+/// <summary>
+/// One sentence for each answer, kept beside the contract rather than at either end of it: the
+/// browser needs it for the hint under the switch and the server needs it for the message when a
+/// change did not take, and the two must not drift into telling different stories.
+/// </summary>
+public static class RunAtStartupText
+{
+    public static string Explain(RunAtStartupState state) => state switch
+    {
+        RunAtStartupState.Enabled =>
+            "This machine starts the app when you sign in. The entry belongs to your account, not to the machine, and you can remove it from the operating system's own startup list without coming back here.",
+
+        RunAtStartupState.NotRegistered =>
+            "Registers with this machine's own startup list, under the account running the server - the Run key on Windows, a login item on macOS, an autostart entry on Linux.",
+
+        RunAtStartupState.RequiresApproval =>
+            "The app is registered, but the operating system is waiting for you to allow it - on macOS that is System Settings > General > Login Items. Until you do, it will not start at sign-in.",
+
+        RunAtStartupState.DisabledByUser =>
+            "The entry is there but switched off from outside this app - Task Manager's Startup tab on Windows, an autostart editor on Linux. Turn it back on where it was turned off.",
+
+        RunAtStartupState.DisabledByPolicy =>
+            "A policy on this machine blocks apps from starting at sign-in. That is an administrator's decision and this app cannot overrule it.",
+
+        _ => "This machine has no way to start an app at login."
+    };
+}
+
 public enum TunnelStatus
 {
     Off,
@@ -385,7 +445,15 @@ public record ServerConfig(
     PasswordPolicyInfo Passwords,
 
     /// <summary>Consecutive failed sign-ins before an account locks itself. 0 never locks one.</summary>
-    int MaxFailedSignIns
+    int MaxFailedSignIns,
+
+    /// <summary>
+    /// What this machine says about starting the app when its user signs in - asked of the
+    /// operating system on every look, never read back from the settings document. Anything but
+    /// <see cref="RunAtStartupState.Enabled"/> means it will not start, and each of the other
+    /// answers is a different thing for the operator to do about it.
+    /// </summary>
+    RunAtStartupState RunAtStartup = RunAtStartupState.NotSupported
 );
 
 /// <summary>
@@ -413,7 +481,14 @@ public record UpdateServerConfig(
     /// Consecutive failed sign-ins before an account locks itself, or null to leave the stored
     /// number alone. 0 is a real value here and means "never lock anybody".
     /// </summary>
-    int? MaxFailedSignIns = null
+    int? MaxFailedSignIns = null,
+
+    /// <summary>
+    /// Start the app when this machine's user signs in, or null to leave it as it is. Nullable
+    /// because it is the one setting on this record that is not stored with the others - a caller
+    /// that predates it, or one that has no opinion, must not switch it off by omission.
+    /// </summary>
+    bool? RunAtStartup = null
 );
 
 public static class ActivityActions

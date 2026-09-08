@@ -18,7 +18,9 @@ everything to keep in step and one of them quietly falling behind.
 │  │                                  shares, grants, quotas, log,    │
 │  │                                  bandwidth history               │
 │  ├── QuickTunnel (pinggy)  ───────  optional public https address   │
-│  └── Shiny.Notifications   ───────  desktop notification per event  │
+│  ├── Shiny.Notifications   ───────  desktop notification per event  │
+│  └── Shiny.Extensions.     ───────  start at login, per platform    │
+│        MauiHosting                                                  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -347,6 +349,63 @@ without error and never appears in the menu bar. Each head calls `StartFileServe
 `MauiApp` for exactly this reason. On macOS, Quit also goes to `NSApplication.Terminate` rather
 than `Application.Quit()`: the head turns off terminate-after-last-window so the server outlives
 the window, which means MAUI's Quit would only put the window away.
+
+## Starting at login
+
+A switch on the Settings screen registers the app with whatever this machine uses to start things
+when its user signs in. It is `IStartupService` from **Shiny.Extensions.MauiHosting**, asked for once
+in `ConfigureFileServe` and answered per head by the asset NuGet picked for that head's TFM — so
+there is no per-head implementation here to write, and none to keep in step:
+
+| Head | What is written |
+| --- | --- |
+| Windows (`net10.0-windows`) | A value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, which Task Manager lists under Startup |
+| macOS (`net10.0-macos`) | An `SMAppService.MainApp` login item |
+| Linux (plain `net10.0`) | An XDG autostart entry at `$XDG_CONFIG_HOME/autostart/net.shinylib.fileserve.desktop` |
+
+Per-user everywhere, never machine-wide: this server hands out one person's files under one person's
+account, and a machine-wide entry would start it for everybody who signs in to the box — including
+people the operator never meant to run it as.
+
+The identifier is set explicitly to `net.shinylib.fileserve` rather than left to be inferred. It
+becomes the `Run` value name and the `.desktop` file name, so it has to survive an upgrade, and MAUI
+Essentials' `AppInfo` is not answerable on the GTK4 head to be inferred from anyway.
+
+**There is no copy of this in the settings document.** The registry value or the file on disk *is*
+the setting: a person can delete it from Task Manager, from GNOME Tweaks, or with `rm`, and a
+remembered flag would then be a second answer that disagrees with the machine and wins the argument
+it should lose. Every read asks the platform — `/status` is fetched when the settings screen opens
+rather than polled, so it costs nothing worth counting.
+
+Writing is the same principle in reverse: the switch reports what the machine actually did, not what
+it was asked to do. `StartupServiceState` is mirrored across the wire as `RunAtStartupState`, member
+for member, the same way `TunnelStatus` mirrors the tunnel's own enum — because "off" is not one
+answer but four, and each is a different thing for the operator to do about it:
+
+| State | What it means |
+| --- | --- |
+| `Enabled` | The machine will start the app at the next sign-in |
+| `NotRegistered` | Supported, and switched off |
+| `RequiresApproval` | Registered, and macOS is waiting for the person to allow it in System Settings › General › Login Items |
+| `DisabledByUser` | Registered, then switched off from outside this app — Task Manager, an autostart editor |
+| `DisabledByPolicy` | Blocked by a policy this app cannot overrule |
+| `NotSupported` | No such concept here, or the app cannot work out where it is installed |
+
+`RunAtStartupText.Explain` lives in the shared contract rather than at either end of it: the browser
+needs a sentence for the hint under the switch and the server needs one for the message when a
+change did not take, and the two must not drift into telling different stories. A registration that
+comes back as anything but `Enabled` puts the checkbox back where the machine says it is and raises
+the explanation as a warning, rather than leaving a saved setting that was never true.
+
+> [!NOTE]
+> macOS registers a login item through `SMAppService`, which wants the running app to be a proper
+> bundle. A build an operator made themselves and left outside `/Applications` may come back as
+> `RequiresApproval` — or refuse — where the same code in a shipped, notarised bundle does not.
+
+> [!NOTE]
+> The app still opens its console window when it is launched this way. Starting minimised to the
+> tray is a separate change — MAUI creates a window at launch on every head, and this codebase
+> deliberately has no programmatic `Hide` (see **Two things the macOS backend does not do for you**).
 
 ## Notifications
 

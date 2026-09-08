@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Shiny;
 using Shiny.Net.HttpServer;
 using ShinyFileServe.Core.Services;
 using ShinyFileServe.Server.Security;
@@ -18,7 +20,9 @@ public class AdminEndpoints(
     IFolderManager folders,
     IUserManager users,
     ICurrentUserResolver current,
-    IActivityLogger activity
+    IActivityLogger activity,
+    IStartupService startup,
+    ILogger<AdminEndpoints> logger
 )
 {
     [Get("/status")]
@@ -26,7 +30,7 @@ public class AdminEndpoints(
     public async Task<IActionResult> Status(CancellationToken ct)
     {
         await settings.Load(ct);
-        return new OkObjectResult(this.BuildStatus());
+        return new OkObjectResult(await this.BuildStatus(ct));
     }
 
     [Put("/settings")]
@@ -84,12 +88,37 @@ public class AdminEndpoints(
         await settings.Save(stored, ct);
         await this.LogAdminAction(ctx, "Changed server settings", ct);
 
+        // Not part of the settings document, so it is handed to the machine rather than saved - see
+        // RunAtStartupState for why the machine keeps this one rather than the database. Done after
+        // the save because it is the only setting on this form that can refuse, and a refusal should
+        // not take the rest of it down with it.
+        if (request.RunAtStartup is { } wanted && wanted != (await this.ReadStartup(ct) is RunAtStartupState.Enabled))
+        {
+            var (state, problem) = await this.ApplyStartup(wanted, ct);
+            var took = (state is RunAtStartupState.Enabled) == wanted;
+            var why = problem ?? RunAtStartupText.Explain(state);
+
+            await this.LogAdminAction(
+                ctx,
+                took
+                    ? $"Turned {(wanted ? "on" : "off")} starting at login"
+                    : $"Could not turn {(wanted ? "on" : "off")} starting at login: {why}",
+                ct
+            );
+
+            // Register can succeed and still leave the app not starting - macOS answers
+            // RequiresApproval until the person allows it in System Settings - so the message is
+            // the state's own explanation rather than the word "failed".
+            if (!took)
+                return new OkObjectResult((await this.BuildStatus(ct)) with { StateText = $"Saved. {why}" });
+        }
+
         // Changing the port while answering a request on the old one would kill this very response,
         // so the rebind is deliberately deferred to an explicit restart from the caller.
         if (portChanged)
-            return new OkObjectResult(this.BuildStatus() with { StateText = "Restart the server to move to the new port" });
+            return new OkObjectResult((await this.BuildStatus(ct)) with { StateText = "Restart the server to move to the new port" });
 
-        return new OkObjectResult(this.BuildStatus());
+        return new OkObjectResult(await this.BuildStatus(ct));
     }
 
     [Post("/server/start")]
@@ -98,7 +127,7 @@ public class AdminEndpoints(
     {
         await server.Start(ct);
         await this.LogAdminAction(ctx, "Started the server", ct);
-        return new OkObjectResult(this.BuildStatus());
+        return new OkObjectResult(await this.BuildStatus(ct));
     }
 
     /// <summary>
@@ -135,7 +164,7 @@ public class AdminEndpoints(
         }
 
         await this.LogAdminAction(ctx, $"Opened the public tunnel ({tunnel.PublicUrl ?? "no address"})", ct);
-        return new OkObjectResult(this.BuildStatus());
+        return new OkObjectResult(await this.BuildStatus(ct));
     }
 
     [Post("/tunnel/stop")]
@@ -144,7 +173,7 @@ public class AdminEndpoints(
     {
         await tunnel.Stop(ct);
         await this.LogAdminAction(ctx, "Closed the public tunnel", ct);
-        return new OkObjectResult(this.BuildStatus());
+        return new OkObjectResult(await this.BuildStatus(ct));
     }
 
     /// <summary>
@@ -183,9 +212,15 @@ public class AdminEndpoints(
 
     // -----------------------------------------------------------------------
 
-    ServerStatus BuildStatus()
+    async Task<ServerStatus> BuildStatus(CancellationToken ct)
     {
         var config = settings.Current;
+
+        // Asked every time rather than remembered: this one lives on the machine, and the operator
+        // may have removed it from outside this app since the last look. It is a registry read or a
+        // File.Exists, and /status is fetched when the settings screen opens rather than polled.
+        var launch = await this.ReadStartup(ct);
+
         return new ServerStatus(
             server.IsRunning,
             server.State.ToString(),
@@ -205,9 +240,52 @@ public class AdminEndpoints(
                 config.RememberMeDays,
                 config.IdleLogoffMinutes,
                 PasswordPolicyMapping.ToInfo(config.PasswordRules),
-                Math.Max(0, config.MaxFailedSignIns)
+                Math.Max(0, config.MaxFailedSignIns),
+                launch
             )
         );
+    }
+
+    /// <summary>
+    /// The platform's own answer, or <see cref="RunAtStartupState.NotSupported"/> where it could not
+    /// be had. Guarded because the read is a registry open or a launch-services call and a host that
+    /// cannot locate its own executable - a single-file build under a debugger - throws rather than
+    /// answering. /status carries the whole settings screen, and one switch nobody can read must not
+    /// take the rest of it down.
+    /// </summary>
+    async Task<RunAtStartupState> ReadStartup(CancellationToken ct)
+    {
+        if (!startup.IsSupported)
+            return RunAtStartupState.NotSupported;
+
+        try
+        {
+            return (RunAtStartupState)(int)await startup.GetState(ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read whether the app starts at login");
+            return RunAtStartupState.NotSupported;
+        }
+    }
+
+    /// <summary>
+    /// Turns it on or off and reports what was actually achieved, which is not always what was
+    /// asked for. On a throw the state is re-read rather than the request echoed back: a write that
+    /// failed half way still may have landed, and the operator is owed the machine's answer.
+    /// </summary>
+    async Task<(RunAtStartupState State, string? Problem)> ApplyStartup(bool enabled, CancellationToken ct)
+    {
+        try
+        {
+            var state = enabled ? await startup.Register(ct) : await startup.Unregister(ct);
+            return ((RunAtStartupState)(int)state, null);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not change whether the app starts at login");
+            return (await this.ReadStartup(ct), ex.Message);
+        }
     }
 
     async Task LogAdminAction(HttpContext ctx, string detail, CancellationToken ct)
