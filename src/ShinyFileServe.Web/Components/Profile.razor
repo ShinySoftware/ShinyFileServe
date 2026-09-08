@@ -63,6 +63,30 @@
                 }
             </div>
 
+            @* Only for the accounts that have one. Most do not, and an empty meter would be an
+               answer to a question this modal was not asked. *@
+            @if (me.AccountDownload is not null || me.AccountUpload is not null)
+            {
+                <section class="admin__block">
+                    <h3>Your allowance</h3>
+                    <span class="admin__hint">
+                        What you may move across every share put together. A share can meter you more
+                        tightly than this on its own; the bar above the files is that one.
+                    </span>
+
+                    <div class="meters">
+                        @if (me.AccountDownload is { } down)
+                        {
+                            <QuotaMeter Label="Download" Quota="down" />
+                        }
+                        @if (me.AccountUpload is { } up)
+                        {
+                            <QuotaMeter Label="Upload" Quota="up" />
+                        }
+                    </div>
+                </section>
+            }
+
             @if (!me.CanChangePassword)
             {
                 <p class="admin__hint">

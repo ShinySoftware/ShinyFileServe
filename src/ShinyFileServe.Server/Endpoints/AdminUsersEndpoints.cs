@@ -18,7 +18,9 @@ public class AdminUsersEndpoints(
     IPasswordPolicy passwords,
     ICurrentUserResolver current,
     IActivityLogger activity,
-    ITransferMonitor transfers
+    ITransferMonitor transfers,
+    IQuotaTracker quotas,
+    TimeProvider time
 )
 {
     // -- users --------------------------------------------------------------
@@ -32,7 +34,7 @@ public class AdminUsersEndpoints(
 
         var details = new List<UserDetail>(all.Count);
         foreach (var user in all)
-            details.Add(this.ToDetail(user, roles));
+            details.Add(await this.ToDetail(user, roles, ct));
 
         return new OkObjectResult(details);
     }
@@ -100,6 +102,8 @@ public class AdminUsersEndpoints(
         user.IsAnonymous = request.IsAnonymous;
         user.MaxParallelDownloads = Cap(request.MaxParallelDownloads);
         user.MaxParallelUploads = Cap(request.MaxParallelUploads);
+        (user.DownloadQuotaWindow, user.DownloadQuotaBytes) = Quota(request.DownloadQuotaWindow, request.DownloadQuotaBytes);
+        (user.UploadQuotaWindow, user.UploadQuotaBytes) = Quota(request.UploadQuotaWindow, request.UploadQuotaBytes);
         user.RoleIds = request.RoleIds.Where(id => roles.Any(r => r.Id == id)).ToList();
 
         // The protected account keeps its admin and its perpetual life whatever was sent, and an
@@ -118,7 +122,7 @@ public class AdminUsersEndpoints(
             await users.SetPassword(user.Id, request.Password, ct);
 
         await this.Log(ctx, $"Saved the account '{user.Username}'", ct);
-        return new OkObjectResult(this.ToDetail((await users.GetUser(user.Id, ct))!, roles));
+        return new OkObjectResult(await this.ToDetail((await users.GetUser(user.Id, ct))!, roles, ct));
     }
 
     /// <summary>
@@ -127,6 +131,14 @@ public class AdminUsersEndpoints(
     /// stored as no limit rather than as a cap nobody could ever satisfy.
     /// </summary>
     static int? Cap(int? limit) => limit is not > 0 ? null : limit;
+
+    /// <summary>
+    /// A window with no byte count under it, and a byte count with no window over it, are both an
+    /// operator having said half of something. Neither meters anything, so both are stored as the
+    /// one state that reads back the same way it was meant: no quota.
+    /// </summary>
+    static (QuotaWindow Window, long? Bytes) Quota(QuotaWindow window, long? bytes)
+        => window == QuotaWindow.None || bytes is not > 0 ? (QuotaWindow.None, null) : (window, bytes);
 
     /// <summary>
     /// Ends a lockout. Administrator-only, and deliberately the only way out of one: an account that
@@ -257,7 +269,7 @@ public class AdminUsersEndpoints(
 
     // -----------------------------------------------------------------------
 
-    UserDetail ToDetail(User user, IReadOnlyList<Role> roles) => new(
+    async Task<UserDetail> ToDetail(User user, IReadOnlyList<Role> roles, CancellationToken ct) => new(
         user.Id,
         user.Username,
         user.DisplayName,
@@ -268,6 +280,8 @@ public class AdminUsersEndpoints(
         user.IsAnonymous,
         this.CapState(user.Id, user.MaxParallelDownloads, TransferDirection.Download),
         this.CapState(user.Id, user.MaxParallelUploads, TransferDirection.Upload),
+        await this.AccountQuota(user, download: true, ct),
+        await this.AccountQuota(user, download: false, ct),
         user.RoleIds,
         roles.Where(r => user.RoleIds.Contains(r.Id)).Select(r => r.Name).ToList(),
         user.CreatedUtc,
@@ -275,6 +289,24 @@ public class AdminUsersEndpoints(
         user.LockedOutUtc,
         user.FailedSignInCount
     );
+
+    /// <summary>
+    /// One account-wide quota with this period's spend read against it, so the People list can show
+    /// the ceiling and how close somebody is to it in the same breath. An unmetered direction never
+    /// touches the store - there would be nothing to compare the answer to.
+    /// </summary>
+    async Task<QuotaState> AccountQuota(User user, bool download, CancellationToken ct)
+    {
+        var window = download ? user.DownloadQuotaWindow : user.UploadQuotaWindow;
+        var limit = download ? user.DownloadQuotaBytes : user.UploadQuotaBytes;
+
+        if (window == QuotaWindow.None || limit is null)
+            return QuotaState.Unlimited;
+
+        var usage = await quotas.GetAccountUsage(user.Id, window, ct);
+        var (_, _, end) = QuotaTracker.Period(window, time.GetUtcNow());
+        return new QuotaState(window, limit, download ? usage.DownloadedBytes : usage.UploadedBytes, end);
+    }
 
     /// <summary>
     /// The cap plus what is running against it right now, so the list can show one against the

@@ -81,6 +81,28 @@ public class User
     public int? MaxParallelUploads { get; set; }
 
     /// <summary>
+    /// A ceiling on the bytes this account may download across every share, measured over
+    /// <see cref="DownloadQuotaWindow"/>. It sits beside the quota on the folder grant rather than
+    /// replacing it: the grant answers "how much may this group take out of this share", and this
+    /// answers "how much may this person take off this server at all". Both are checked, and the
+    /// tighter one is what a transfer meets first.
+    /// </summary>
+    /// <remarks>
+    /// This is the one limit that is a fact about the person rather than about a group they happen
+    /// to be in - which is why it lives here. Adding somebody to a second group can only ever widen
+    /// what the grants allow (see <c>AccessResolver</c>); nothing on a group can widen this.
+    /// </remarks>
+    public QuotaWindow DownloadQuotaWindow { get; set; } = QuotaWindow.None;
+
+    /// <summary>The ceiling itself. Null - or a window of <see cref="QuotaWindow.None"/> - is unmetered.</summary>
+    public long? DownloadQuotaBytes { get; set; }
+
+    /// <summary>The same, for what this account may put onto the server. <see cref="DownloadQuotaWindow"/>.</summary>
+    public QuotaWindow UploadQuotaWindow { get; set; } = QuotaWindow.None;
+
+    public long? UploadQuotaBytes { get; set; }
+
+    /// <summary>
     /// The administrator created during first-run setup. It can be renamed and have its password
     /// changed, but it cannot be deleted, expired, made anonymous, or stripped of admin - the same
     /// reason the administrators group is protected.
@@ -160,6 +182,15 @@ public class FolderGrant
 /// <summary>Bytes moved by one user in one folder during one quota period.</summary>
 public class QuotaUsage
 {
+    /// <summary>
+    /// The <see cref="FolderId"/> of a row that counts an account rather than a share - the whole
+    /// server's worth of one person's traffic, against <see cref="User.DownloadQuotaBytes"/> and
+    /// <see cref="User.UploadQuotaBytes"/>. A sentinel rather than a second document type because
+    /// the period arithmetic, the ids and the rollover are identical; only the scope differs. No
+    /// real folder id can collide with it - they are GUIDs.
+    /// </summary>
+    public const string AccountScope = "*";
+
     /// <summary>Composite: <c>{userId}|{folderId}|{window}|{periodKey}</c>.</summary>
     public string Id { get; set; } = "";
     public string UserId { get; set; } = "";
@@ -312,4 +343,48 @@ public class PasswordRules
     /// not said anything about how long a password should last.
     /// </remarks>
     public int MaximumAgeDays { get; set; }
+}
+
+/// <summary>
+/// Bytes one account moved through the server during one hour, both ways.
+/// <para>
+/// An hour rather than a request: a file server hands out tens of thousands of responses a day and
+/// a row for each would be a second activity log, three orders of magnitude larger, kept for a
+/// question nobody asks at that resolution. An hour is the finest cut any report offers, so it is
+/// the finest cut worth storing - a day is summed from twenty-four of these.
+/// </para>
+/// </summary>
+public class BandwidthUsage
+{
+    /// <summary>Composite: <c>{userId}|{yyyyMMddHH}</c>, so the hour a byte belongs to is the row it lands on.</summary>
+    public string Id { get; set; } = "";
+
+    public string UserId { get; set; } = "";
+
+    /// <summary>
+    /// Stamped as the bytes are counted rather than looked up as the report is read. An account that
+    /// has since been deleted still has to be nameable, or a month's traffic loses its owner the
+    /// day somebody leaves.
+    /// </summary>
+    public string Username { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+
+    /// <summary>The top of the hour, UTC. Reports bucket from this, so it is never a local instant.</summary>
+    public DateTimeOffset HourUtc { get; set; }
+
+    /// <summary>Request bodies: what clients sent the server.</summary>
+    public long BytesIn { get; set; }
+
+    /// <summary>Response bodies: what the server sent back.</summary>
+    public long BytesOut { get; set; }
+
+    public static string MakeId(string userId, DateTimeOffset hourUtc)
+        => $"{userId}|{hourUtc.UtcDateTime:yyyyMMddHH}";
+
+    /// <summary>The top of the hour an instant falls in. One function, so a write and a read agree.</summary>
+    public static DateTimeOffset Hour(DateTimeOffset at)
+    {
+        var utc = at.ToUniversalTime();
+        return new DateTimeOffset(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, TimeSpan.Zero);
+    }
 }

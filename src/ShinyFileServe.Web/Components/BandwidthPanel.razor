@@ -1,0 +1,273 @@
+@*
+    Total bandwidth in and out over a window, cut two ways: by period, which is the shape of the
+    traffic, and by account, which is who caused it.
+
+    In and out are named from the server's point of view and labelled with it - "out" is what people
+    downloaded. A chart with an unlabelled pair of colours would leave the reader guessing which
+    direction they were looking at, and half of them guessing wrong.
+*@
+@implements IDisposable
+@inject FileServeApi Api
+@inject AdminApi Admin
+@inject IToastService Toasts
+
+<div class="band">
+    <div class="log__filters">
+        <label class="log__filter">
+            <span class="field__label">Who</span>
+            <select @bind="this.userId" @bind:after="this.Reload">
+                <option value="">Everyone</option>
+                <option value="@BandwidthUsers.Anonymous">@BandwidthUsers.AnonymousDisplayName</option>
+                @foreach (var user in this.users)
+                {
+                    <option value="@user.Id">@user.DisplayName (@user.Username)</option>
+                }
+            </select>
+        </label>
+
+        <label class="log__filter">
+            <span class="field__label">From</span>
+            <input type="date" @bind="this.from" @bind:after="this.Reload" />
+        </label>
+
+        <label class="log__filter">
+            <span class="field__label">To</span>
+            <input type="date" @bind="this.to" @bind:after="this.Reload" />
+        </label>
+
+        <label class="log__filter">
+            <span class="field__label">By</span>
+            <select @bind="this.bucket" @bind:after="this.Reload">
+                <option value="@((int)BandwidthBucket.Day)">Day</option>
+                <option value="@((int)BandwidthBucket.Hour)">Hour</option>
+            </select>
+        </label>
+
+        <button type="button" class="action" @onclick="this.Clear">Last 30 days</button>
+    </div>
+
+    @if (this.loading)
+    {
+        <p class="admin__loading">Adding it up…</p>
+    }
+    else
+    {
+        <div class="band__totals">
+            <div class="band__total">
+                <span class="band__totallabel">
+                    <span class="band__key band__key--out" aria-hidden="true"></span> Out to clients
+                </span>
+                <span class="band__totalvalue num">@Format.Bytes(this.report.BytesOut)</span>
+            </div>
+
+            <div class="band__total">
+                <span class="band__totallabel">
+                    <span class="band__key band__key--in" aria-hidden="true"></span> In from clients
+                </span>
+                <span class="band__totalvalue num">@Format.Bytes(this.report.BytesIn)</span>
+            </div>
+
+            <div class="band__total band__total--sum">
+                <span class="band__totallabel">Both directions</span>
+                <span class="band__totalvalue num">@Format.Bytes(this.report.Total)</span>
+            </div>
+        </div>
+
+        <p class="band__window">
+            @Window(this.report)
+        </p>
+
+        @if (this.report.Total == 0)
+        {
+            <p class="live__empty">Nothing moved in that window.</p>
+        }
+        else
+        {
+            @* Stacked rather than side by side: the question the chart answers first is how busy a
+               day was, and two half-width bars make that a sum the reader has to do themselves. *@
+            <div class="band__chart" role="img" aria-label="Bandwidth by @(this.report.Bucket == BandwidthBucket.Day ? "day" : "hour")">
+                @foreach (var period in this.report.Periods)
+                {
+                    <div class="band__col" title="@Tooltip(period)">
+                        <div class="band__stack">
+                            <div class="band__bar band__bar--out" style="height:@Height(period.BytesOut)"></div>
+                            <div class="band__bar band__bar--in" style="height:@Height(period.BytesIn)"></div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="band__axis num">
+                <span>@Tick(this.report.Periods.FirstOrDefault())</span>
+                <span>@Format.Bytes(this.Peak) at the busiest</span>
+                <span>@Tick(this.report.Periods.LastOrDefault())</span>
+            </div>
+
+            <h3 class="live__heading">By account<span class="live__count">@this.report.Users.Count</span></h3>
+
+            <div class="log__scroll">
+                <table class="log__table">
+                    <thead>
+                        <tr>
+                            <th>Who</th>
+                            <th class="log__right">Out</th>
+                            <th class="log__right">In</th>
+                            <th class="log__right">Total</th>
+                            <th class="band__sharecol">Share</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var user in this.report.Users)
+                        {
+                            <tr>
+                                <td>
+                                    @Name(user)
+                                    <span class="log__detail">@user.Username</span>
+                                </td>
+                                <td class="num log__right">@Format.Bytes(user.BytesOut)</td>
+                                <td class="num log__right">@Format.Bytes(user.BytesIn)</td>
+                                <td class="num log__right">@Format.Bytes(user.Total)</td>
+                                <td class="band__sharecol">
+                                    <span class="band__share"><span class="band__sharefill" style="width:@Share(user)"></span></span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    List<UserSummary> users = [];
+    BandwidthReport report = BandwidthReport.Empty(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, BandwidthBucket.Day);
+
+    string userId = "";
+    string bucket = ((int)BandwidthBucket.Day).ToString();
+    DateTime? from = DateTime.Today.AddDays(-29);
+    DateTime? to = DateTime.Today;
+    bool loading = true;
+
+    CancellationTokenSource? inflight;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Worth one round trip on arrival. Failing leaves the filter reading "everyone", which is
+        // the state it starts in anyway.
+        try
+        {
+            this.users = await this.Api.GetUsers();
+        }
+        catch (ApiException)
+        {
+        }
+
+        await this.Load();
+    }
+
+    public void Dispose()
+    {
+        this.inflight?.Cancel();
+        this.inflight?.Dispose();
+    }
+
+    async Task Reload() => await this.Load();
+
+    async Task Load()
+    {
+        // A filter changed while the last read was still out. Whichever answer came back last would
+        // otherwise win, and it would not necessarily be the one asked for last.
+        this.inflight?.Cancel();
+        this.inflight?.Dispose();
+
+        var cts = new CancellationTokenSource();
+        this.inflight = cts;
+        this.loading = true;
+
+        try
+        {
+            this.report = await this.Admin.GetBandwidth(new BandwidthQuery(
+                UserId: String.IsNullOrEmpty(this.userId) ? null : this.userId,
+                FromUtc: this.from is { } f ? new DateTimeOffset(f.Date, TimeSpan.Zero) : null,
+
+                // A "to" date means the end of that day. Picking today for both ends otherwise
+                // returns nothing, which reads as a broken filter rather than an empty window.
+                ToUtc: this.to is { } t ? new DateTimeOffset(t.Date.AddDays(1).AddTicks(-1), TimeSpan.Zero) : null,
+                Bucket: (BandwidthBucket)Int32.Parse(this.bucket)
+            ), cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+        finally
+        {
+            if (this.inflight == cts)
+            {
+                this.inflight = null;
+                cts.Dispose();
+                this.loading = false;
+            }
+        }
+
+        this.StateHasChanged();
+    }
+
+    async Task Clear()
+    {
+        this.userId = "";
+        this.bucket = ((int)BandwidthBucket.Day).ToString();
+        this.from = DateTime.Today.AddDays(-29);
+        this.to = DateTime.Today;
+        await this.Load();
+    }
+
+    /// <summary>The busiest period, which every bar is drawn against. Never zero, so nothing divides by it.</summary>
+    long Peak => Math.Max(1, this.report.Periods.Count == 0 ? 1 : this.report.Periods.Max(x => x.Total));
+
+    /// <summary>
+    /// A bar's share of the tallest one. Formatted invariantly - a browser in a French locale would
+    /// otherwise emit "12,5%", which is not a CSS length, and every bar would collapse.
+    /// </summary>
+    string Height(long bytes) => FormattableString.Invariant($"{(double)bytes / this.Peak * 100:0.##}%");
+
+    string Share(BandwidthByUser user)
+    {
+        var total = this.report.Total;
+        return total <= 0 ? "0%" : FormattableString.Invariant($"{(double)user.Total / total * 100:0.##}%");
+    }
+
+    static string Name(BandwidthByUser user)
+        => user.UserId == BandwidthUsers.Anonymous || String.IsNullOrWhiteSpace(user.DisplayName)
+            ? BandwidthUsers.AnonymousDisplayName
+            : user.DisplayName;
+
+    string Tooltip(BandwidthPeriod period)
+        => $"{Tick(period)} — {Format.Bytes(period.BytesOut)} out, {Format.Bytes(period.BytesIn)} in";
+
+    /// <summary>
+    /// Periods are stored and bucketed in UTC and shown in local time. A day boundary can therefore
+    /// land mid-afternoon somewhere, which is worth knowing but not worth a second set of buckets:
+    /// the label says which instant it is.
+    /// </summary>
+    string Tick(BandwidthPeriod? period)
+    {
+        if (period is null)
+            return "";
+
+        var local = period.StartUtc.ToLocalTime();
+        return this.report.Bucket == BandwidthBucket.Day ? local.ToString("d MMM") : local.ToString("d MMM HH:mm");
+    }
+
+    static string Window(BandwidthReport report)
+    {
+        var from = report.FromUtc.ToLocalTime();
+        var to = report.ToUtc.ToLocalTime();
+        return $"{from:d MMM yyyy} to {to:d MMM yyyy}, by {(report.Bucket == BandwidthBucket.Day ? "day" : "hour")}";
+    }
+}

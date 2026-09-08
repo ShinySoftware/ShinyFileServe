@@ -7,8 +7,9 @@
     branch you open until the buttons are somewhere below the bottom of the window. Here the tree
     has a box of its own to scroll in, and the page stays the size of the page.
 
-    Rights and quotas are granted to a group, never to a person, so the second half of this screen
-    is one block per group rather than a list of people.
+    Rights are granted to a group, never to a person, so the second half of this screen is one block
+    per group rather than a list of people. The quotas here are the share's; an account may also carry
+    one of its own, which is on the People screen because it is a fact about the person.
 *@
 @inject AdminApi Admin
 @inject WorkspaceState State
@@ -59,8 +60,10 @@
                 <section class="admin__block editor__main">
                     <h3>Who can do what</h3>
                     <span class="admin__hint">
-                        Rights and quotas go to a group, never to a person. Someone in two groups gets
-                        everything both allow, and the more generous quota of the two.
+                        Rights go to a group, never to a person. Someone in two groups gets everything
+                        both allow, and the more generous quota of the two. An account can carry a
+                        quota of its own as well, set on the People screen - it caps the person across
+                        every share, and the tighter of the two is what a transfer meets first.
                     </span>
 
                     @if (draft.Grants.Count == 0)
@@ -75,7 +78,7 @@
                     {
                         <div class="grant @(grant.Permissions == FolderPermissions.None ? "grant--none" : "")">
                             <div class="grant__head">
-                                <strong>@grant.RoleName</strong>
+                                <strong class="grant__role">@grant.RoleName</strong>
                                 @if (grant.Permissions == FolderPermissions.None)
                                 {
                                     <span class="admin__hint">No access</span>
@@ -86,6 +89,9 @@
                                 }
                             </div>
 
+                            @* A fixed grid rather than a wrapping row: five boxes that reflow with the
+                               window put the same tick in a different place on every group, and the
+                               column you are reading down stops being a column. *@
                             <div class="grant__perms">
                                 @foreach (var permission in FolderPermissionsExtensions.All)
                                 {
@@ -93,7 +99,7 @@
                                     <label class="field--check">
                                         <input type="checkbox" checked="@grant.Permissions.Has(flag)"
                                                @onchange="e => SetPermission(grant, flag, (bool?)e.Value == true)" />
-                                        @flag.ToDisplay()
+                                        <span>@flag.ToDisplay()</span>
                                     </label>
                                 }
                             </div>
@@ -101,39 +107,50 @@
                             @* Quotas only mean something once there is something to meter. *@
                             @if (grant.Permissions != FolderPermissions.None)
                             {
-                                <div class="grant__quotas">
-                                    <label class="field">
+                                @* Window and amount are one answer, so they sit on one line under one
+                                   label. Split across two labelled boxes they wrapped apart, and a
+                                   lone "MB" under a lone "Per month" says nothing on its own. *@
+                                <div class="quotas">
+                                    <div class="quota">
                                         <span class="field__label">Download quota</span>
-                                        <select @bind="grant.DownloadWindow">
-                                            @foreach (var window in Windows)
-                                            {
-                                                <option value="@window">@WindowText(window)</option>
-                                            }
-                                        </select>
-                                    </label>
-                                    <label class="field">
-                                        <span class="field__label">MB</span>
-                                        <input type="number" min="0" step="any" @bind="grant.DownloadMb" />
-                                    </label>
+                                        <div class="quota__row">
+                                            <select @bind="grant.DownloadWindow">
+                                                @foreach (var window in Windows)
+                                                {
+                                                    <option value="@window">@WindowText(window)</option>
+                                                }
+                                            </select>
+                                            <input type="number" min="0" step="any" placeholder="MB"
+                                                   aria-label="Download quota in megabytes"
+                                                   disabled="@(grant.DownloadWindow == QuotaWindow.None)" @bind="grant.DownloadMb" />
+                                            <span class="quota__unit">MB</span>
+                                        </div>
+                                    </div>
 
-                                    <label class="field">
+                                    <div class="quota">
                                         <span class="field__label">Upload quota</span>
-                                        <select @bind="grant.UploadWindow">
-                                            @foreach (var window in Windows)
-                                            {
-                                                <option value="@window">@WindowText(window)</option>
-                                            }
-                                        </select>
-                                    </label>
-                                    <label class="field">
-                                        <span class="field__label">MB</span>
-                                        <input type="number" min="0" step="any" @bind="grant.UploadMb" />
-                                    </label>
+                                        <div class="quota__row">
+                                            <select @bind="grant.UploadWindow">
+                                                @foreach (var window in Windows)
+                                                {
+                                                    <option value="@window">@WindowText(window)</option>
+                                                }
+                                            </select>
+                                            <input type="number" min="0" step="any" placeholder="MB"
+                                                   aria-label="Upload quota in megabytes"
+                                                   disabled="@(grant.UploadWindow == QuotaWindow.None)" @bind="grant.UploadMb" />
+                                            <span class="quota__unit">MB</span>
+                                        </div>
+                                    </div>
 
-                                    <label class="field">
-                                        <span class="field__label">Largest single upload (MB)</span>
-                                        <input type="number" min="0" step="any" @bind="grant.MaxFileMb" />
-                                    </label>
+                                    <div class="quota">
+                                        <span class="field__label">Largest single upload</span>
+                                        <div class="quota__row">
+                                            <input type="number" min="0" step="any" placeholder="No limit"
+                                                   aria-label="Largest single upload in megabytes" @bind="grant.MaxFileMb" />
+                                            <span class="quota__unit">MB</span>
+                                        </div>
+                                    </div>
                                 </div>
                             }
                         </div>

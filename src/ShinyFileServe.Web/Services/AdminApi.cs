@@ -145,7 +145,25 @@ public class AdminApi(FileServeApi api)
         using var response = await this.Http.GetAsync("api/admin/live", ct);
         await Ensure(response);
         return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.LiveActivitySnapshot, ct)
-            ?? new LiveActivitySnapshot([], [], []);
+            ?? new LiveActivitySnapshot([], [], [], BandwidthNow.Empty(DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>How much has gone through the server over a window, by period and by account.</summary>
+    public async Task<BandwidthReport> GetBandwidth(BandwidthQuery query, CancellationToken ct = default)
+    {
+        var parts = new List<string> { $"bucket={(int)query.Bucket}" };
+
+        if (!String.IsNullOrEmpty(query.UserId))
+            parts.Add($"userId={Uri.EscapeDataString(query.UserId)}");
+        if (query.FromUtc is { } from)
+            parts.Add($"fromUtc={Uri.EscapeDataString(from.ToString("O"))}");
+        if (query.ToUtc is { } to)
+            parts.Add($"toUtc={Uri.EscapeDataString(to.ToString("O"))}");
+
+        using var response = await this.Http.GetAsync($"api/admin/bandwidth?{String.Join("&", parts)}", ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.BandwidthReport, ct)
+            ?? BandwidthReport.Empty(query.FromUtc ?? DateTimeOffset.UtcNow, query.ToUtc ?? DateTimeOffset.UtcNow, query.Bucket);
     }
 
     // -- backup -------------------------------------------------------------

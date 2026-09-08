@@ -48,6 +48,7 @@ public static class Registration
         services.AddSingleton<IQuotaTracker, QuotaTracker>();
         services.AddSingleton<IAccessResolver, AccessResolver>();
         services.AddSingleton<IActivityLogger, ActivityLogger>();
+        services.AddSingleton<IBandwidthMeter, BandwidthMeter>();
         services.AddSingleton<ISettingsManager, SettingsManager>();
         services.AddSingleton<IPasswordPolicy, PasswordPolicy>();
         services.AddSingleton<IBackupService, BackupService>();
@@ -106,6 +107,7 @@ public static class Registration
 public class FileServeInitializer(
     IUserManager users,
     IActivityLogger activity,
+    IBandwidthMeter bandwidth,
     ISettingsManager settings,
     IUploadScanner scanner,
     FileServeOptions options,
@@ -145,6 +147,16 @@ public class FileServeInitializer(
             var pruned = await activity.Prune(retention, ct);
             if (pruned > 0)
                 logger.LogInformation("Pruned {Count} activity entries older than {Retention}", pruned, retention);
+        }
+
+        // Kept separately from the log it sits beside: one row an hour per account is small enough
+        // to keep for years, where a line per action is not, and an operator who trims the log to a
+        // month should not lose last quarter's traffic with it.
+        if (options.BandwidthRetention is { } bandwidthRetention)
+        {
+            var pruned = await bandwidth.Prune(bandwidthRetention, ct);
+            if (pruned > 0)
+                logger.LogInformation("Pruned {Count} bandwidth rows older than {Retention}", pruned, bandwidthRetention);
         }
     }
 

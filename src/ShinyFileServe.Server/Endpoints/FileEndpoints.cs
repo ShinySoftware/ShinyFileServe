@@ -96,6 +96,23 @@ public class FileEndpoints(
                 }
             }
 
+            // And the account's own ceiling, which is measured across every share. Checked after the
+            // folder's because the folder's is the one an administrator is likelier to have set, and
+            // both refuse the same way - the order only decides which reason is logged.
+            if (user!.DownloadQuotaWindow != QuotaWindow.None && user.DownloadQuotaBytes is { } accountLimit)
+            {
+                var usage = await quotas.GetAccountUsage(user.Id, user.DownloadQuotaWindow, ct);
+                if (usage.DownloadedBytes + info.Length > accountLimit)
+                {
+                    await activity.Log(
+                        ActivityAction.Denied, user.Id, user.Username, success: false,
+                        folderId, folder.Folder.Name, path, info.Length,
+                        "Account download quota exceeded", current.GetActivityContext(ctx), ct
+                    );
+                    return new StatusCodeResult(StatusCodes.Status429TooManyRequests);
+                }
+            }
+
             // The account's own cap on how much of the server it may occupy at once, beside the
             // folder's cap on how many bytes it may move. Counted from what is actually running, so
             // a slot comes back the moment a transfer ends however it ended - there is nothing to
@@ -122,6 +139,7 @@ public class FileEndpoints(
             // The whole file counts against the quota the moment it is authorised, even for a range
             // request. Charging per-range would let a client fetch a file in pieces for free.
             await quotas.RecordDownload(user.Id, folderId, folder.DownloadWindow, info.Length, ct);
+            await quotas.RecordAccountDownload(user.Id, user.DownloadQuotaWindow, info.Length, ct);
             await activity.Log(
                 ActivityAction.Download, user.Id, user.Username, success: true,
                 folderId, folder.Folder.Name, path, info.Length,
@@ -251,6 +269,23 @@ public class FileEndpoints(
                     }
                 }
 
+                // The account's ceiling across every share narrows the same allowance rather than
+                // replacing it, so what is left is whichever of the two has less room.
+                if (user!.UploadQuotaWindow != QuotaWindow.None && user.UploadQuotaBytes is { } accountLimit)
+                {
+                    var usage = await quotas.GetAccountUsage(user.Id, user.UploadQuotaWindow, ct);
+                    var accountRemaining = accountLimit - usage.UploadedBytes;
+                    if (accountRemaining <= 0)
+                    {
+                        await activity.Log(
+                            ActivityAction.Denied, user.Id, user.Username, false, folderId, folder!.Folder.Name,
+                            target, 0, "Account upload quota exhausted", activityContext, ct
+                        );
+                        return new StatusCodeResult(StatusCodes.Status429TooManyRequests);
+                    }
+                    remaining = Math.Min(remaining, accountRemaining);
+                }
+
                 // Watched while it is copied rather than reported once it lands, so a slow or
                 // abandoned upload is visible while it is happening. The handle outlives the copy
                 // because the outcome is only settled by the checks below.
@@ -311,6 +346,7 @@ public class FileEndpoints(
                 transfer.Complete();
 
                 await quotas.RecordUpload(user!.Id, folderId, folder.UploadWindow, written, ct);
+                await quotas.RecordAccountUpload(user.Id, user.UploadQuotaWindow, written, ct);
                 await activity.Log(
                     ActivityAction.Upload, user.Id, user.Username, true, folderId, folder.Folder.Name,
                     target, written, context: activityContext, ct: ct

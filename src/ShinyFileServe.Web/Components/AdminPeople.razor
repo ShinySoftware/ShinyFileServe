@@ -250,6 +250,56 @@
                 </div>
             </div>
 
+            <div class="admin__block">
+                <h3>Account quota</h3>
+                <span class="admin__hint">
+                    How many bytes this person may move across every share put together. The group's
+                    grant already meters each share on its own; this is the ceiling on the account,
+                    and a transfer meets whichever of the two runs out first. Leave the window at
+                    "No quota" for an account nobody is metering.
+                </span>
+
+                <div class="quotas">
+                    <div class="quota">
+                        <span class="field__label">Download quota</span>
+                        <div class="quota__row">
+                            <select @bind="draft.DownloadWindow">
+                                @foreach (var window in Windows)
+                                {
+                                    <option value="@window">@WindowText(window)</option>
+                                }
+                            </select>
+                            <input type="number" min="0" step="any" placeholder="MB" aria-label="Download quota in megabytes"
+                                   disabled="@(draft.DownloadWindow == QuotaWindow.None)" @bind="draft.DownloadMb" />
+                            <span class="quota__unit">MB</span>
+                        </div>
+                    </div>
+
+                    <div class="quota">
+                        <span class="field__label">Upload quota</span>
+                        <div class="quota__row">
+                            <select @bind="draft.UploadWindow">
+                                @foreach (var window in Windows)
+                                {
+                                    <option value="@window">@WindowText(window)</option>
+                                }
+                            </select>
+                            <input type="number" min="0" step="any" placeholder="MB" aria-label="Upload quota in megabytes"
+                                   disabled="@(draft.UploadWindow == QuotaWindow.None)" @bind="draft.UploadMb" />
+                            <span class="quota__unit">MB</span>
+                        </div>
+                    </div>
+                </div>
+
+                @if (draft.IsAdmin)
+                {
+                    <span class="admin__hint">
+                        An administrator reaches every share regardless of any grant, but a quota set
+                        here still counts against them - it is set on the person, not on a group.
+                    </span>
+                }
+            </div>
+
             <div class="admin__actions">
                 @* An existing account may be saved without touching its password, so an empty box
                    is fine there; a new one has to clear the rules before Save is offered. *@
@@ -262,6 +312,11 @@
 </ModalView>
 
 @code {
+    const long BytesPerMb = 1024L * 1024L;
+
+    static readonly QuotaWindow[] Windows =
+        [QuotaWindow.None, QuotaWindow.Daily, QuotaWindow.Weekly, QuotaWindow.Monthly, QuotaWindow.Total];
+
     List<UserDetail> users = [];
     List<RoleInfo> roles = [];
     string newGroup = "";
@@ -291,6 +346,10 @@
         public bool IsProtected;
         public int? MaxParallelDownloads;
         public int? MaxParallelUploads;
+        public QuotaWindow DownloadWindow;
+        public double? DownloadMb;
+        public QuotaWindow UploadWindow;
+        public double? UploadMb;
         public List<string> RoleIds = [];
     }
 
@@ -340,7 +399,7 @@
     /// <summary>"2 of 3 downloads at once" - a limit is only readable next to what is running against it.</summary>
     static string CapText(UserDetail user)
     {
-        var parts = new List<string>(2);
+        var parts = new List<string>(4);
 
         if (!user.Downloads.IsUncapped)
             parts.Add($"{user.Downloads.Active} of {user.Downloads.Limit} downloads at once");
@@ -348,8 +407,37 @@
         if (!user.Uploads.IsUncapped)
             parts.Add($"{user.Uploads.Active} of {user.Uploads.Limit} uploads at once");
 
+        // The spend, not just the ceiling: a quota nobody is near and a quota about to stop somebody
+        // look identical if only the limit is shown, and they are not the same row to read.
+        if (!user.AccountDownload.IsUnlimited)
+            parts.Add($"{Format.Bytes(user.AccountDownload.UsedBytes)} of {Format.Bytes(user.AccountDownload.LimitBytes!.Value)} down {WindowSuffix(user.AccountDownload.Window)}");
+
+        if (!user.AccountUpload.IsUnlimited)
+            parts.Add($"{Format.Bytes(user.AccountUpload.UsedBytes)} of {Format.Bytes(user.AccountUpload.LimitBytes!.Value)} up {WindowSuffix(user.AccountUpload.Window)}");
+
         return String.Join(" · ", parts);
     }
+
+    static double? ToMb(long? bytes) => bytes is null ? null : Math.Round(bytes.Value / (double)BytesPerMb, 2);
+    static long? ToBytes(double? mb) => mb is > 0 ? (long)(mb.Value * BytesPerMb) : null;
+
+    static string WindowText(QuotaWindow window) => window switch
+    {
+        QuotaWindow.Daily => "Per day",
+        QuotaWindow.Weekly => "Per week",
+        QuotaWindow.Monthly => "Per month",
+        QuotaWindow.Total => "Total, never resets",
+        _ => "No quota"
+    };
+
+    static string WindowSuffix(QuotaWindow window) => window switch
+    {
+        QuotaWindow.Daily => "today",
+        QuotaWindow.Weekly => "this week",
+        QuotaWindow.Monthly => "this month",
+        QuotaWindow.Total => "all time",
+        _ => ""
+    };
 
     /// <summary>
     /// Ticking "never expires" drops the date; unticking it proposes a month out, because an empty
@@ -416,6 +504,10 @@
                 IsProtected = user.IsProtected,
                 MaxParallelDownloads = user.Downloads.Limit,
                 MaxParallelUploads = user.Uploads.Limit,
+                DownloadWindow = user.AccountDownload.Window,
+                DownloadMb = ToMb(user.AccountDownload.LimitBytes),
+                UploadWindow = user.AccountUpload.Window,
+                UploadMb = ToMb(user.AccountUpload.LimitBytes),
                 RoleIds = [.. user.RoleIds]
             };
 
@@ -446,7 +538,11 @@
                 draft.IsAnonymous,
                 draft.MaxParallelDownloads,
                 draft.MaxParallelUploads,
-                draft.RoleIds
+                draft.RoleIds,
+                draft.DownloadWindow,
+                ToBytes(draft.DownloadMb),
+                draft.UploadWindow,
+                ToBytes(draft.UploadMb)
             ));
 
             this.editorOpen = false;

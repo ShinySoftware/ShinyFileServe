@@ -13,6 +13,44 @@
     }
     else
     {
+        @* The rate first, because it is the number somebody came to this screen for: "is the link
+           busy?" is answered before "who is here?". Both directions always, even at rest - a pair
+           of zeros is an answer, and hiding one would make the other look like the whole story. *@
+        <section class="live__section">
+            <h3 class="live__heading">
+                Bandwidth
+                <a class="live__more" href="bandwidth">Report</a>
+            </h3>
+
+            <div class="live__rates">
+                <div class="live__rate">
+                    <span class="live__ratelabel">
+                        <span class="live__arrow" aria-hidden="true">↓</span> Out to clients
+                    </span>
+                    <span class="live__ratenow num">@Rate(this.snapshot.Bandwidth.OutBytesPerSecond)</span>
+                    <span class="live__ratetotal num">@Format.Bytes(this.snapshot.Bandwidth.BytesOutSinceStart) since @Format.When(this.snapshot.Bandwidth.SinceUtc)</span>
+                </div>
+
+                <div class="live__rate">
+                    <span class="live__ratelabel">
+                        <span class="live__arrow live__arrow--up" aria-hidden="true">↑</span> In from clients
+                    </span>
+                    <span class="live__ratenow num">@Rate(this.snapshot.Bandwidth.InBytesPerSecond)</span>
+                    <span class="live__ratetotal num">@Format.Bytes(this.snapshot.Bandwidth.BytesInSinceStart) since @Format.When(this.snapshot.Bandwidth.SinceUtc)</span>
+                </div>
+
+                @* A minute of samples, one a second. Both lines share a scale, or a quiet direction
+                   would be drawn as tall as a busy one and the picture would lie. *@
+                <svg class="live__spark" viewBox="0 0 @SparkWidth @SparkHeight" preserveAspectRatio="none"
+                     role="img" aria-label="The last minute of throughput">
+                    <polyline class="live__sparkline live__sparkline--out"
+                              points="@Spark(this.snapshot.Bandwidth, outbound: true)" />
+                    <polyline class="live__sparkline live__sparkline--in"
+                              points="@Spark(this.snapshot.Bandwidth, outbound: false)" />
+                </svg>
+            </div>
+        </section>
+
         <section class="live__section">
             <h3 class="live__heading">Signed in<span class="live__count">@this.snapshot.Sessions.Count</span></h3>
 
@@ -142,7 +180,7 @@
     /// </summary>
     static readonly TimeSpan Interval = TimeSpan.FromSeconds(1);
 
-    LiveActivitySnapshot snapshot = new([], [], []);
+    LiveActivitySnapshot snapshot = new([], [], [], BandwidthNow.Empty(DateTimeOffset.UtcNow));
     CancellationTokenSource? polling;
     bool loading = true;
 
@@ -206,6 +244,42 @@
     }
 
     public void Dispose() => this.Stop();
+
+    const int SparkWidth = 240;
+    const int SparkHeight = 40;
+
+    /// <summary>
+    /// A rate reads as nothing rather than as "0 B/s" when the link is idle - the point of the line
+    /// is the difference between quiet and busy, and a zero with units on it looks like a measurement
+    /// that failed.
+    /// </summary>
+    static string Rate(double bytesPerSecond) => bytesPerSecond < 1 ? "idle" : $"{Format.Bytes((long)bytesPerSecond)}/s";
+
+    /// <summary>
+    /// One direction of the last minute, as SVG points. Empty until two samples exist: a single
+    /// point is not a line, and drawing it as one would put a flat rule across an idle server that
+    /// reads as a measurement rather than as no data yet.
+    /// </summary>
+    static string Spark(BandwidthNow now, bool outbound)
+    {
+        var history = now.History;
+        if (history.Count < 2)
+            return "";
+
+        // Shared scale across both directions, with a floor so an idle minute is a flat line at the
+        // bottom rather than noise amplified to fill the box.
+        var peak = Math.Max(1024, history.Max(s => Math.Max(s.InBytesPerSecond, s.OutBytesPerSecond)));
+
+        var step = (double)SparkWidth / (history.Count - 1);
+        var points = history.Select((sample, i) =>
+        {
+            var value = outbound ? sample.OutBytesPerSecond : sample.InBytesPerSecond;
+            var y = SparkHeight - (value / peak * SparkHeight);
+            return FormattableString.Invariant($"{i * step:0.##},{y:0.##}");
+        });
+
+        return String.Join(" ", points);
+    }
 
     static double Percent(LiveTransferInfo transfer) => (transfer.Fraction ?? 0) * 100;
 

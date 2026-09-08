@@ -3,6 +3,8 @@ using System.Reflection;
 using System.Security.Cryptography;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using ShinyFileServe.Core.Services;
 using Shiny.Net.HttpServer;
 using Shiny.Net.HttpServer.Security;
 using Shiny.Net.HttpServer.StaticFiles;
@@ -40,6 +42,12 @@ public static class ServerRegistration
         services.TryAddSingleton<SessionTrackingMiddleware>();
         services.TryAddSingleton<PasswordChangeGateMiddleware>();
         services.TryAddSingleton<ITransferMonitor>(sp => new TransferMonitor(sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.TryAddSingleton<IBandwidthTracker>(sp => new BandwidthTracker(
+            sp.GetRequiredService<IBandwidthMeter>(),
+            sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            sp.GetRequiredService<ILogger<BandwidthTracker>>()
+        ));
+        services.TryAddSingleton<BandwidthMeteringMiddleware>();
 
         // A singleton because the cache is the whole point of it - one per request would ask the
         // network the same question on every page of the log.
@@ -86,6 +94,11 @@ public static class ServerRegistration
 
                 http.Configure(server =>
                 {
+                    // First, so it sees the responses nothing else does - a 401 from authentication,
+                    // the sign-in page, a static asset - and so anything that wraps the body later
+                    // is counted as it goes on the wire rather than as the handler wrote it.
+                    server.Use<BandwidthMeteringMiddleware>();
+
                     server.UseAuthentication();
 
                     // After authentication so a real cookie always wins, and before authorization
@@ -112,6 +125,7 @@ public static class ServerRegistration
                     server.MapAdminBrowseEndpoints();
                     server.MapAdminBackupEndpoints();
                     server.MapAdminLiveEndpoints();
+                    server.MapAdminBandwidthEndpoints();
                     server.MapFolderEndpoints();
                     server.MapFileEndpoints();
                     server.MapActivityEndpoints();

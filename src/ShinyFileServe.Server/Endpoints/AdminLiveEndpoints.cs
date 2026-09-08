@@ -11,7 +11,7 @@ namespace ShinyFileServe.Server.Endpoints;
 /// </summary>
 [Route("/api/admin/live")]
 [Authorize(Roles = ClaimTypesEx.AdminRole)]
-public class AdminLiveEndpoints(ISessionTracker sessions, ITransferMonitor transfers)
+public class AdminLiveEndpoints(ISessionTracker sessions, ITransferMonitor transfers, IBandwidthTracker bandwidth)
 {
     /// <summary>
     /// One snapshot of everything the live screen draws. The browser re-asks about once a second
@@ -42,6 +42,6 @@ public class AdminLiveEndpoints(ISessionTracker sessions, ITransferMonitor trans
             ))
             .ToList();
 
-        return new OkObjectResult(new LiveActivitySnapshot(here, moving.Live, moving.Finished));
+        return new OkObjectResult(new LiveActivitySnapshot(here, moving.Live, moving.Finished, bandwidth.Now()));
     }
 }

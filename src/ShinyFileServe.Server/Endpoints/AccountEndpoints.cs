@@ -21,7 +21,9 @@ public class AccountEndpoints(
     IUserManager users,
     IPasswordPolicy passwords,
     ICurrentUserResolver current,
-    IActivityLogger activity
+    IActivityLogger activity,
+    IQuotaTracker quotas,
+    TimeProvider time
 )
 {
     /// <summary>Who the caller is, and how their password is doing. No credentials, ever.</summary>
@@ -45,8 +47,30 @@ public class AccountEndpoints(
             user.IsAnonymous ? null : user.PasswordSetUtc,
             passwords.ExpiresAt(user),
             PasswordChangeGateMiddleware.Applies(ctx, user, passwords),
-            PasswordPolicyMapping.ToInfo(passwords.Current)
+            PasswordPolicyMapping.ToInfo(passwords.Current),
+
+            // Null rather than an unlimited meter: most accounts have no ceiling of their own, and a
+            // pair of empty bars on every profile would be two answers to a question nobody asked.
+            await this.AccountQuota(user, download: true, ct),
+            await this.AccountQuota(user, download: false, ct)
         ));
+    }
+
+    /// <summary>
+    /// This account's own ceiling in one direction, with the period's spend read against it, or null
+    /// when there is no ceiling to report.
+    /// </summary>
+    async Task<QuotaState?> AccountQuota(Core.Documents.User user, bool download, CancellationToken ct)
+    {
+        var window = download ? user.DownloadQuotaWindow : user.UploadQuotaWindow;
+        var limit = download ? user.DownloadQuotaBytes : user.UploadQuotaBytes;
+
+        if (window == QuotaWindow.None || limit is null)
+            return null;
+
+        var usage = await quotas.GetAccountUsage(user.Id, window, ct);
+        var (_, _, end) = QuotaTracker.Period(window, time.GetUtcNow());
+        return new QuotaState(window, limit, download ? usage.DownloadedBytes : usage.UploadedBytes, end);
     }
 
     /// <summary>

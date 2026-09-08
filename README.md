@@ -15,7 +15,8 @@ everything to keep in step and one of them quietly falling behind.
 │  ├── Shiny.Net.HttpServer  ───────  HTTP on every interface, :8080  │
 │  │     └── embedded zip    ───────  Blazor WebAssembly frontend     │
 │  ├── Shiny.DocumentDb      ───────  one SQLite file: users, roles,  │
-│  │                                  shares, grants, quotas, log     │
+│  │                                  shares, grants, quotas, log,    │
+│  │                                  bandwidth history               │
 │  ├── QuickTunnel (pinggy)  ───────  optional public https address   │
 │  └── Shiny.Notifications   ───────  desktop notification per event  │
 └─────────────────────────────────────────────────────────────────────┘
@@ -109,13 +110,27 @@ to one account.
 
 ## Quotas
 
-Per group, per share, for download and upload separately: a byte cap over a **day, week, month, or
-in total**, plus an optional cap on any single upload. Weeks are ISO-8601 so a weekly quota does not
-roll over on a different day depending on the machine's culture.
+Two ceilings, on the two things a quota can sensibly be about.
+
+**Per group, per share** — the quota on a folder grant. Download and upload separately: a byte cap
+over a **day, week, month, or in total**, plus an optional cap on any single upload. Someone in two
+groups gets the more generous of the two, so being added to a group never takes allowance away.
+
+**Per account, across every share** — the quota on the person, set beside their transfer limits on
+the People screen. Same windows, same two directions, and it is the one allowance a group cannot
+widen: a grant answers how much this group may move out of this share, and this answers how much
+this person may move off this server at all.
+
+Both are checked, and a transfer meets whichever runs out first. They are counted separately —
+a byte that goes through a metered share is charged to the share's period and to the account's,
+because the two ceilings are independent and either may be the one that stops the next request.
+Weeks are ISO-8601 so a weekly quota does not roll over on a different day depending on the
+machine's culture.
 
 A download charges the whole file the moment it is authorised, even for a range request — charging
 per range would let a client fetch a file in pieces for free. An upload that turns out to exceed
-the quota is deleted rather than left on disk.
+the quota is deleted rather than left on disk. Either refusal is a **429**, and the activity log
+says which of the two ceilings it was.
 
 ## Virus scanning
 
@@ -202,9 +217,8 @@ Password sign-in against one is refused, and it is never remembered on a browser
 Either kind can carry a **limit on how many transfers it runs at once** — downloads and uploads
 counted separately, whatever share the files come from. A request past the limit is refused with a
 429 while the earlier ones are still going, and a slot comes back the moment a transfer ends,
-however it ended. It sits beside the byte quotas on the folder grant rather than replacing them:
-one is about how much an account may move in total, the other about how much of the server it may
-occupy at once.
+however it ended. It sits beside the byte quotas rather than replacing them: one is about how much
+an account may move in total, the other about how much of the server it may occupy at once.
 
 ## Passwords over time
 
@@ -234,6 +248,36 @@ The browser asks once a second while the screen is open. It is polled rather tha
 WebAssembly client cannot consume server-sent events without an EventSource bridged through JS
 interop, and the whole payload is a few hundred bytes.
 
+## Bandwidth
+
+Two questions, two screens, because they are asked at different moments.
+
+**Right now** leads with the rate: bytes a second out to clients and in from them, the totals since
+the app started, and a minute of history drawn behind them so a number can be read as busy or
+typical rather than just large.
+
+**Bandwidth** is the report — a window, a shape and a culprit. Filter it by date range and by
+account, cut it by day or by hour, and it answers with the totals both ways, a bar per period, and
+a table of who moved what. Periods with nothing in them are still drawn, so a quiet weekend reads as
+a quiet weekend instead of closing up the week.
+
+Both count the **bodies that actually crossed the socket**, wrapped as they are written and read
+rather than added up from `Content-Length`: a declared length is what was promised, and the
+interesting cases are the ones where the promise was not kept. Everything is counted, not only
+files — the browser fetching the application, a page of JSON per click, a 401 on the way to the
+sign-in page — because a figure that left those out would never match what the operator is measuring
+the link with. Traffic with nobody signed in behind it is real bandwidth with no account to put it
+against, so it lands on one **Not signed in** row rather than being dropped.
+
+Counts reach the database in batches: one row per account per hour, which is what makes it cheap
+enough to meter every request rather than only the interesting ones, and small enough to keep for
+two years by default (`FileServeOptions.BandwidthRetention`) where the log is kept for one. A report
+flushes whatever has not been written yet before it answers, so it is never ten seconds behind
+itself.
+
+This is separate from **Right now**'s transfer list, which is about files: a transfer has a path, a
+percentage and a client that may walk away, and bandwidth is just the bytes.
+
 ## Screens, not modals
 
 Anything somebody **reads** — Activity, People, Shares, Right now, Settings — is a page with an
@@ -244,7 +288,9 @@ confirmation — is a modal. A log with filters, sorting and paging inside a dia
 used as a window.
 
 The share editor puts where it points on the left and one block per group on the right, because
-rights and quotas are granted to a group and never to a person.
+rights are granted to a group and never to a person. A group's five rights sit on a grid whose
+columns hold their width across every group, so the eye can run down one right through all of them;
+a quota's window and its amount share a label and a line, because they are one answer.
 
 Activity is Shiny's `DataGrid` driven by its `ServerData` delegate, so the sort and the page it
 shows are the ones the store applied — the columns that offer to sort are exactly the ones the
@@ -310,8 +356,8 @@ where no manager is registered the tray icon's own balloon is used instead.
 
 ## Backup and restore
 
-The whole database in one file — accounts, groups, shares, quota counters, settings and the
-activity log. Not the files themselves; those stay on disk where they are, and a share whose folder
+The whole database in one file — accounts, groups, shares, quota counters, bandwidth history,
+settings and the activity log. Not the files themselves; those stay on disk where they are, and a share whose folder
 has since moved simply points nowhere until an administrator repoints it.
 
 **Download a backup** streams a consistent copy taken through SQLite's online backup API, so it can
@@ -350,7 +396,8 @@ runtime surprise on a trimmed head.
 | `GET /api/admin/browse` (the machine's folders), `POST /browse/directory` | administrators |
 | `GET /api/account/profile`, `POST /api/account/password` | anyone signed in, about themselves only |
 | `POST /api/auth/anonymous` | anyone — and only for an account marked anonymous |
-| `GET /api/admin/live` (sessions and transfers), `POST /api/admin/users/{id}/unlock` | administrators |
+| `GET /api/admin/live` (sessions, transfers and the current rate), `POST /api/admin/users/{id}/unlock` | administrators |
+| `GET /api/admin/bandwidth` (filter by user and date window, by day or hour) | administrators |
 | `GET /api/admin/backup`, `POST /stage`, `POST /restore`, `DELETE /stage` | administrators |
 
 Password rules travel on `GET /api/auth/policy` so the setup and account screens can render the

@@ -123,7 +123,15 @@ public record AccountProfile(
     bool MustChangePassword,
 
     /// <summary>The rules, so the strength meter here reads the same ones every other screen does.</summary>
-    PasswordPolicyInfo Passwords
+    PasswordPolicyInfo Passwords,
+
+    /// <summary>
+    /// This account's own ceiling on bytes across every share, and what it has spent this period.
+    /// Unlimited on most accounts. Shown here rather than on the share bar because it is a fact
+    /// about the person, not about where they happen to be standing.
+    /// </summary>
+    QuotaState? AccountDownload = null,
+    QuotaState? AccountUpload = null
 );
 
 /// <summary>Creates the first administrator. Only accepted while <c>NeedsSetup</c> is true.</summary>
@@ -144,6 +152,9 @@ public record QuotaState(
     DateTimeOffset? ResetsUtc
 )
 {
+    /// <summary>No ceiling at all. The shape every unmetered quota takes, so callers do not each invent one.</summary>
+    public static QuotaState Unlimited { get; } = new(QuotaWindow.None, null, 0, null);
+
     public bool IsUnlimited => this.LimitBytes is null;
     public long RemainingBytes => this.LimitBytes is null ? long.MaxValue : Math.Max(0, this.LimitBytes.Value - this.UsedBytes);
     public double Fraction => this.LimitBytes is null or 0 ? 0 : Math.Clamp((double)this.UsedBytes / this.LimitBytes.Value, 0, 1);
@@ -460,6 +471,14 @@ public record UserDetail(
     TransferCapState Downloads,
     TransferCapState Uploads,
 
+    /// <summary>
+    /// The account-wide byte quotas, with what has been spent against them this period. Unlimited
+    /// when the account has none, which is the ordinary case - these are a ceiling on the person
+    /// across every share, beside the per-share quota each group grant carries.
+    /// </summary>
+    QuotaState AccountDownload,
+    QuotaState AccountUpload,
+
     IReadOnlyList<string> RoleIds,
     IReadOnlyList<string> RoleNames,
     DateTimeOffset CreatedUtc,
@@ -519,7 +538,17 @@ public record SaveUserRequest(
     int? MaxParallelDownloads,
     int? MaxParallelUploads,
 
-    IReadOnlyList<string> RoleIds
+    IReadOnlyList<string> RoleIds,
+
+    /// <summary>
+    /// The account-wide byte ceilings. A window of <see cref="QuotaWindow.None"/>, or a byte count
+    /// that is null or not positive, leaves that direction unmetered - the server settles the two
+    /// against each other rather than storing a window with nothing under it.
+    /// </summary>
+    QuotaWindow DownloadQuotaWindow = QuotaWindow.None,
+    long? DownloadQuotaBytes = null,
+    QuotaWindow UploadQuotaWindow = QuotaWindow.None,
+    long? UploadQuotaBytes = null
 );
 
 public record RoleInfo(
@@ -698,5 +727,109 @@ public record FinishedTransferInfo(
 public record LiveActivitySnapshot(
     IReadOnlyList<LiveSessionInfo> Sessions,
     IReadOnlyList<LiveTransferInfo> Transfers,
-    IReadOnlyList<FinishedTransferInfo> Finished
+    IReadOnlyList<FinishedTransferInfo> Finished,
+
+    /// <summary>
+    /// Every byte through the listener, not only the ones belonging to a file. A page of JSON and a
+    /// browser fetching the app itself are bandwidth too, and a rate that left them out would
+    /// disagree with whatever the operator is measuring the link with.
+    /// </summary>
+    BandwidthNow Bandwidth
 );
+
+// ---------------------------------------------------------------------------
+// Administration: bandwidth - all admin-only
+// ---------------------------------------------------------------------------
+
+/// <summary>Accounts that are not accounts.</summary>
+public static class BandwidthUsers
+{
+    /// <summary>
+    /// Traffic with nobody signed in behind it - the application itself, the sign-in page, the 401
+    /// that sent somebody there. Real bandwidth, so it is counted; not a person, so it is one row.
+    /// </summary>
+    public const string Anonymous = "-";
+
+    public const string AnonymousDisplayName = "Not signed in";
+}
+
+/// <summary>One second of the server's throughput, for drawing a line rather than reading a number.</summary>
+public record BandwidthSample(DateTimeOffset AtUtc, double InBytesPerSecond, double OutBytesPerSecond);
+
+/// <summary>
+/// What is going through the server right now. In is what clients sent it, out is what it sent
+/// back - measured on the bodies that actually crossed the socket rather than on what any header
+/// claimed, so a client that hung up half way through a download is counted for the half it took.
+/// </summary>
+public record BandwidthNow(
+    double InBytesPerSecond,
+    double OutBytesPerSecond,
+
+    /// <summary>Since the app started. The ledger is what remembers across restarts; this does not.</summary>
+    long BytesInSinceStart,
+    long BytesOutSinceStart,
+    DateTimeOffset SinceUtc,
+
+    /// <summary>One sample a second, oldest first. Long enough to see a burst, short enough to send every second.</summary>
+    IReadOnlyList<BandwidthSample> History
+)
+{
+    public static BandwidthNow Empty(DateTimeOffset sinceUtc) => new(0, 0, 0, 0, sinceUtc, []);
+}
+
+/// <summary>How the report's rows are cut up. A day of traffic is read by the hour; a year, by the day.</summary>
+public enum BandwidthBucket
+{
+    Hour,
+    Day
+}
+
+/// <summary>
+/// What a report asks for. Both ends of the window are optional - no window at all is everything
+/// that has been kept - and a null user is every account plus whatever moved before anyone signed in.
+/// </summary>
+public record BandwidthQuery(
+    string? UserId = null,
+    DateTimeOffset? FromUtc = null,
+    DateTimeOffset? ToUtc = null,
+    BandwidthBucket Bucket = BandwidthBucket.Day
+);
+
+/// <summary>One row of the chart: a period, and what moved during it.</summary>
+public record BandwidthPeriod(DateTimeOffset StartUtc, long BytesIn, long BytesOut)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public long Total => this.BytesIn + this.BytesOut;
+}
+
+/// <summary>One account's share of the window. Present even when the report was filtered to one person.</summary>
+public record BandwidthByUser(string UserId, string Username, string DisplayName, long BytesIn, long BytesOut)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public long Total => this.BytesIn + this.BytesOut;
+}
+
+/// <summary>
+/// Bandwidth over a window, totalled and cut two ways: by period, which is the shape of the traffic,
+/// and by account, which is who caused it.
+/// <para>
+/// Periods with nothing in them are included, so a chart shows a quiet Sunday as a gap rather than
+/// closing it up and making the week look continuous.
+/// </para>
+/// </summary>
+public record BandwidthReport(
+    DateTimeOffset FromUtc,
+    DateTimeOffset ToUtc,
+    BandwidthBucket Bucket,
+    long BytesIn,
+    long BytesOut,
+    IReadOnlyList<BandwidthPeriod> Periods,
+    IReadOnlyList<BandwidthByUser> Users
+)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public long Total => this.BytesIn + this.BytesOut;
+
+    public static BandwidthReport Empty(DateTimeOffset from, DateTimeOffset to, BandwidthBucket bucket)
+        => new(from, to, bucket, 0, 0, [], []);
+}

@@ -9,6 +9,15 @@ public interface IQuotaTracker
     Task<QuotaUsage> GetUsage(string userId, string folderId, QuotaWindow window, CancellationToken ct = default);
     Task RecordDownload(string userId, string folderId, QuotaWindow window, long bytes, CancellationToken ct = default);
     Task RecordUpload(string userId, string folderId, QuotaWindow window, long bytes, CancellationToken ct = default);
+
+    /// <summary>
+    /// The same period, counted across every share instead of one - what an account-wide quota is
+    /// measured against. A transfer is counted twice, once here and once against its folder, because
+    /// the two ceilings are independent and either may be the one that stops it.
+    /// </summary>
+    Task<QuotaUsage> GetAccountUsage(string userId, QuotaWindow window, CancellationToken ct = default);
+    Task RecordAccountDownload(string userId, QuotaWindow window, long bytes, CancellationToken ct = default);
+    Task RecordAccountUpload(string userId, QuotaWindow window, long bytes, CancellationToken ct = default);
 }
 
 public class QuotaTracker(IDocumentStore store, TimeProvider time) : IQuotaTracker
@@ -38,6 +47,15 @@ public class QuotaTracker(IDocumentStore store, TimeProvider time) : IQuotaTrack
 
     public Task RecordUpload(string userId, string folderId, QuotaWindow window, long bytes, CancellationToken ct = default)
         => this.Record(userId, folderId, window, bytes, download: false, ct);
+
+    public Task<QuotaUsage> GetAccountUsage(string userId, QuotaWindow window, CancellationToken ct = default)
+        => this.GetUsage(userId, QuotaUsage.AccountScope, window, ct);
+
+    public Task RecordAccountDownload(string userId, QuotaWindow window, long bytes, CancellationToken ct = default)
+        => this.Record(userId, QuotaUsage.AccountScope, window, bytes, download: true, ct);
+
+    public Task RecordAccountUpload(string userId, QuotaWindow window, long bytes, CancellationToken ct = default)
+        => this.Record(userId, QuotaUsage.AccountScope, window, bytes, download: false, ct);
 
     async Task Record(string userId, string folderId, QuotaWindow window, long bytes, bool download, CancellationToken ct)
     {

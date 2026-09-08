@@ -1030,32 +1030,102 @@ button.cell-name__link:hover { color: var(--accent); text-decoration: underline;
 /* One group's rights inside a share */
 .grant {
     display: grid;
-    gap: 10px;
-    padding: 12px;
+    gap: 12px;
+    padding: 14px;
     border: 1px solid var(--rule);
     border-radius: var(--r-md);
     background: var(--surface-2);
 }
 
-.grant__head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.grant__warn { font-size: 12px; color: var(--warn); }
-
-.grant__perms { display: flex; gap: 16px; flex-wrap: wrap; }
-
-.grant__quotas {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 10px;
+.grant__head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule);
 }
 
-.grant__quotas select,
-.grant__quotas input {
+.grant__role { font-size: 14px; }
+.grant__warn { font-size: 12px; color: var(--warn); }
+
+/* The five rights, on a grid whose columns are the same width in every group - so the eye can run
+   down "Upload" through all of them. A wrapping flex row put each tick wherever the label before it
+   happened to end, which made the same five boxes look like five different sets. */
+.grant__perms {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+    gap: 9px 14px;
+}
+
+/* A checkbox and its word are one target and stay on one line; the word wraps under itself rather
+   than dragging the box along with it. */
+.grant__perms .field--check {
+    align-items: start;
+    gap: 8px;
+    min-width: 0;
+}
+
+.grant__perms .field--check input { margin-top: 1px; flex: none; }
+
+/* ---------------------------------------------------------------------------
+   Quota fields — a window and an amount are one answer, so they share a label.
+
+   Used by the grants on the share editor and by the account quota on the People
+   screen, which is why it is not named after either.
+   --------------------------------------------------------------------------- */
+/* Two across at most. Three columns fitted, but squeezed the window down to where "Total, never
+   resets" was reading as "Total, neve" - and the pair of quotas is the pairing that means something
+   anyway; the per-file cap is a different kind of answer and can take the row below. */
+.quotas {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+    gap: 12px 16px;
+    align-items: start;
+}
+
+.quota {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+}
+
+.quota__row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+}
+
+/* Both controls are the width of what goes in them rather than the width of the column, so the
+   "MB" after them lands in the same place in every column and on every group. They shrink together
+   when the column does; neither stretches to fill room it has no use for. */
+.quota__row select { flex: 0 1 12rem; min-width: 0; }
+.quota__row input { flex: 0 0 5.5rem; width: 5.5rem; min-width: 0; }
+.quota__unit { flex: none; font-size: 12.5px; color: var(--ink-3); }
+
+.quota__row select,
+.quota__row input {
     font: inherit;
     padding: 6px 9px;
     border: 1px solid var(--rule);
     border-radius: var(--r-md);
     background: var(--surface);
     color: var(--ink);
+}
+
+.quota__row select:focus,
+.quota__row input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* A quota with no window is a box with nothing to put in it. Dimmed rather than hidden, so the row
+   does not change shape the moment somebody picks a window. */
+.quota__row input:disabled {
+    opacity: .5;
+    cursor: not-allowed;
 }
 
 .pwfield { display: grid; gap: 6px; }
@@ -1633,3 +1703,201 @@ button.cell-name__link:hover { color: var(--accent); text-decoration: underline;
 
 .log__grid .shiny-dg { min-height: 0; }
 .log__what--failed { color: var(--danger); }
+
+/* ---------------------------------------------------------------------------
+   Bandwidth — the rate on the live screen, and the report behind it
+
+   Direction is the only new distinction on either screen, and it is carried by
+   weight within the one accent rather than by a second hue: out is the solid
+   teal, in is the same teal drawn lighter. Both are labelled, because a pair of
+   colours nobody named would leave half the readers guessing which way round it
+   was — and a colour that has to be guessed at is not carrying meaning.
+   --------------------------------------------------------------------------- */
+
+/* The rate pair, with a minute of history beside it. The line is decoration in
+   the sense that the numbers are the answer — it is there to say whether this
+   second is typical, which a number on its own cannot. */
+.live__rates {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(140px, 1fr)) minmax(160px, 2fr);
+    gap: 16px;
+    align-items: center;
+    padding: 12px 14px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface);
+}
+
+.live__rate { display: grid; gap: 2px; min-width: 0; }
+
+.live__ratelabel {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--ink-2);
+}
+
+.live__ratenow {
+    font-family: var(--mono);
+    font-size: 20px;
+    color: var(--ink);
+}
+
+.live__ratetotal {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-3);
+}
+
+.live__more {
+    margin-left: auto;
+    font-size: 11px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--accent);
+}
+
+.live__spark {
+    width: 100%;
+    height: 44px;
+    overflow: visible;
+}
+
+.live__sparkline {
+    fill: none;
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+}
+
+.live__sparkline--out { stroke: var(--accent); }
+.live__sparkline--in { stroke: var(--accent-line); }
+
+@media (max-width: 760px) {
+    .live__rates { grid-template-columns: 1fr 1fr; }
+    .live__spark { grid-column: 1 / -1; }
+}
+
+/* -- the report ------------------------------------------------------------ */
+
+.band { display: grid; gap: 16px; }
+
+.band__totals {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+}
+
+.band__total {
+    display: grid;
+    gap: 4px;
+    padding: 14px 16px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface);
+}
+
+/* The sum is the one somebody quotes, so it is the one that is picked out. */
+.band__total--sum {
+    border-color: var(--accent-line);
+    background: var(--accent-soft);
+}
+
+.band__totallabel {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--ink-2);
+}
+
+.band__totalvalue {
+    font-family: var(--mono);
+    font-size: 24px;
+    color: var(--ink);
+}
+
+/* The legend mark, the same fill as the bar it stands for. */
+.band__key {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--accent);
+}
+
+.band__key--in { background: var(--accent-line); }
+
+.band__window {
+    margin: 0;
+    font-size: 12px;
+    color: var(--ink-3);
+}
+
+/* Bars grow from the baseline and share one scale. A period with nothing in it
+   is drawn as an empty column rather than skipped, so a quiet Sunday reads as a
+   quiet Sunday instead of closing the week up. */
+.band__chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 200px;
+    padding: 10px 12px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    overflow-x: auto;
+}
+
+.band__col {
+    flex: 1 1 0;
+    min-width: 3px;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+}
+
+.band__stack {
+    display: flex;
+    flex-direction: column-reverse;
+    justify-content: flex-start;
+    width: 100%;
+    height: 100%;
+}
+
+.band__bar {
+    width: 100%;
+
+    /* The height is the value. Left to flex, a short bar would be stretched or
+       squeezed to fill the column and every reading would be wrong. */
+    flex: 0 0 auto;
+}
+.band__bar--out { background: var(--accent); }
+.band__bar--in { background: var(--accent-line); }
+
+/* The top of the stack gets the corner, so a column reads as one bar. */
+.band__stack > .band__bar:last-child { border-radius: 2px 2px 0 0; }
+
+.band__axis {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-3);
+}
+
+.band__sharecol { width: 130px; }
+
+.band__share {
+    display: block;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--rule-soft);
+    overflow: hidden;
+}
+
+.band__sharefill {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+}
