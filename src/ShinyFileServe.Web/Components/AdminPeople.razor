@@ -532,8 +532,14 @@
                 draft.Password.Length > 0 ? draft.Password : null,
                 draft.IsAdmin,
 
-                // A whole UTC day, kept as one on the way out as well as the way in.
-                draft.ExpiresOn is { } day ? new DateTimeOffset(day.Date, TimeSpan.Zero) : null,
+                // A whole UTC day, kept as one on the way out as well as the way in. The Kind is
+                // spelled out because the date arrives Utc when it was read back off an account and
+                // Local when the picker has just produced it, and the offset below may only be
+                // paired with the first of those - so an expiry nobody had touched saved fine while
+                // one just set threw.
+                draft.ExpiresOn is { } day
+                    ? new DateTimeOffset(DateTime.SpecifyKind(day.Date, DateTimeKind.Utc), TimeSpan.Zero)
+                    : null,
 
                 draft.IsAnonymous,
                 draft.MaxParallelDownloads,

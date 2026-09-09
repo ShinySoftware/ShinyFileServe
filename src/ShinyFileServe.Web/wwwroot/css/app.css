@@ -44,6 +44,9 @@
     --r-md: 7px;
     --r-lg: 11px;
 
+    /* One height for every control on a filter row, so their labels line up above them. */
+    --field-h: 34px;
+
     --shadow-pane: 0 1px 2px rgba(16, 22, 25, .05), 0 6px 20px -12px rgba(16, 22, 25, .28);
     --shadow-pop:  0 12px 40px -12px rgba(16, 22, 25, .35);
 
@@ -863,21 +866,91 @@ button.cell-name__link:hover { color: var(--accent); text-decoration: underline;
 
 .log__filters {
     display: flex;
-    align-items: flex-end;
+    align-items: end;
     gap: 10px;
     flex-wrap: wrap;
 }
 
 .log__filter { display: grid; gap: 4px; }
 
+/*
+    One height and one look for everything in the row.
+
+    Left to the platform these disagree: a <select> came out 34px tall and an <input type="date">
+    37px, so the labels sitting above them landed three pixels apart and the row read as a handful of
+    native widgets pushed together rather than one band. appearance:none is what buys the agreement -
+    the arrow it takes off the select is put back below, and it is the only thing that has to be.
+*/
 .log__filter select,
 .log__filter input {
+    appearance: none;
+    -webkit-appearance: none;
+    height: var(--field-h);
     font: inherit;
-    padding: 6px 9px;
+    font-size: 13px;
+    padding: 0 10px;
     border: 1px solid var(--rule);
     border-radius: var(--r-md);
     background: var(--surface);
     color: var(--ink);
+    transition: border-color var(--speed) var(--ease), box-shadow var(--speed) var(--ease);
+}
+
+.log__filter select {
+    /* Room on the right for the chevron, which is a background image now that the real one is gone.
+       A data URI cannot read currentColor, so it is drawn in the muted ink that reads on both. */
+    padding-right: 30px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238A95A0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 11px center;
+    cursor: pointer;
+}
+
+/* The picker glyph is the browser's own and cannot be restyled, only tinted - color-scheme already
+   flips it for the dark theme, so it only wants taking down a little and making obviously clickable.
+   It is also the only reason a date field needs to be wider than the ten characters it holds. */
+.log__filter input[type="date"] { min-width: 148px; }
+
+.log__filter input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: .5;
+    cursor: pointer;
+    transition: opacity var(--speed) var(--ease);
+}
+
+.log__filter input[type="date"]:hover::-webkit-calendar-picker-indicator { opacity: .8; }
+
+.log__filter select:hover,
+.log__filter input:hover { border-color: var(--accent-line); }
+
+.log__filter select:focus-visible,
+.log__filter input:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* The button closes the row, so it takes the fields' height rather than the smaller one it wears
+   in a toolbar. Without this it sat three pixels short of everything beside it. */
+.log__filters .action { height: var(--field-h); }
+
+/* The data grid's pager ships its own <select> with nothing on it, which lands as a bright native
+   control in the middle of a dark screen. Matched to the filter fields rather than left as it came. */
+.shiny-dg-pager-rpp select {
+    appearance: none;
+    -webkit-appearance: none;
+    height: 28px;
+    font: inherit;
+    font-size: 12.5px;
+    padding: 0 26px 0 9px;
+    margin-left: 6px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-sm);
+    background-color: var(--surface);
+    color: var(--ink);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238A95A0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 9px center;
+    cursor: pointer;
 }
 
 .log__scroll {
@@ -916,6 +989,11 @@ button.cell-name__link:hover { color: var(--accent); text-decoration: underline;
 .log__table tr:last-child td { border-bottom: 0; }
 
 .log__right { text-align: right; }
+
+/* The header needs the class to bite through `.log__table th`, which sets text-align on its own and
+   outweighs a bare class. Without this the numeric columns right-align their figures under a
+   left-aligned heading, and every total sits under the name of the column after it. */
+.log__table th.log__right { text-align: right; }
 
 .log__where {
     max-width: 32ch;

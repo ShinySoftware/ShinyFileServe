@@ -189,11 +189,11 @@
         {
             this.report = await this.Admin.GetBandwidth(new BandwidthQuery(
                 UserId: String.IsNullOrEmpty(this.userId) ? null : this.userId,
-                FromUtc: this.from is { } f ? new DateTimeOffset(f.Date, TimeSpan.Zero) : null,
 
-                // A "to" date means the end of that day. Picking today for both ends otherwise
-                // returns nothing, which reads as a broken filter rather than an empty window.
-                ToUtc: this.to is { } t ? new DateTimeOffset(t.Date.AddDays(1).AddTicks(-1), TimeSpan.Zero) : null,
+                // The pickers hold local calendar days and the report is asked for in instants -
+                // see LocalDay for why the two may not simply be stamped onto each other.
+                FromUtc: this.from is { } f ? LocalDay.Start(f) : null,
+                ToUtc: this.to is { } t ? LocalDay.End(t) : null,
                 Bucket: (BandwidthBucket)Int32.Parse(this.bucket)
             ), cts.Token);
         }

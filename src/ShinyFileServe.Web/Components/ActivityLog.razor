@@ -230,11 +230,11 @@
                 UserId: String.IsNullOrEmpty(this.userId) ? null : this.userId,
                 FolderId: String.IsNullOrEmpty(this.folderId) ? null : this.folderId,
                 Action: String.IsNullOrEmpty(this.action) ? null : (ActivityAction)Int32.Parse(this.action),
-                FromUtc: this.from is { } f ? new DateTimeOffset(f.Date, TimeSpan.Zero) : null,
-
-                // A "to" date means the end of that day, not its first instant - otherwise picking
-                // today for both ends returns nothing, which reads as a broken filter.
-                ToUtc: this.to is { } t ? new DateTimeOffset(t.Date.AddDays(1).AddTicks(-1), TimeSpan.Zero) : null,
+                // Local calendar days off the pickers, turned into the instants the API wants -
+                // see LocalDay. A "to" date means the end of that day, not its first instant, or
+                // picking today for both ends returns nothing and reads as a broken filter.
+                FromUtc: this.from is { } f ? LocalDay.Start(f) : null,
+                ToUtc: this.to is { } t ? LocalDay.End(t) : null,
 
                 // The grid counts pages from zero; the API from one.
                 Page: state.Page + 1,
