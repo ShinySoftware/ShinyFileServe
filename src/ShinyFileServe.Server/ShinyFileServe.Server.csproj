@@ -35,7 +35,11 @@
   <Target Name="_FrontendProps">
     <PropertyGroup>
       <FrontendProject>$(MSBuildThisFileDirectory)..\ShinyFileServe.Web\ShinyFileServe.Web.csproj</FrontendProject>
-      <FrontendPublishDir>$(IntermediateOutputPath)frontend\</FrontendPublishDir>
+      <!-- No trailing separator: this is passed as a quoted argument to dotnet publish below, and on
+           Windows a trailing backslash escapes the closing quote. The rest of the command line then
+           gets swallowed into the output path, the publish lands in a directory named after it, and
+           the zip step cannot find frontend/wwwroot. -->
+      <FrontendPublishDir>$(IntermediateOutputPath)frontend</FrontendPublishDir>
       <FrontendPlaceholderDir>$(IntermediateOutputPath)frontend-placeholder\</FrontendPlaceholderDir>
       <FrontendZip>$(IntermediateOutputPath)wwwroot.zip</FrontendZip>
     </PropertyGroup>
@@ -54,7 +58,7 @@
     <Exec Command="dotnet publish &quot;$(FrontendProject)&quot; -c $(Configuration) -o &quot;$(FrontendPublishDir)&quot; --nologo"
           StandardOutputImportance="low" />
     <Delete Files="$(FrontendZip)" />
-    <ZipDirectory SourceDirectory="$(FrontendPublishDir)wwwroot" DestinationFile="$(FrontendZip)" Overwrite="true" />
+    <ZipDirectory SourceDirectory="$(FrontendPublishDir)/wwwroot" DestinationFile="$(FrontendZip)" Overwrite="true" />
   </Target>
 
   <Target Name="EmbedFrontend"
