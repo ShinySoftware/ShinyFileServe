@@ -1,5 +1,6 @@
 using System.Reflection;
 using Microsoft.Extensions.Logging;
+using Shiny.AppDeviceBridge.Tunnel;
 using Shiny.Maui.Controls.Desktop.TrayIcon;
 using ShinyFileServe.Server;
 
@@ -109,7 +110,7 @@ public class TrayController(
         {
             tunnelToggle.Label = server.TunnelState switch
             {
-                TunnelState.Open => "Close public tunnel",
+                TunnelState.Connected => "Close public tunnel",
                 TunnelState.Connecting => "Opening tunnel…",
                 TunnelState.Reconnecting => "Reconnecting tunnel…",
                 TunnelState.Failed => "Retry public tunnel",

@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.Extensions.Logging;
+using Shiny.AppDeviceBridge.Tunnel;
 using Shiny.Net.HttpServer;
 using ShinyFileServe.Core;
 using ShinyFileServe.Core.Documents;
@@ -16,7 +17,7 @@ namespace ShinyFileServe.App.Services;
 public class ServerController
 {
     readonly IFileServeServer server;
-    readonly ITunnelController tunnel;
+    readonly AppDeviceBridgeTunnel tunnel;
     readonly ISettingsManager settings;
     readonly SessionPolicyHolder sessionPolicy;
     readonly FileServeInitializer initializer;
@@ -27,7 +28,7 @@ public class ServerController
 
     public ServerController(
         IFileServeServer server,
-        ITunnelController tunnel,
+        AppDeviceBridgeTunnel tunnel,
         ISettingsManager settings,
         SessionPolicyHolder sessionPolicy,
         FileServeInitializer initializer,
@@ -42,7 +43,7 @@ public class ServerController
 
         this.server.StateChanged += (_, _) => this.Raise();
         this.server.SessionsChanged += (_, _) => this.Raise();
-        this.tunnel.Changed += (_, _) => this.Raise();
+        this.tunnel.PropertyChanged += (_, _) => this.Raise();
         this.settings.Changed += (_, s) =>
         {
             this.sessionPolicy.ApplyRememberWindow(s.RememberMeDays);
@@ -58,9 +59,10 @@ public class ServerController
     public int ActiveSessionCount => this.server.ActiveSessionCount;
 
     public TunnelState TunnelState => this.tunnel.State;
-    public string? TunnelUrl => this.tunnel.PublicUrl;
+    // Read live: a free tunnel takes a new address on every reconnect.
+    public string? TunnelUrl => this.tunnel.PublicUrl?.GetLeftPart(UriPartial.Authority);
     public string? TunnelError => this.tunnel.LastError;
-    public bool IsTunnelOpen => this.tunnel.State is TunnelState.Open;
+    public bool IsTunnelOpen => this.tunnel.State is TunnelState.Connected;
 
     public ServerSettings Settings => this.settings.Current;
 
@@ -160,7 +162,7 @@ public class ServerController
     {
         // The tunnel forwards to the listener, so it goes first - otherwise it sits reconnecting
         // against a socket that is not coming back.
-        await this.tunnel.Stop(ct);
+        await this.tunnel.StopAsync(ct);
         await this.server.Stop(ct);
         this.Raise();
     }
@@ -177,19 +179,22 @@ public class ServerController
     async Task StartTunnelInternal(CancellationToken ct)
     {
         this.LastError = null;
-        try
+
+        // A tunnel forwards to the portal, so there is nothing to open onto a stopped server. The tray greys the item
+        // out already; this covers auto-start racing a failed bind.
+        if (!this.IsServing)
         {
-            await this.tunnel.Start(ct);
+            this.LastError = "Start the server before opening a tunnel to it.";
+            return;
         }
-        catch (Exception ex)
-        {
-            this.LastError = ex.Message;
-        }
+
+        // Failures land in TunnelState and TunnelError rather than throwing.
+        await this.tunnel.StartAsync(this.settings.Current.PinggyToken, ct);
     }
 
     public async Task StopTunnel(CancellationToken ct = default)
     {
-        await this.tunnel.Stop(ct);
+        await this.tunnel.StopAsync(ct);
         this.Raise();
     }
 

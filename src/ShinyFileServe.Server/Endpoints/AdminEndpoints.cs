@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Shiny;
+using Shiny.AppDeviceBridge.Tunnel;
 using Shiny.Net.HttpServer;
 using ShinyFileServe.Core.Services;
 using ShinyFileServe.Server.Security;
@@ -15,7 +16,7 @@ namespace ShinyFileServe.Server.Endpoints;
 [Authorize(Roles = ClaimTypesEx.AdminRole)]
 public class AdminEndpoints(
     IFileServeServer server,
-    ITunnelController tunnel,
+    AppDeviceBridgeTunnel tunnel,
     ISettingsManager settings,
     IFolderManager folders,
     IUserManager users,
@@ -142,7 +143,7 @@ public class AdminEndpoints(
         _ = Task.Run(async () =>
         {
             await Task.Delay(250);
-            await tunnel.Stop();
+            await tunnel.StopAsync();
             await server.Stop();
         }, CancellationToken.None);
 
@@ -154,16 +155,15 @@ public class AdminEndpoints(
     [Produces(409)]
     public async Task<IActionResult> StartTunnel(HttpContext ctx, CancellationToken ct)
     {
-        try
-        {
-            await tunnel.Start(ct);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return new ConflictObjectResult(ex.Message);
-        }
+        // The tunnel could serve a stopped server, but here the server switch is meant to take all of it down.
+        if (!server.IsRunning)
+            return new ConflictObjectResult("Start the server before opening a tunnel to it.");
 
-        await this.LogAdminAction(ctx, $"Opened the public tunnel ({tunnel.PublicUrl ?? "no address"})", ct);
+        // A blank pinggy token gives an anonymous tunnel: it expires after an hour and takes a new address on every
+        // reconnect. A failure is not an error here - the status below carries it.
+        var url = await tunnel.StartAsync(settings.Current.PinggyToken, ct);
+
+        await this.LogAdminAction(ctx, $"Opened the public tunnel ({url?.GetLeftPart(UriPartial.Authority) ?? "no address"})", ct);
         return new OkObjectResult(await this.BuildStatus(ct));
     }
 
@@ -171,7 +171,7 @@ public class AdminEndpoints(
     [Produces(200, typeof(ServerStatus))]
     public async Task<IActionResult> StopTunnel(HttpContext ctx, CancellationToken ct)
     {
-        await tunnel.Stop(ct);
+        await tunnel.StopAsync(ct);
         await this.LogAdminAction(ctx, "Closed the public tunnel", ct);
         return new OkObjectResult(await this.BuildStatus(ct));
     }
@@ -226,8 +226,15 @@ public class AdminEndpoints(
             server.State.ToString(),
             NetworkAddresses.LocalUrls(config.Port),
             server.ActiveConnections,
-            (TunnelStatus)(int)tunnel.State,
-            tunnel.PublicUrl,
+            tunnel.State switch
+            {
+                TunnelState.Connecting => TunnelStatus.Connecting,
+                TunnelState.Connected => TunnelStatus.Open,
+                TunnelState.Reconnecting => TunnelStatus.Reconnecting,
+                TunnelState.Failed => TunnelStatus.Failed,
+                _ => TunnelStatus.Off
+            },
+            tunnel.PublicUrl?.GetLeftPart(UriPartial.Authority),
             tunnel.LastError,
             new ServerConfig(
                 config.Port,

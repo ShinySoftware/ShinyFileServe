@@ -40,7 +40,6 @@ public static class ServerRegistration
         configure(options);
         services.AddSingleton(options);
         services.TryAddSingleton<ICurrentUserResolver, CurrentUserResolver>();
-        services.TryAddSingleton<ITunnelController, TunnelController>();
         services.TryAddSingleton<ILoopbackIdentity, LoopbackIdentity>();
         services.TryAddSingleton<LoopbackSignInMiddleware>();
         services.TryAddSingleton<ISessionTracker>(sp => new SessionTracker(sp.GetService<TimeProvider>() ?? TimeProvider.System));
@@ -252,8 +251,6 @@ public interface IFileServeServer
 {
     HttpServerState State { get; }
     bool IsRunning { get; }
-    string? ListenUrl { get; }
-    IReadOnlyList<string> ListenUrls { get; }
     int ActiveConnections { get; }
 
     /// <summary>People using the server from elsewhere. This machine's own window is not one.</summary>
@@ -299,8 +296,6 @@ class FileServeServerFacade : IFileServeServer, IDisposable
 
     public HttpServerState State => this.server.State;
     public bool IsRunning => this.server.IsRunning;
-    public string? ListenUrl => this.server.IsRunning ? this.server.ListenUrl : null;
-    public IReadOnlyList<string> ListenUrls => this.server.IsRunning ? this.server.ListenUrls : [];
     public int ActiveConnections => this.server.ActiveConnections;
     public int ActiveSessionCount => this.sessions.ActiveCount;
     public IReadOnlyList<ActiveSession> ActiveSessions => this.sessions.Active;

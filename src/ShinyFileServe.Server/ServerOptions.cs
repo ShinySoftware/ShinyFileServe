@@ -7,7 +7,7 @@ public class FileServeServerOptions
     /// <summary>Defaults to loopback. Set to <see cref="IPAddress.Any"/> to publish on the LAN.</summary>
     public IPAddress Address { get; set; } = IPAddress.Loopback;
 
-    /// <summary>0 lets the OS pick; read the real one back from <c>FileServeServer.ListenUrl</c>.</summary>
+    /// <summary>The port to listen on. The stored setting replaces this before the server first binds.</summary>
     public int Port { get; set; } = 8080;
 
     /// <summary>
