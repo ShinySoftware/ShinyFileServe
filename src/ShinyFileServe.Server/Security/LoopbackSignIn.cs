@@ -1,6 +1,6 @@
-using System.Net;
 using System.Security.Claims;
 using Microsoft.Extensions.DependencyInjection;
+using Shiny.AppDeviceBridge;
 using Shiny.Net.HttpServer;
 using Shiny.Net.HttpServer.Security;
 using ShinyFileServe.Core.Services;
@@ -49,15 +49,9 @@ public class LoopbackSignInMiddleware(ILoopbackIdentity identity) : IHttpMiddlew
         await next(context);
     }
 
-    internal static bool IsLocal(HttpContext context)
-    {
-        // A tunnelled connection terminates on loopback at this end. Address alone is not enough.
-        if (context.Connection.IsTunneled)
-            return false;
-
-        var remote = context.Connection.RemoteIpAddress;
-        return remote is not null && IPAddress.IsLoopback(remote);
-    }
+    // A tunnelled connection terminates on loopback at this end, so the address alone is not enough;
+    // the bridge library's check refuses tunnelled traffic and handles IPv4-mapped loopback too.
+    internal static bool IsLocal(HttpContext context) => BridgeCallers.IsLocalConnection(context);
 }
 
 /// <summary>Decides which account a loopback caller is.</summary>

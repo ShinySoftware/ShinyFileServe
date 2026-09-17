@@ -14,4 +14,5 @@ public static class AppPaths
 
     public static string DatabaseFile => Path.Combine(DataDirectory, "fileserve.db");
     public static string TicketKeyFile => Path.Combine(DataDirectory, "cookie.key");
+    public static string WebAppDirectory => Path.Combine(DataDirectory, "webapp");
 }

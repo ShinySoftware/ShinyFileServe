@@ -13,11 +13,12 @@ everything to keep in step and one of them quietly falling behind.
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Desktop app (.NET MAUI)          tray icon · console window        │
 │  ├── Shiny.Net.HttpServer  ───────  HTTP on every interface, :8080  │
-│  │     └── embedded zip    ───────  Blazor WebAssembly frontend     │
+│  │     ├── AppDeviceBridge ───────  frontend host: embedded zip or │
+│  │     │                            a signed update, served by it   │
 │  ├── Shiny.DocumentDb      ───────  one SQLite file: users, roles,  │
 │  │                                  shares, grants, quotas, log,    │
 │  │                                  bandwidth history               │
-│  ├── QuickTunnel (pinggy)  ───────  optional public https address   │
+│  ├── AppDeviceBridge.Tunnel ──────  optional public https (pinggy)  │
 │  ├── Shiny.Notifications   ───────  desktop notification per event  │
 │  └── Shiny.Extensions.     ───────  start at login, per platform    │
 │        MauiHosting                                                  │
@@ -30,7 +31,7 @@ everything to keep in step and one of them quietly falling behind.
 | --- | --- | --- |
 | `src/ShinyFileServe.Shared` | `net10.0` | DTOs that cross the wire |
 | `src/ShinyFileServe.Core` | `net10.0` | Documents and domain services on Shiny.DocumentDb + SQLite |
-| `src/ShinyFileServe.Server` | `net10.0` | Shiny.Net.HttpServer endpoints, cookie auth, tunnel, static SPA |
+| `src/ShinyFileServe.Server` | `net10.0` | Shiny.Net.HttpServer endpoints, cookie auth; the SPA host and tunnel from Shiny.AppDeviceBridge |
 | `src/ShinyFileServe.Web` | `net10.0` | Blazor WebAssembly frontend (Shiny.Blazor.Controls) |
 | `src/ShinyFileServe.App` | `net10.0` | The MAUI shell: a WebView, the tray icon, server control |
 | `heads/ShinyFileServe.MacOS` | `net10.0-macos` | AppKit head — `dotnet/maui-labs` |
@@ -87,9 +88,22 @@ other account can be enabled, disabled or deleted freely.
 ## How the frontend gets served
 
 `ShinyFileServe.Web` is published, zipped, and embedded into `ShinyFileServe.Server.dll` as
-`ShinyFileServe.Server.wwwroot.zip`. At runtime a `ZipFileSource` reads out of the resource and
-`UseBlazorWebAssembly` serves it, precompressed assets included — so a head ships one assembly and
-serves the whole SPA. See the targets at the bottom of `ShinyFileServe.Server.csproj`; they hook
+`ShinyFileServe.Server.wwwroot.zip`. [Shiny.AppDeviceBridge](https://github.com/shinyorg/appdevicebridge)'s web app
+host serves it straight out of the resource, precompressed assets included, so a head ships one assembly and serves
+the whole SPA. It is registered on the server's own builder after the app's middleware, so bandwidth metering,
+authentication and the password gate run first, exactly as they did for `UseBlazorWebAssembly`.
+
+- **Everyone gets the pages.** `ServeWebAppRemotely` and `ServeWebAppLocally` are both on: the portal shell is public
+  and shows a sign-in form until `/api/auth/me` answers. The APIs behind it are authorized as before.
+- **Caching.** `FrontendCachePolicy` is the host's `OnPrepareResponse`: fingerprinted `_framework` files are
+  immutable for a year, and everything else revalidates.
+- **Updates without an app release.** Set `FileServeServerOptions.FrontendUpdateServer` and `FrontendPublicKey`, and
+  the host checks a Shiny.AppDeviceBridge.AspNetCore release server whenever the server starts. It installs a newer
+  signed frontend into `webapp/` beside the database. The embedded build stays the floor, and nothing is checked while
+  these are unset.
+- **Bridges are closed.** No page calls device bridges, so the built-in settings and files bridges are off, and the
+  bridge policy stays "this device only", in debug builds too.
+ See the targets at the bottom of `ShinyFileServe.Server.csproj`; they hook
 `AssignTargetPaths`, not `BeforeCompile`, because resource manifest names are assigned before
 `BeforeCompile` runs and an `EmbeddedResource` added there is silently dropped.
 
@@ -501,6 +515,10 @@ truth.
 
 - The server binds **every interface**. On a LAN that is the point; through the tunnel it is the
   public internet, so give people real passwords before opening one.
+- **Host names are checked.** A request must name the server by an IP address, loopback, this machine's own name
+  (`name` and `name.local`), a name in `FileServeServerOptions.AllowedHosts`, or the open tunnel's public host.
+  Anything else gets `421`, which stops a hostile site from rebinding its own name onto the server. A tunneled request
+  claiming a loopback name is refused too.
 - Passwords are PBKDF2-SHA256 at 210,000 iterations.
 - Path traversal is refused at the one function every file operation goes through, before the
   filesystem is touched: `.` and `..` segments are rejected outright, and the canonicalised result

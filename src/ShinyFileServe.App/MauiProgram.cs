@@ -43,6 +43,9 @@ public static class MauiProgram
                 o.Address = IPAddress.Any;
                 o.Port = 8080;
                 o.TicketKeyPath = AppPaths.TicketKeyFile;
+
+                // Frontend updates, when a release server is configured, live beside the database.
+                o.DataDirectory = AppPaths.WebAppDirectory;
             },
             // The operator owns the switch, from the window or the tray. Auto-start is honoured
             // after startup rather than during registration, so a bind failure is visible.

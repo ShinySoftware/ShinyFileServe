@@ -5,9 +5,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using ShinyFileServe.Core.Services;
+using Shiny.AppDeviceBridge;
+using Shiny.AppDeviceBridge.Tunnel;
+using Shiny.AppDeviceBridge.WebView;
 using Shiny.Net.HttpServer;
 using Shiny.Net.HttpServer.Security;
-using Shiny.Net.HttpServer.StaticFiles;
 using ShinyFileServe.Server.Endpoints;
 using ShinyFileServe.Server.Security;
 using ShinyFileServe.Server.Transfers;
@@ -21,6 +23,9 @@ public static class ServerRegistration
     /// server project's build zips <c>ShinyFileServe.Web</c>'s publish output into it.
     /// </summary>
     public const string FrontendResourceName = "ShinyFileServe.Server.wwwroot.zip";
+
+    /// <summary>What the web app host and its release server know this app by. Names the install folder too.</summary>
+    public const string AppId = "shinyfileserve";
 
     /// <summary>
     /// Adds the HTTP server to an existing container. <paramref name="autoStart"/> defaults to false
@@ -129,13 +134,57 @@ public static class ServerRegistration
                     server.MapFolderEndpoints();
                     server.MapFileEndpoints();
                     server.MapActivityEndpoints();
-
-                    // The SPA shell itself is public - it only ever shows a login form until
-                    // /api/auth/me answers. Everything with data behind it is [Authorize]d above.
-                    var frontend = TryOpenFrontend();
-                    if (frontend is not null)
-                        server.UseBlazorWebAssembly(frontend, o => o.OnPrepareResponse = FrontendCachePolicy.Apply);
                 });
+
+                // After Configure, so the bridge server's guard and the web app's files come after the
+                // metering, authentication and password gate above - the order the pipeline is built in.
+                http.AddAppDeviceBridge(o =>
+                {
+                    o.AppId = AppId;
+                    o.DataDirectory = options.DataDirectory;
+
+                    // A bind failure is the operator's to see, not something to paper over with a random port
+                    // nobody was told about.
+                    o.AllowPortFallback = false;
+
+                    // The library lets any caller reach the bridges in a debug build, for a browser on a developer's desk.
+                    // This server is on the LAN by design, so a debug build keeps the same rules as a release one.
+                    o.AllowAnyCallerInDebug = false;
+
+                    // No page here calls device bridges, so the built-in settings and files roots stay off and the
+                    // default policy - this device only - guards the few host routes that remain.
+                    o.EnableSettings = false;
+                    o.EnableFiles = false;
+
+                    // People reach a LAN server by the machine's name as often as by its address. Anything else is
+                    // refused with a 421, which is what keeps a hostile site from rebinding its own name onto it.
+                    foreach (var name in HostNames.ForThisMachine())
+                        o.AllowedHosts.Add(name);
+
+                    foreach (var name in options.AllowedHosts)
+                        o.AllowedHosts.Add(name);
+                });
+
+                // The SPA shell itself is public - it only ever shows a login form until /api/auth/me
+                // answers. Everything with data behind it is [Authorize]d above. Left out entirely when the
+                // assembly was built with SkipFrontendBuild, so the API still runs without it.
+                if (HasFrontend())
+                {
+                    http.AddWebAppHost(o =>
+                    {
+                        o.UseBaseline(typeof(ServerRegistration).Assembly, FrontendResourceName, options.FrontendVersion);
+                        o.UpdateServer = options.FrontendUpdateServer;
+                        o.PublicKey = options.FrontendPublicKey;
+
+                        // Remote users are the point of the app, and so is a browser on the machine itself: the
+                        // portal has no launch session to hand either of them, and needs none.
+                        o.ServeWebAppRemotely = true;
+                        o.ServeWebAppLocally = true;
+                        o.OnPrepareResponse = FrontendCachePolicy.Apply;
+                    });
+                }
+
+                http.AddAppDeviceBridgeTunnel();
             },
             autoStart
         );
@@ -145,26 +194,24 @@ public static class ServerRegistration
     }
 
     /// <summary>
-    /// The published frontend, read straight out of this assembly's embedded zip. Returns null when
-    /// the assembly was built with <c>SkipFrontendBuild</c>, so a head can still run its own UI.
+    /// Whether this assembly carries a real frontend. False when it was built with
+    /// <c>SkipFrontendBuild</c>, whose placeholder zip has no index.html to serve.
     /// </summary>
-    public static IStaticFileSource? TryOpenFrontend()
+    public static bool HasFrontend()
     {
         var assembly = typeof(ServerRegistration).Assembly;
-        var names = assembly.GetManifestResourceNames();
-        if (!names.Contains(FrontendResourceName))
-            return null;
+        if (!assembly.GetManifestResourceNames().Contains(FrontendResourceName))
+            return false;
 
         try
         {
-            var source = new ZipFileSource(assembly, FrontendResourceName, basePath: "");
-            return source.Paths.Any(p => p.EndsWith("index.html", StringComparison.OrdinalIgnoreCase))
-                ? source
-                : null;
+            using var stream = assembly.GetManifestResourceStream(FrontendResourceName)!;
+            using var zip = new System.IO.Compression.ZipArchive(stream);
+            return zip.Entries.Any(x => x.FullName.Equals("index.html", StringComparison.OrdinalIgnoreCase));
         }
         catch (InvalidDataException)
         {
-            return null;
+            return false;
         }
     }
 }
@@ -235,11 +282,13 @@ class FileServeServerFacade : IFileServeServer, IDisposable
 {
     readonly HttpServer server;
     readonly ISessionTracker sessions;
+    readonly WebAppHost? webApp;
 
-    public FileServeServerFacade(HttpServer server, ISessionTracker sessions)
+    public FileServeServerFacade(HttpServer server, ISessionTracker sessions, IServiceProvider services)
     {
         this.server = server;
         this.sessions = sessions;
+        this.webApp = services.GetService<WebAppHost>();
         this.server.StateChanged += this.OnStateChanged;
         this.sessions.Changed += this.OnSessionsChanged;
     }
@@ -259,7 +308,12 @@ class FileServeServerFacade : IFileServeServer, IDisposable
     public event EventHandler<HttpServerState>? StateChanged;
     public event EventHandler? SessionsChanged;
 
-    public Task Start(CancellationToken ct = default) => this.server.StartAsync(ct);
+    /// <summary>
+    /// Through the web app host when there is a frontend: it picks the build to serve - the embedded one, or a newer
+    /// download - before the listener opens, and runs the update check when one is configured.
+    /// </summary>
+    public Task Start(CancellationToken ct = default)
+        => this.webApp is { } host ? host.StartAsync(ct) : this.server.StartAsync(ct);
 
     public async Task Stop(CancellationToken ct = default)
     {
@@ -281,7 +335,7 @@ class FileServeServerFacade : IFileServeServer, IDisposable
         this.server.Options.Port = port;
 
         if (wasRunning)
-            await this.server.StartAsync(ct);
+            await this.Start(ct);
     }
 
     public void Dispose()

@@ -141,3 +141,31 @@ public class HostNameResolver(TimeProvider time) : IHostNameResolver
         return name;
     }
 }
+
+/// <summary>The names this machine answers to on a LAN, for the server's allowed hosts.</summary>
+public static class HostNames
+{
+    /// <summary>
+    /// The machine's own host name, with and without <c>.local</c>: macOS reports <c>name.local</c>, Windows and most
+    /// Linux distributions report a bare name that mDNS then publishes with the suffix. Empty when the platform will not say.
+    /// </summary>
+    public static IReadOnlyList<string> ForThisMachine()
+    {
+        string name;
+        try
+        {
+            name = Dns.GetHostName().Trim().TrimEnd('.');
+        }
+        catch (System.Net.Sockets.SocketException)
+        {
+            return [];
+        }
+
+        if (name.Length == 0)
+            return [];
+
+        const string mdns = ".local";
+        var bare = name.EndsWith(mdns, StringComparison.OrdinalIgnoreCase) ? name[..^mdns.Length] : name;
+        return bare.Length == 0 ? [] : [bare, bare + mdns];
+    }
+}
