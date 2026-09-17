@@ -24,8 +24,8 @@
 
   <!--
     The Blazor WebAssembly frontend is published, zipped, and embedded into this assembly as
-    "ShinyFileServe.Server.wwwroot.zip". At runtime a ZipFileSource reads straight out of the
-    resource, so a head only has to ship one file to serve the whole SPA.
+    "ShinyFileServe.Server.wwwroot.zip". At runtime the AppDeviceBridge web app host serves it straight
+    out of the resource as its baseline, so a head only has to ship one file to serve the whole SPA.
 
     ShinyFileServe.Web is deliberately NOT a ProjectReference - referencing a Blazor WASM app from a
     library drags its whole runtime in. It is built out-of-band and consumed purely as a zip.
@@ -69,7 +69,7 @@
           DependsOnTargets="_FrontendProps;_BuildFrontendZip"
           BeforeTargets="AssignTargetPaths">
     <!-- Placeholder so the assembly still compiles with -p:SkipFrontendBuild=true.
-         TryOpenFrontend() finds no index.html inside it and simply serves no SPA. -->
+         HasFrontend() finds no index.html inside it, so no web app host is registered. -->
     <MakeDir Directories="$(FrontendPlaceholderDir)" Condition="!Exists('$(FrontendZip)')" />
     <WriteLinesToFile File="$(FrontendPlaceholderDir)README.txt" Overwrite="true"
                       Lines="The Blazor frontend was not built into this assembly."
