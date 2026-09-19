@@ -6,15 +6,15 @@
   <ItemGroup>
     <!-- Shiny -->
     <PackageVersion Include="Shiny.Net.HttpServer" Version="1.2.1" />
-    <PackageVersion Include="Shiny.AppDeviceBridge" Version="1.0.0-beta.19" />
-    <PackageVersion Include="Shiny.AppDeviceBridge.WebView" Version="1.0.0-beta.19" />
-    <PackageVersion Include="Shiny.AppDeviceBridge.Tunnel" Version="1.0.0-beta.19" />
+    <PackageVersion Include="Shiny.AppDeviceBridge" Version="1.0.0-beta.33" />
+    <PackageVersion Include="Shiny.AppDeviceBridge.WebView" Version="1.0.0-beta.33" />
+    <PackageVersion Include="Shiny.AppDeviceBridge.Tunnel" Version="1.0.0-beta.33" />
     <PackageVersion Include="Shiny.DocumentDb" Version="13.4.0" />
     <PackageVersion Include="Shiny.DocumentDb.Sqlite" Version="13.4.0" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.7" />
-    <PackageVersion Include="Shiny.Blazor.Controls" Version="1.4.0" />
-    <PackageVersion Include="Shiny.Maui.Controls" Version="1.4.0" />
-    <PackageVersion Include="Shiny.Maui.Controls.Desktop" Version="1.4.0" />
+    <PackageVersion Include="Shiny.Blazor.Controls" Version="1.4.2" />
+    <PackageVersion Include="Shiny.Maui.Controls" Version="1.4.2" />
+    <PackageVersion Include="Shiny.Maui.Controls.Desktop" Version="1.4.2" />
     <PackageVersion Include="Shiny.Notifications" Version="5.6.4" />
     <PackageVersion Include="Shiny.Notifications.Linux" Version="5.6.4" />
     <PackageVersion Include="Shiny.Extensions.MauiHosting" Version="5.2.1" />

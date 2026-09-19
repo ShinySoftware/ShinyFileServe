@@ -137,39 +137,41 @@ public static class ServerRegistration
 
                 // After Configure, so the bridge server's guard and the web app's files come after the
                 // metering, authentication and password gate above - the order the pipeline is built in.
-                http.AddAppDeviceBridge(o =>
-                {
-                    o.AppId = AppId;
-                    o.DataDirectory = options.DataDirectory;
+                http.AddAppDeviceBridge(bridge => bridge
+                    .Configure(o =>
+                    {
+                        o.AppId = AppId;
+                        o.DataDirectory = options.DataDirectory;
 
-                    // A bind failure is the operator's to see, not something to paper over with a random port
-                    // nobody was told about.
-                    o.AllowPortFallback = false;
+                        // A bind failure is the operator's to see, not something to paper over with a random port
+                        // nobody was told about.
+                        o.AllowPortFallback = false;
 
-                    // The library lets any caller reach the bridges in a debug build, for a browser on a developer's desk.
-                    // This server is on the LAN by design, so a debug build keeps the same rules as a release one.
-                    o.AllowAnyCallerInDebug = false;
+                        // The library lets any caller reach the bridges in a debug build, for a browser on a developer's desk.
+                        // This server is on the LAN by design, so a debug build keeps the same rules as a release one.
+                        o.AllowAnyCallerInDebug = false;
 
-                    // No page here calls device bridges, so the built-in settings and files roots stay off and the
-                    // default policy - this device only - guards the few host routes that remain.
-                    o.EnableSettings = false;
-                    o.EnableFiles = false;
+                        // No page here calls device bridges, so the built-in settings and files roots stay off and the
+                        // default policy - this device only - guards the few host routes that remain.
+                        o.EnableSettings = false;
+                        o.EnableFiles = false;
 
-                    // People reach a LAN server by the machine's name as often as by its address. Anything else is
-                    // refused with a 421, which is what keeps a hostile site from rebinding its own name onto it.
-                    foreach (var name in HostNames.ForThisMachine())
-                        o.AllowedHosts.Add(name);
+                        // People reach a LAN server by the machine's name as often as by its address. Anything else is
+                        // refused with a 421, which is what keeps a hostile site from rebinding its own name onto it.
+                        foreach (var name in HostNames.ForThisMachine())
+                            o.AllowedHosts.Add(name);
 
-                    foreach (var name in options.AllowedHosts)
-                        o.AllowedHosts.Add(name);
-                });
+                        foreach (var name in options.AllowedHosts)
+                            o.AllowedHosts.Add(name);
+                    })
+                    .AddTunnel());
 
                 // The SPA shell itself is public - it only ever shows a login form until /api/auth/me
                 // answers. Everything with data behind it is [Authorize]d above. Left out entirely when the
                 // assembly was built with SkipFrontendBuild, so the API still runs without it.
                 if (HasFrontend())
                 {
-                    http.AddWebAppHost(o =>
+                    http.AddAppDeviceBridge(_ => { }, o =>
                     {
                         o.UseBaseline(typeof(ServerRegistration).Assembly, FrontendResourceName, options.FrontendVersion);
                         o.UpdateServer = options.FrontendUpdateServer;
@@ -182,8 +184,6 @@ public static class ServerRegistration
                         o.OnPrepareResponse = FrontendCachePolicy.Apply;
                     });
                 }
-
-                http.AddAppDeviceBridgeTunnel();
             },
             autoStart
         );
