@@ -1,39 +1,39 @@
 <Project>
-  <PropertyGroup>
-    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
-  </PropertyGroup>
-  <ItemGroup>
-    <!-- Shiny -->
-    <PackageVersion Include="Shiny.Net.HttpServer" Version="1.2.1" />
-    <PackageVersion Include="Shiny.AppDeviceBridge" Version="1.0.0-beta.33" />
-    <PackageVersion Include="Shiny.AppDeviceBridge.WebView" Version="1.0.0-beta.33" />
-    <PackageVersion Include="Shiny.AppDeviceBridge.Tunnel" Version="1.0.0-beta.33" />
-    <PackageVersion Include="Shiny.DocumentDb" Version="13.4.0" />
-    <PackageVersion Include="Shiny.DocumentDb.Sqlite" Version="13.4.0" />
-    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.7" />
-    <PackageVersion Include="Shiny.Blazor.Controls" Version="1.4.2" />
-    <PackageVersion Include="Shiny.Maui.Controls" Version="1.4.2" />
-    <PackageVersion Include="Shiny.Maui.Controls.Desktop" Version="1.4.2" />
-    <PackageVersion Include="Shiny.Notifications" Version="5.6.4" />
-    <PackageVersion Include="Shiny.Notifications.Linux" Version="5.6.4" />
-    <PackageVersion Include="Shiny.Extensions.MauiHosting" Version="5.2.1" />
+    <PropertyGroup>
+        <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+        <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
+    </PropertyGroup>
+    <ItemGroup>
+        <!-- Shiny -->
+        <PackageVersion Include="Shiny.Net.HttpServer" Version="2.0.1"/>
+        <PackageVersion Include="Shiny.AppDeviceBridge" Version="1.1.0"/>
+        <PackageVersion Include="Shiny.AppDeviceBridge.WebView" Version="1.1.0"/>
+        <PackageVersion Include="Shiny.AppDeviceBridge.Tunnel" Version="1.1.0"/>
+        <PackageVersion Include="Shiny.DocumentDb" Version="14.0.0"/>
+        <PackageVersion Include="Shiny.DocumentDb.Sqlite" Version="14.0.0"/>
+        <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.7"/>
+        <PackageVersion Include="Shiny.Blazor.Controls" Version="1.5.0"/>
+        <PackageVersion Include="Shiny.Maui.Controls" Version="1.5.0"/>
+        <PackageVersion Include="Shiny.Maui.Controls.Desktop" Version="1.5.0"/>
+        <PackageVersion Include="Shiny.Notifications" Version="5.8.0"/>
+        <PackageVersion Include="Shiny.Notifications.Linux" Version="5.8.0"/>
+        <PackageVersion Include="Shiny.Extensions.MauiHosting" Version="5.3.1"/>
 
-    <!-- Virus scanning: a client for a ClamAV daemon, Apache-2.0. clamd itself is GPL and stays a
-         separate process on the other side of a socket. -->
-    <PackageVersion Include="nClam" Version="9.0.0" />
+        <!-- Virus scanning: a client for a ClamAV daemon, Apache-2.0. clamd itself is GPL and stays a
+             separate process on the other side of a socket. -->
+        <PackageVersion Include="nClam" Version="9.0.0"/>
 
-    <!-- Microsoft -->
-    <PackageVersion Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.1" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Debug" Version="10.0.1" />
-    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.11" />
+        <!-- Microsoft -->
+        <PackageVersion Include="Microsoft.Maui.Controls" Version="$(MauiVersion)"/>
+        <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.1"/>
+        <PackageVersion Include="Microsoft.Extensions.Logging.Debug" Version="10.0.1"/>
+        <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.11"/>
+        <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.11"/>
 
-    <!-- maui-labs heads -->
-    <PackageVersion Include="Microsoft.Maui.Platforms.MacOS" Version="0.1.0-preview.12.26421.1" />
-    <PackageVersion Include="Microsoft.Maui.Platforms.MacOS.Essentials" Version="0.1.0-preview.12.26421.1" />
-    <PackageVersion Include="Microsoft.Maui.Platforms.Linux.Gtk4" Version="0.1.0-preview.12.26421.1" />
-    <PackageVersion Include="Microsoft.Maui.Platforms.Linux.Gtk4.Essentials" Version="0.1.0-preview.12.26421.1" />
-  </ItemGroup>
+        <!-- maui-labs heads -->
+        <PackageVersion Include="Microsoft.Maui.Platforms.MacOS" Version="0.1.0-preview.12.26421.1"/>
+        <PackageVersion Include="Microsoft.Maui.Platforms.MacOS.Essentials" Version="0.1.0-preview.12.26421.1"/>
+        <PackageVersion Include="Microsoft.Maui.Platforms.Linux.Gtk4" Version="0.1.0-preview.12.26421.1"/>
+        <PackageVersion Include="Microsoft.Maui.Platforms.Linux.Gtk4.Essentials" Version="0.1.0-preview.12.26421.1"/>
+    </ItemGroup>
 </Project>

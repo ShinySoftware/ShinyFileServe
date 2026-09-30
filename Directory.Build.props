@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <MauiVersion>10.0.101</MauiVersion>
+    <MauiVersion>10.0.110</MauiVersion>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
   </PropertyGroup>
