@@ -174,8 +174,8 @@ public static class ServerRegistration
                     http.AddAppDeviceBridge(_ => { }, o =>
                     {
                         o.UseBaseline(typeof(ServerRegistration).Assembly, FrontendResourceName, options.FrontendVersion);
-                        o.UpdateServer = options.FrontendUpdateServer;
-                        o.PublicKey = options.FrontendPublicKey;
+                        if (options.FrontendUpdateServer is { } updateServer)
+                            o.UpdateProvider = new ReleaseServerUpdateProvider(updateServer, options.FrontendPublicKey!);
 
                         // Remote users are the point of the app, and so is a browser on the machine itself: the
                         // portal has no launch session to hand either of them, and needs none.
