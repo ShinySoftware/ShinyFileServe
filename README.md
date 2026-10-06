@@ -3,7 +3,8 @@
 A self-hosted file server for a team. It runs as a desktop app on **macOS (AppKit)**, **Linux
 (GTK4)** and **Windows**, keeps to the system tray, and serves a browser UI so nobody has to
 install a client. Folders are published to groups with explicit permissions and metered quotas,
-and every action is written to an audit log.
+and every action is written to an audit log. The same server can also host a private **NuGet feed**
+and **npm registry**, authenticated with personal access tokens and governed by the same groups.
 
 The desktop app has **no screens of its own** — it is a window onto its own server, and everything
 an operator does happens in the portal. Building the same forms twice would have meant two of
@@ -13,7 +14,8 @@ everything to keep in step and one of them quietly falling behind.
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Desktop app (.NET MAUI)          tray icon · console window        │
 │  ├── Shiny.Net.HttpServer  ───────  HTTP on every interface, :8080  │
-│  │     ├── AppDeviceBridge ───────  frontend host: embedded zip or │
+│  │     ├── .NuGet / .Npm   ───────  /nuget feed, /npm registry      │
+│  │     ├── AppDeviceBridge ───────  frontend host: embedded zip or  │
 │  │     │                            a signed update, served by it   │
 │  ├── Shiny.DocumentDb      ───────  one SQLite file: users, roles,  │
 │  │                                  shares, grants, quotas, log,    │
@@ -31,7 +33,7 @@ everything to keep in step and one of them quietly falling behind.
 | --- | --- | --- |
 | `src/ShinyFileServe.Shared` | `net10.0` | DTOs that cross the wire |
 | `src/ShinyFileServe.Core` | `net10.0` | Documents and domain services on Shiny.DocumentDb + SQLite |
-| `src/ShinyFileServe.Server` | `net10.0` | Shiny.Net.HttpServer endpoints, cookie auth; the SPA host and tunnel from Shiny.AppDeviceBridge |
+| `src/ShinyFileServe.Server` | `net10.0` | Shiny.Net.HttpServer endpoints, cookie auth, the NuGet feed and npm registry; the SPA host and tunnel from Shiny.AppDeviceBridge |
 | `src/ShinyFileServe.Web` | `net10.0` | Blazor WebAssembly frontend (Shiny.Blazor.Controls) |
 | `src/ShinyFileServe.App` | `net10.0` | The MAUI shell: a WebView, the tray icon, server control |
 | `heads/ShinyFileServe.MacOS` | `net10.0-macos` | AppKit head — `dotnet/maui-labs` |
@@ -40,6 +42,30 @@ everything to keep in step and one of them quietly falling behind.
 
 `ShinyFileServe.App` targets plain `net10.0` on purpose: there is no official `-linux` TFM, so the
 GTK4 head is itself a `net10.0` project and the shared UI has to be something it can reference.
+
+## Libraries
+
+Versions are pinned centrally in `Directory.Packages.props`.
+
+| Package | Used for |
+| --- | --- |
+| `Shiny.Net.HttpServer` | The HTTP server, routing, middleware, cookie auth |
+| `Shiny.Net.HttpServer.NuGet` | The NuGet v3 feed at `/nuget` |
+| `Shiny.Net.HttpServer.Npm` | The npm registry at `/npm` |
+| `Shiny.AppDeviceBridge` (+ `.WebView`, `.Tunnel`) | Serving and updating the embedded frontend; the public tunnel |
+| `Shiny.DocumentDb` + `Shiny.DocumentDb.Sqlite` | The document store over one SQLite file |
+| `Shiny.Blazor.Controls` | Portal UI — `DataGrid`, password strength meter and the rest |
+| `Shiny.Maui.Controls` (+ `.Desktop`) | Desktop shell controls |
+| `Shiny.Notifications` (+ `.Linux`) | Desktop notifications per activity |
+| `Shiny.Extensions.MauiHosting` | Start at login (`IStartupService`) |
+| `nClam` | Talking to a ClamAV daemon |
+| `Microsoft.Maui.Platforms.MacOS` / `.Linux.Gtk4` | The AppKit and GTK4 heads, from `dotnet/maui-labs` |
+
+> [!IMPORTANT]
+> `Shiny.Net.HttpServer` 2.1 — the release that adds the NuGet feed and npm registry — is not on
+> nuget.org yet. `nuget.config` reads it from `../httpserver/artifacts/local-feed`, so clone the
+> httpserver repo beside this one and run `dotnet pack -o artifacts/local-feed` in it before the
+> first restore. Remove that source once 2.1 is published.
 
 ## Building and running
 
@@ -421,17 +447,96 @@ the explanation as a warning, rather than leaving a saved setting that was never
 > tray is a separate change — MAUI creates a window at launch on every head, and this codebase
 > deliberately has no programmatic `Hide` (see **Two things the macOS backend does not do for you**).
 
+## Package feeds
+
+The server can host a **NuGet feed** at `/nuget` and an **npm registry** at `/npm`, served by
+`Shiny.Net.HttpServer.NuGet` and `Shiny.Net.HttpServer.Npm`. Both are off until an administrator
+switches them on in Settings, and a feed that is off answers 404 exactly like a route that was never
+mapped. Both are always mapped, so switching one on takes effect on the next request — no restart.
+
+```bash
+dotnet nuget add source http://server:8080/nuget/v3/index.json -n fileserve -u me -p sfs_…
+dotnet nuget push My.Package.1.0.0.nupkg -s fileserve -k sfs_…
+
+npm config set registry http://server:8080/npm/
+npm login --auth-type=legacy        # your FileServe password in, a token out
+npm publish
+```
+
+Neither library authenticates anybody. `PackageGateMiddleware` runs in front of both, turns a token
+into an account and an account into package permissions, and lets through only what those allow.
+**The portal's cookie and the loopback sign-in count for nothing here** — a package client never has
+either, and letting a browser session or a local process inherit the machine owner's rights would
+make "who pushed this" unanswerable.
+
+| Permission | Feed | Allows |
+| --- | --- | --- |
+| Restore | NuGet | Restore and search |
+| Push | NuGet | `dotnet nuget push` a new version |
+| Unlist | NuGet | `dotnet nuget delete` — unlist (or delete, per settings) and relist |
+| Install | npm | Install and search |
+| Publish | npm | Publish, deprecate, dist-tag and manage owners of packages you maintain |
+
+Like folder rights, these are granted to a **group** and folded across every group a person is in.
+An account can then override each feed on its own — *From groups*, *No access*, *Read*, or *Read &
+write* — in either direction, so one person can be held to reads in a group that publishes. An
+administrator holds everything; an anonymous account holds nothing.
+
+Requests with **no token** get the anonymous set from Settings, which is **reads only** — the save
+path strips anything else, because a package nobody can be held to account for is how a supply chain
+gets poisoned. npm has no separate unpublish permission (npm removes a version with the same request
+that deprecates one), so unpublishing is a server setting instead.
+
+| Setting | Default |
+| --- | --- |
+| NuGet / npm enabled | Off |
+| Anonymous reads | None |
+| `dotnet nuget delete` deletes permanently | Off — it unlists, as nuget.org does |
+| npm allows unpublish | On |
+| Fall through to registry.npmjs.org for anything not published here | Off |
+
+Packages live as plain folder layouts under `packages/nuget` and `packages/npm` beside the database,
+so they can be copied, seeded or backed up by hand.
+
+### Access tokens
+
+Anyone can create **personal access tokens** from Profile — a name and an optional expiry — and
+revoke their own. The secret (`sfs_…`) is shown once; only its SHA-256 hash is stored, with the last
+four characters kept as a hint. The prefix makes a leaked token recognisable to a secret scanner.
+`npm login --auth-type=legacy` mints one from the account's password, through the same sign-in as the
+portal, so a wrong password counts toward the lockout.
+
+The account behind a token is checked on **every request**: expiring, locking, deleting or making an
+account anonymous stops its tokens immediately rather than when they run out. Anonymous accounts
+cannot hold tokens at all. A token is accepted from wherever a client puts one — `X-NuGet-ApiKey`,
+the password half of Basic (`nuget.config` credentials, npm's `_auth`), or Bearer (npm's
+`_authToken`).
+
+### Package traffic
+
+The **Packages** screen lists every feed request — who, which token, which package and version, the
+operation (metadata, search, download, publish, remove, account), status, bytes and duration —
+filterable by account, token, feed, operation, package, date and refusals only. It also lists every
+token on the server, and an administrator can revoke any of them from there. A rejected token is
+logged as such rather than as nobody.
+
+Rows are buffered and written in batches every five seconds — a restore is dozens of requests a
+second — and kept for 90 days by default (`FileServeOptions.PackageTrafficRetention`). Pushes,
+publishes, unlists and unpublishes also go to the activity log.
+
 ## Notifications
 
-Desktop notifications for whichever activities you pick — sign-ins, refusals, transfers, deletions.
+Desktop notifications for whichever activities you pick — sign-ins, refusals, transfers, deletions,
+package publishes and removals.
 `Shiny.Notifications` registers per head (`AddNotifications()` only exists on the platform builds);
 where no manager is registered the tray icon's own balloon is used instead.
 
 ## Backup and restore
 
 The whole database in one file — accounts, groups, shares, quota counters, bandwidth history,
-settings and the activity log. Not the files themselves; those stay on disk where they are, and a share whose folder
-has since moved simply points nowhere until an administrator repoints it.
+settings, access tokens and the activity log. Not the files themselves, and not the packages in the NuGet
+feed or npm registry; those stay on disk where they are, and a share whose folder has since moved simply
+points nowhere until an administrator repoints it.
 
 **Download a backup** streams a consistent copy taken through SQLite's online backup API, so it can
 be taken while the server is serving. **Choose a backup to restore** uploads a candidate and reads
@@ -472,6 +577,9 @@ runtime surprise on a trimmed head.
 | `GET /api/admin/live` (sessions, transfers and the current rate), `POST /api/admin/users/{id}/unlock` | administrators |
 | `GET /api/admin/bandwidth` (filter by user and date window, by day or hour) | administrators |
 | `GET /api/admin/backup`, `POST /stage`, `POST /restore`, `DELETE /stage` | administrators |
+| `GET /api/account/tokens`, `POST /api/account/tokens`, `DELETE /api/account/tokens/{id}` | anyone signed in, their own tokens only |
+| `GET /api/admin/packages/tokens`, `DELETE /tokens/{id}`, `GET /traffic` | administrators |
+| `/nuget/…`, `/npm/…` | per access token and package permission — see **Package feeds** |
 
 Password rules travel on `GET /api/auth/policy` so the setup and account screens can render the
 meter before anyone has signed in.
@@ -482,9 +590,10 @@ meter before anyone has signed in.
 dotnet publish heads/ShinyFileServe.MacOS -c Release -f net10.0-macos -p:CreatePackage=false
 ```
 
-Produces a universal (`x86_64` + `arm64`) `FileServe.app` under
-`bin/Release/net10.0-macos/`, ad-hoc signed, around 264 MB. Drop `-p:CreatePackage=false` to get a
-`.pkg` installer instead. Add `-r osx-arm64` to halve the size at the cost of Intel Macs.
+Produces an Apple-silicon `FileServe.app` under `bin/Release/net10.0-macos/osx-arm64/`, ad-hoc
+signed. The head sets `RuntimeIdentifier` to `osx-arm64` so every publish agrees — a universal build
+would AOT every assembly twice for an Intel build nobody runs. Publish without `-o`, which splits the
+bundle. Drop `-p:CreatePackage=false` to get a `.pkg` installer instead.
 
 Release builds run the IL trimmer, so **test the published app rather than only the Debug one** —
 nothing here depends on runtime reflection (JSON is source-generated end to end, DocumentDb runs
@@ -505,7 +614,8 @@ Both are handled in `heads/ShinyFileServe.MacOS`, and both fail silently rather 
 
 ## Where data lives
 
-One SQLite file plus a cookie-signing key, under the platform's application-data directory
+One SQLite file plus a cookie-signing key — and a `packages` folder once a feed has been used — under
+the platform's application-data directory
 (`~/Library/Application Support/ShinyFileServe` on macOS, `~/.config/ShinyFileServe` on Linux,
 `%AppData%\ShinyFileServe` on Windows). Settings live in that database rather than beside it,
 because the browser edits the same values and a second copy on disk would be a second source of
@@ -520,6 +630,8 @@ truth.
   Anything else gets `421`, which stops a hostile site from rebinding its own name onto the server. A tunneled request
   claiming a loopback name is refused too.
 - Passwords are PBKDF2-SHA256 at 210,000 iterations.
+- Access tokens are 256 random bits, stored only as a SHA-256 hash. The package feeds accept a token
+  and nothing else; anonymous feed access can never include a write.
 - Path traversal is refused at the one function every file operation goes through, before the
   filesystem is touched: `.` and `..` segments are rejected outright, and the canonicalised result
   is checked against the share root to catch symlinks.
