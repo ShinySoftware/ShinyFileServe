@@ -197,7 +197,8 @@ public class AdminUsersEndpoints(
         return new OkObjectResult(roles
             .Select(r => new RoleInfo(
                 r.Id, r.Name, r.Description, r.IsAdmin, r.IsProtected,
-                all.Count(u => u.RoleIds.Contains(r.Id))
+                all.Count(u => u.RoleIds.Contains(r.Id)),
+                r.PackagePermissions
             ))
             .ToList()
         );
@@ -238,6 +239,11 @@ public class AdminUsersEndpoints(
         role.Name = request.Name.Trim();
         role.Description = String.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
         role.IsAdmin = request.IsAdmin;
+
+        // Null leaves them alone, so a caller that only flips the admin switch cannot wipe them.
+        if (request.Packages is { } packages)
+            role.PackagePermissions = packages & PackagePermissionsExtensions.All;
+
         await users.SaveRole(role, ct);
 
         await this.Log(ctx, $"Saved the group '{role.Name}'", ct);
@@ -245,7 +251,8 @@ public class AdminUsersEndpoints(
         var members = await users.GetUsers(ct);
         return new OkObjectResult(new RoleInfo(
             role.Id, role.Name, role.Description, role.IsAdmin, role.IsProtected,
-            members.Count(u => u.RoleIds.Contains(role.Id))
+            members.Count(u => u.RoleIds.Contains(role.Id)),
+            role.PackagePermissions
         ));
     }
 

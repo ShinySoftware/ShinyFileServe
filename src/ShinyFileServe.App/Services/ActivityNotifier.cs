@@ -89,6 +89,8 @@ public class ActivityNotifier(
         ActivityAction.Delete => "File deleted",
         ActivityAction.CreateDirectory => "Folder created",
         ActivityAction.Denied => "Action refused",
+        ActivityAction.PackagePublish => "Package published",
+        ActivityAction.PackageRemove => "Package removed",
         _ => "FileServe"
     };
 

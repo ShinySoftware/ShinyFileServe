@@ -99,6 +99,37 @@
                                     <span> · @description</span>
                                 }
                             </span>
+
+                            @* Package rights sit with the group, like share grants, rather than on
+                               the account - so a team is given the feed once. *@
+                            <div class="row__perms">
+                                @if (role.IsAdmin)
+                                {
+                                    <span class="row__perms-note">Every package right, as administrators</span>
+                                }
+                                else
+                                {
+                                    <span class="row__perms-label">NuGet</span>
+                                    @foreach (var flag in PackagePermissionsExtensions.NuGetFlags)
+                                    {
+                                        <label class="row__toggle">
+                                            <input type="checkbox" checked="@role.Packages.Has(flag)"
+                                                   @onchange="e => this.SetRolePackage(role, flag, (bool?)e.Value == true)" />
+                                            @flag.ToDisplay()
+                                        </label>
+                                    }
+
+                                    <span class="row__perms-label">npm</span>
+                                    @foreach (var flag in PackagePermissionsExtensions.NpmFlags)
+                                    {
+                                        <label class="row__toggle">
+                                            <input type="checkbox" checked="@role.Packages.Has(flag)"
+                                                   @onchange="e => this.SetRolePackage(role, flag, (bool?)e.Value == true)" />
+                                            @flag.ToDisplay()
+                                        </label>
+                                    }
+                                }
+                            </div>
                         </div>
 
                         <label class="row__toggle" title="Administrators reach every share, the log and the settings">
@@ -621,6 +652,32 @@
         try
         {
             await this.Admin.SaveRole(new SaveRoleRequest(role.Id, role.Name, role.Description, isAdmin));
+            await this.Reload();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    async Task SetRolePackage(RoleInfo role, PackagePermissions flag, bool granted)
+    {
+        // Publishing to a feed you cannot read from is a state nobody means, so the reads follow
+        // the writes on and the writes follow the reads off.
+        var packages = granted ? role.Packages | flag : role.Packages & ~flag;
+
+        if (granted && flag is PackagePermissions.NuGetPush or PackagePermissions.NuGetDelete)
+            packages |= PackagePermissions.NuGetRead;
+        else if (granted && flag is PackagePermissions.NpmPublish)
+            packages |= PackagePermissions.NpmRead;
+        else if (!granted && flag is PackagePermissions.NuGetRead)
+            packages &= ~PackagePermissionsExtensions.NuGet;
+        else if (!granted && flag is PackagePermissions.NpmRead)
+            packages &= ~PackagePermissionsExtensions.Npm;
+
+        try
+        {
+            await this.Admin.SaveRole(new SaveRoleRequest(role.Id, role.Name, role.Description, role.IsAdmin, packages));
             await this.Reload();
         }
         catch (ApiException ex)

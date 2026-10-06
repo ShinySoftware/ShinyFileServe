@@ -46,6 +46,7 @@ public static class MauiProgram
 
                 // Frontend updates, when a release server is configured, live beside the database.
                 o.DataDirectory = AppPaths.WebAppDirectory;
+                o.PackagesDirectory = AppPaths.PackagesDirectory;
             },
             // The operator owns the switch, from the window or the tray. Auto-start is honoured
             // after startup rather than during registration, so a bind failure is visible.

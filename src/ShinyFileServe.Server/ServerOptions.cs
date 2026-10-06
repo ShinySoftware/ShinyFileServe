@@ -51,6 +51,12 @@ public class FileServeServerOptions
     /// <summary>The ECDSA P-256 public key frontend releases are signed with. Compiled in, never read from settings.</summary>
     public string? FrontendPublicKey { get; set; }
 
+    /// <summary>
+    /// Where the NuGet feed and npm registry keep their packages - <c>nuget</c> and <c>npm</c> folders
+    /// underneath. Both are plain folder layouts that can be copied, seeded or backed up by hand.
+    /// </summary>
+    public string PackagesDirectory { get; set; } = "packages";
+
     /// <summary>Development only. Leaves stack traces in 500 responses.</summary>
     public bool ShowExceptionDetails { get; set; }
 }

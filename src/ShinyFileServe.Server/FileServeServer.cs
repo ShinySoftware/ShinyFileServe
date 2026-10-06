@@ -11,6 +11,7 @@ using Shiny.AppDeviceBridge.WebView;
 using Shiny.Net.HttpServer;
 using Shiny.Net.HttpServer.Security;
 using ShinyFileServe.Server.Endpoints;
+using ShinyFileServe.Server.PackageFeeds;
 using ShinyFileServe.Server.Security;
 using ShinyFileServe.Server.Transfers;
 
@@ -52,6 +53,8 @@ public static class ServerRegistration
             sp.GetRequiredService<ILogger<BandwidthTracker>>()
         ));
         services.TryAddSingleton<BandwidthMeteringMiddleware>();
+        services.TryAddSingleton(sp => new PackageFeedHost(options.PackagesDirectory, sp));
+        services.TryAddSingleton<PackageGateMiddleware>();
 
         // A singleton because the cache is the whole point of it - one per request would ask the
         // network the same question on every page of the log.
@@ -119,6 +122,11 @@ public static class ServerRegistration
                     // endpoint remembering to ask.
                     server.Use<PasswordChangeGateMiddleware>();
 
+                    // The feeds' own authentication: a token, or anonymous. After the loopback and
+                    // session middleware so whatever identity they settled on is replaced rather than
+                    // inherited, and before authorization so the account it names is the one checked.
+                    server.Use<PackageGateMiddleware>();
+
                     server.UseAuthorization();
 
                     server.MapAuthEndpoints();
@@ -133,6 +141,7 @@ public static class ServerRegistration
                     server.MapFolderEndpoints();
                     server.MapFileEndpoints();
                     server.MapActivityEndpoints();
+                    server.MapPackageFeeds();
                 });
 
                 // After Configure, so the bridge server's guard and the web app's files come after the

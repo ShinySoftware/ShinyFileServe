@@ -32,8 +32,11 @@ public class LoopbackSignInMiddleware(ILoopbackIdentity identity) : IHttpMiddlew
         {
             // Signing out on loopback is meaningless - the next request signs straight back in -
             // so the one route that would fight this is left alone.
+            // The package feeds go by token alone - a local restore is somebody's build, not the
+            // machine's owner - so they are left out too, and handed no cookie.
             var path = context.Request.Path;
-            if (!path.EndsWith("/api/auth/logout", StringComparison.OrdinalIgnoreCase))
+            if (!path.EndsWith("/api/auth/logout", StringComparison.OrdinalIgnoreCase)
+                && PackageFeeds.PackageFeedHost.Classify(path) == PackageFeeds.PackageFeed.None)
             {
                 if (await identity.Resolve(context.RequestAborted) is { } principal)
                 {

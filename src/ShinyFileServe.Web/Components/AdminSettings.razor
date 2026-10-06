@@ -247,6 +247,68 @@ else
         </section>
 
         <section class="admin__block">
+            <h3>Package feeds</h3>
+            <span class="admin__hint">
+                A private NuGet feed and npm registry, served from this machine. Who may push or
+                publish is set per group on the People screen; people sign their tools in with an
+                access token from their own account.
+            </span>
+
+            <label class="field--check">
+                <input type="checkbox" @bind="this.nugetEnabled" />
+                Serve a NuGet feed at <span class="num">/nuget/v3/index.json</span>
+            </label>
+
+            @if (this.nugetEnabled)
+            {
+                <div class="admin__checks">
+                    <label class="field--check">
+                        <input type="checkbox" @bind="this.anonymousNuGet" /> Anyone may restore without a token
+                    </label>
+                    <label class="field--check">
+                        <input type="checkbox" @bind="this.nugetPermanentDelete" /> Delete removes a version for good
+                    </label>
+                </div>
+                <span class="admin__hint">
+                    Off, <span class="num">dotnet nuget delete</span> unlists a version the way nuget.org
+                    does: hidden from search, still restorable by anything that already pins it.
+                </span>
+            }
+
+            <label class="field--check">
+                <input type="checkbox" @bind="this.npmEnabled" />
+                Serve an npm registry at <span class="num">/npm/</span>
+            </label>
+
+            @if (this.npmEnabled)
+            {
+                <div class="admin__checks">
+                    <label class="field--check">
+                        <input type="checkbox" @bind="this.anonymousNpm" /> Anyone may install without a token
+                    </label>
+                    <label class="field--check">
+                        <input type="checkbox" @bind="this.npmUseUpstream" /> Fall through to registry.npmjs.org
+                    </label>
+                    <label class="field--check">
+                        <input type="checkbox" @bind="this.npmAllowUnpublish" /> Allow npm unpublish
+                    </label>
+                </div>
+                <span class="admin__hint">
+                    With the fall-through on, one registry address serves both your packages and public
+                    ones. Unpublishing only ever touches packages the person maintains.
+                </span>
+            }
+
+            @if ((this.nugetEnabled && this.anonymousNuGet) || (this.npmEnabled && this.anonymousNpm))
+            {
+                <span class="admin__hint">
+                    Anonymous access is read-only. With the tunnel open, that means anybody on the
+                    internet who finds the address.
+                </span>
+            }
+        </section>
+
+        <section class="admin__block">
             <h3>Notifications</h3>
 
             <label class="field--check">
@@ -311,6 +373,13 @@ else
     int idleLogoffMinutes;
     bool notificationsEnabled;
     HashSet<ActivityAction> notifyOn = [];
+    bool nugetEnabled;
+    bool npmEnabled;
+    bool anonymousNuGet;
+    bool anonymousNpm;
+    bool npmUseUpstream;
+    bool npmAllowUnpublish = true;
+    bool nugetPermanentDelete;
     bool busy;
 
     protected override Task OnInitializedAsync() => this.Refresh();
@@ -357,6 +426,18 @@ else
             this.idleLogoffMinutes = this.status.Config.IdleLogoffMinutes;
             this.notificationsEnabled = this.status.Config.NotificationsEnabled;
             this.notifyOn = [.. this.status.Config.NotifyOn];
+
+            if (this.status.Config.Packages is { } packages)
+            {
+                this.nugetEnabled = packages.NuGetEnabled;
+                this.npmEnabled = packages.NpmEnabled;
+                this.anonymousNuGet = packages.Anonymous.Has(PackagePermissions.NuGetRead);
+                this.anonymousNpm = packages.Anonymous.Has(PackagePermissions.NpmRead);
+                this.npmUseUpstream = packages.NpmUseUpstream;
+                this.npmAllowUnpublish = packages.NpmAllowUnpublish;
+                this.nugetPermanentDelete = packages.NuGetPermanentDelete;
+            }
+
             this.token = "";
         }
         catch (ApiException ex)
@@ -497,7 +578,16 @@ else
             this.passwordMaxAgeDays
         ),
         this.maxFailedSignIns,
-        this.runAtStartup
+        this.runAtStartup,
+        new PackageFeedConfig(
+            this.nugetEnabled,
+            this.npmEnabled,
+            (this.anonymousNuGet ? PackagePermissions.NuGetRead : PackagePermissions.None)
+                | (this.anonymousNpm ? PackagePermissions.NpmRead : PackagePermissions.None),
+            this.npmUseUpstream,
+            this.npmAllowUnpublish,
+            this.nugetPermanentDelete
+        )
     );
 
     Task Save() => this.Run(async () =>

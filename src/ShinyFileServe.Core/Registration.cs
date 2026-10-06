@@ -44,6 +44,7 @@ public static class Registration
         services.AddSingleton<IDocumentStore>(sp => sp.GetRequiredService<SqliteDocumentStore>());
 
         services.AddSingleton<IUserManager, UserManager>();
+        services.AddSingleton<IAccessTokenManager, AccessTokenManager>();
         services.AddSingleton<IFolderManager, FolderManager>();
         services.AddSingleton<IQuotaTracker, QuotaTracker>();
         services.AddSingleton<IAccessResolver, AccessResolver>();

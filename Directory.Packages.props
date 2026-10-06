@@ -5,7 +5,11 @@
     </PropertyGroup>
     <ItemGroup>
         <!-- Shiny -->
-        <PackageVersion Include="Shiny.Net.HttpServer" Version="2.0.1"/>
+        <!-- 2.1 is where the NuGet feed and npm registry arrive. Until it is on nuget.org it comes from
+             the httpserver repo's artifacts/local-feed - see nuget.config. -->
+        <PackageVersion Include="Shiny.Net.HttpServer" Version="2.1.0-beta.2.g65d554ce8c"/>
+        <PackageVersion Include="Shiny.Net.HttpServer.NuGet" Version="2.1.0-beta.2.g65d554ce8c"/>
+        <PackageVersion Include="Shiny.Net.HttpServer.Npm" Version="2.1.0-beta.2.g65d554ce8c"/>
         <PackageVersion Include="Shiny.AppDeviceBridge" Version="1.1.0"/>
         <PackageVersion Include="Shiny.AppDeviceBridge.WebView" Version="1.1.0"/>
         <PackageVersion Include="Shiny.AppDeviceBridge.Tunnel" Version="1.1.0"/>

@@ -131,7 +131,78 @@ public record AccountProfile(
     /// about the person, not about where they happen to be standing.
     /// </summary>
     QuotaState? AccountDownload = null,
-    QuotaState? AccountUpload = null
+    QuotaState? AccountUpload = null,
+
+    /// <summary>What this account may do with the package feeds, and whether they are switched on.</summary>
+    PackageAccessInfo? Packages = null
+);
+
+// ---------------------------------------------------------------------------
+// Package feeds
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// The feeds as one account sees them. The paths are relative to the server - the browser knows
+/// which address it reached the server by, and that is the one to hand out.
+/// </summary>
+public record PackageAccessInfo(
+    bool NuGetEnabled,
+    bool NpmEnabled,
+
+    /// <summary>What this account may do, folded across its groups.</summary>
+    PackagePermissions Permissions,
+
+    /// <summary>What anybody may do with no token at all.</summary>
+    PackagePermissions Anonymous,
+
+    /// <summary>Whether this account may hold tokens. An account anybody can sign in as may not.</summary>
+    bool CanCreateTokens
+)
+{
+    public const string NuGetPath = "nuget/v3/index.json";
+    public const string NpmPath = "npm/";
+}
+
+/// <summary>
+/// A personal access token, as its owner sees it after the fact. The secret itself is shown once,
+/// in <see cref="CreatedAccessToken"/>, and never again - the server keeps only a hash.
+/// </summary>
+public record AccessTokenInfo(
+    string Id,
+    string Name,
+
+    /// <summary>The last few characters, so a person can tell which token is in which config file.</summary>
+    string Hint,
+    DateTimeOffset CreatedUtc,
+    DateTimeOffset? LastUsedUtc,
+    DateTimeOffset? ExpiresUtc
+);
+
+/// <summary>A new token. <see cref="ExpiresInDays"/> null or 0 never expires it.</summary>
+public record CreateAccessTokenRequest(string Name, int? ExpiresInDays = null);
+
+/// <summary>The one response that carries a token's secret.</summary>
+public record CreatedAccessToken(AccessTokenInfo Token, string Secret);
+
+/// <summary>How the feeds are run. Part of the settings screen.</summary>
+public record PackageFeedConfig(
+    bool NuGetEnabled,
+    bool NpmEnabled,
+
+    /// <summary>What a request with no token may do. Only <see cref="PackagePermissionsExtensions.Reads"/> are accepted.</summary>
+    PackagePermissions Anonymous,
+
+    /// <summary>
+    /// Answer from registry.npmjs.org for anything not published here, so one registry address
+    /// serves both. Packages published here always win over a public one of the same name.
+    /// </summary>
+    bool NpmUseUpstream,
+
+    /// <summary>Allow <c>npm unpublish</c> on packages the caller maintains.</summary>
+    bool NpmAllowUnpublish,
+
+    /// <summary>Make <c>dotnet nuget delete</c> remove a version for good, rather than unlist it.</summary>
+    bool NuGetPermanentDelete
 );
 
 /// <summary>Creates the first administrator. Only accepted while <c>NeedsSetup</c> is true.</summary>
@@ -281,7 +352,13 @@ public enum ActivityAction
     Upload,
     Delete,
     CreateDirectory,
-    Denied
+    Denied,
+
+    /// <summary>A NuGet push, or an npm publish or package update.</summary>
+    PackagePublish,
+
+    /// <summary>A NuGet unlist, relist or delete, or an npm unpublish.</summary>
+    PackageRemove
 }
 
 public record ActivityEntryInfo(
@@ -453,7 +530,9 @@ public record ServerConfig(
     /// <see cref="RunAtStartupState.Enabled"/> means it will not start, and each of the other
     /// answers is a different thing for the operator to do about it.
     /// </summary>
-    RunAtStartupState RunAtStartup = RunAtStartupState.NotSupported
+    RunAtStartupState RunAtStartup = RunAtStartupState.NotSupported,
+
+    PackageFeedConfig? Packages = null
 );
 
 /// <summary>
@@ -488,7 +567,10 @@ public record UpdateServerConfig(
     /// because it is the one setting on this record that is not stored with the others - a caller
     /// that predates it, or one that has no opinion, must not switch it off by omission.
     /// </summary>
-    bool? RunAtStartup = null
+    bool? RunAtStartup = null,
+
+    /// <summary>Null leaves the feed settings alone.</summary>
+    PackageFeedConfig? Packages = null
 );
 
 public static class ActivityActions
@@ -503,7 +585,9 @@ public static class ActivityActions
         ActivityAction.Upload,
         ActivityAction.Delete,
         ActivityAction.CreateDirectory,
-        ActivityAction.Denied
+        ActivityAction.Denied,
+        ActivityAction.PackagePublish,
+        ActivityAction.PackageRemove
     ];
 
     public static string ToDisplay(this ActivityAction action) => action switch
@@ -517,6 +601,8 @@ public static class ActivityActions
         ActivityAction.Delete => "A file is deleted",
         ActivityAction.CreateDirectory => "A folder is created",
         ActivityAction.Denied => "An action is refused",
+        ActivityAction.PackagePublish => "A package is published",
+        ActivityAction.PackageRemove => "A package is unlisted or removed",
         _ => action.ToString()
     };
 }
@@ -632,10 +718,12 @@ public record RoleInfo(
     string? Description,
     bool IsAdmin,
     bool IsProtected,
-    int MemberCount
+    int MemberCount,
+    PackagePermissions Packages = PackagePermissions.None
 );
 
-public record SaveRoleRequest(string? Id, string Name, string? Description, bool IsAdmin);
+/// <summary><see cref="Packages"/> null leaves the group's package rights as they are.</summary>
+public record SaveRoleRequest(string? Id, string Name, string? Description, bool IsAdmin, PackagePermissions? Packages = null);
 
 public record GrantInfo(
     string RoleId,

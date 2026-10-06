@@ -23,6 +23,8 @@ public class AccountEndpoints(
     ICurrentUserResolver current,
     IActivityLogger activity,
     IQuotaTracker quotas,
+    IAccessTokenManager tokens,
+    ISettingsManager settings,
     TimeProvider time
 )
 {
@@ -52,9 +54,101 @@ public class AccountEndpoints(
             // Null rather than an unlimited meter: most accounts have no ceiling of their own, and a
             // pair of empty bars on every profile would be two answers to a question nobody asked.
             await this.AccountQuota(user, download: true, ct),
-            await this.AccountQuota(user, download: false, ct)
+            await this.AccountQuota(user, download: false, ct),
+            this.PackageAccess(user, roles)
         ));
     }
+
+    PackageAccessInfo PackageAccess(Core.Documents.User user, IReadOnlyList<Core.Documents.Role> roles)
+    {
+        var feeds = settings.Current.PackageFeeds;
+        return new PackageAccessInfo(
+            feeds.NuGetEnabled,
+            feeds.NpmEnabled,
+            user.PackagePermissions(roles),
+            feeds.Anonymous & PackagePermissionsExtensions.Reads,
+            !user.IsAnonymous
+        );
+    }
+
+    // -- access tokens ------------------------------------------------------
+
+    /// <summary>The caller's own tokens. Never the secrets - those were shown once, when made.</summary>
+    [Get("/tokens")]
+    [Produces(200, typeof(IReadOnlyList<AccessTokenInfo>))]
+    [Produces(401)]
+    public async Task<IActionResult> Tokens(HttpContext ctx, CancellationToken ct)
+    {
+        var user = await current.Resolve(ctx, ct);
+        if (user is null)
+            return new UnauthorizedResult();
+
+        return new OkObjectResult((await tokens.GetTokens(user.Id, ct)).Select(ToInfo).ToList());
+    }
+
+    /// <summary>
+    /// Issues a token for <c>nuget.config</c> or <c>.npmrc</c>. The only response that ever carries
+    /// the secret; the server keeps a hash and cannot show it again.
+    /// </summary>
+    [Post("/tokens")]
+    [Produces(200, typeof(CreatedAccessToken))]
+    [Produces(400)]
+    [Produces(401)]
+    [Produces(403)]
+    public async Task<IActionResult> CreateToken(CreateAccessTokenRequest request, HttpContext ctx, CancellationToken ct)
+    {
+        var user = await current.Resolve(ctx, ct);
+        if (user is null)
+            return new UnauthorizedResult();
+
+        if (user.IsAnonymous)
+        {
+            return new ObjectResult(
+                "This account signs in without a password, so it cannot hold access tokens.",
+                StatusCodes.Status403Forbidden
+            );
+        }
+
+        var name = request.Name?.Trim() ?? "";
+        if (name.Length is 0 or > 100)
+            return new BadRequestObjectResult("Give the token a name of up to 100 characters, so you can tell it apart later.");
+
+        if (request.ExpiresInDays is < 0 or > 3650)
+            return new BadRequestObjectResult("A token may last between 1 and 3650 days. Leave it empty to never expire it.");
+
+        DateTimeOffset? expires = request.ExpiresInDays is > 0 and var days ? time.GetUtcNow().AddDays(days) : null;
+        var (token, secret) = await tokens.Create(user, name, expires, ct);
+
+        await activity.Log(
+            ActivityAction.Login, user.Id, user.Username, success: true,
+            detail: $"Created the access token '{token.Name}'", context: current.GetActivityContext(ctx), ct: ct
+        );
+
+        return new OkObjectResult(new CreatedAccessToken(ToInfo(token), secret));
+    }
+
+    [Delete("/tokens/{id}")]
+    [Produces(204)]
+    [Produces(401)]
+    [Produces(404)]
+    public async Task<IActionResult> RevokeToken(string id, HttpContext ctx, CancellationToken ct)
+    {
+        var user = await current.Resolve(ctx, ct);
+        if (user is null)
+            return new UnauthorizedResult();
+
+        if (!await tokens.Revoke(user.Id, id, ct))
+            return new NotFoundResult();
+
+        await activity.Log(
+            ActivityAction.Login, user.Id, user.Username, success: true,
+            detail: "Revoked an access token", context: current.GetActivityContext(ctx), ct: ct
+        );
+        return new NoContentResult();
+    }
+
+    static AccessTokenInfo ToInfo(Core.Documents.AccessToken token)
+        => new(token.Id, token.Name, token.Hint, token.CreatedUtc, token.LastUsedUtc, token.ExpiresAtUtc);
 
     /// <summary>
     /// This account's own ceiling in one direction, with the period's spend read against it, or null

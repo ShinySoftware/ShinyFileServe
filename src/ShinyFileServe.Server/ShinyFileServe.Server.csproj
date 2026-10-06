@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <PackageReference Include="Shiny.Net.HttpServer" />
+    <PackageReference Include="Shiny.Net.HttpServer.NuGet" />
+    <PackageReference Include="Shiny.Net.HttpServer.Npm" />
     <!-- The frontend is served, and updated, by the web app host; the tunnel is the library's too. The WebView package
          carries MAUI, which every head already has - this project is only ever loaded by ShinyFileServe.App. -->
     <PackageReference Include="Shiny.AppDeviceBridge" />

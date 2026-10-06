@@ -123,6 +123,22 @@ public static class AdminRules
         // stored flags say. The save paths refuse to write that state; this makes it unreachable
         // even if a database arrived with it already in place.
         => !user.IsAnonymous && (user.IsAdmin || roles.Any(r => r.IsAdmin));
+
+    /// <summary>
+    /// What one account may do with the package feeds: everything for an administrator, otherwise
+    /// the union of its groups. An account anybody can sign in as gets nothing of its own - the
+    /// anonymous set in the settings is what covers it.
+    /// </summary>
+    public static PackagePermissions PackagePermissions(this User user, IReadOnlyList<Role> roles)
+    {
+        if (user.IsAnonymous)
+            return Shared.PackagePermissions.None;
+
+        if (user.IsAdministrator(roles))
+            return PackagePermissionsExtensions.All;
+
+        return roles.Aggregate(Shared.PackagePermissions.None, (acc, r) => acc | r.PackagePermissions);
+    }
 }
 
 public class UserManager(IDocumentStore store, IPasswordPolicy passwords, ISettingsManager settings, TimeProvider time) : IUserManager
@@ -339,6 +355,8 @@ public class UserManager(IDocumentStore store, IPasswordPolicy passwords, ISetti
         if (await store.Get<User>(id, cancellationToken: ct) is { IsProtected: true } protectedUser)
             throw new ProtectedAccountException($"'{protectedUser.Username}' is this server's administrator and cannot be deleted.");
 
+        // A token outliving its account would be a credential with nobody behind it.
+        await store.Query<AccessToken>().Where(x => x.UserId == id).ExecuteDelete(ct);
         await store.Remove<User>(id, cancellationToken: ct);
     }
 

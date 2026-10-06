@@ -123,6 +123,35 @@ public class FileServeApi(HttpClient http)
         await Ensure(response);
     }
 
+    // -- access tokens ------------------------------------------------------
+
+    public async Task<List<AccessTokenInfo>> GetTokens(CancellationToken ct = default)
+    {
+        using var response = await http.GetAsync("api/account/tokens", ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.ListAccessTokenInfo, ct) ?? [];
+    }
+
+    /// <summary>The one call whose answer carries a token's secret. Show it, then forget it.</summary>
+    public async Task<CreatedAccessToken> CreateToken(string name, int? expiresInDays, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync(
+            "api/account/tokens",
+            new CreateAccessTokenRequest(name, expiresInDays),
+            ClientJsonContext.Default.CreateAccessTokenRequest,
+            ct
+        );
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.CreatedAccessToken, ct)
+            ?? throw new ApiException(HttpStatusCode.InternalServerError, "The token was made but the server sent nothing back.");
+    }
+
+    public async Task RevokeToken(string id, CancellationToken ct = default)
+    {
+        using var response = await http.DeleteAsync($"api/account/tokens/{Uri.EscapeDataString(id)}", ct);
+        await Ensure(response);
+    }
+
     // -- folders ------------------------------------------------------------
 
     public async Task<List<FolderInfo>> GetFolders(CancellationToken ct = default)

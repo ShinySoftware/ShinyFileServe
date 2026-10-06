@@ -82,6 +82,24 @@ public class AdminEndpoints(
         if (request.MaxFailedSignIns is { } lockout)
             stored.MaxFailedSignIns = lockout;
 
+        if (request.Packages is { } packages)
+        {
+            var feeds = stored.PackageFeeds;
+            var anonymous = packages.Anonymous & PackagePermissionsExtensions.Reads;
+
+            // Said rather than quietly trimmed: whoever asked for anonymous publishing meant it, and
+            // a feed that silently did half of it would leave them believing it worked.
+            if (anonymous != packages.Anonymous)
+                return new BadRequestObjectResult("Anonymous access can only read. Publishing always needs a token, so it has a name behind it.");
+
+            feeds.NuGetEnabled = packages.NuGetEnabled;
+            feeds.NpmEnabled = packages.NpmEnabled;
+            feeds.Anonymous = anonymous;
+            feeds.NpmUseUpstream = packages.NpmUseUpstream;
+            feeds.NpmAllowUnpublish = packages.NpmAllowUnpublish;
+            feeds.NuGetPermanentDelete = packages.NuGetPermanentDelete;
+        }
+
         stored.NotificationsEnabled = request.NotificationsEnabled;
         if (request.NotifyOn is not null)
             stored.NotifyOn = request.NotifyOn.Distinct().ToList();
@@ -248,7 +266,15 @@ public class AdminEndpoints(
                 config.IdleLogoffMinutes,
                 PasswordPolicyMapping.ToInfo(config.PasswordRules),
                 Math.Max(0, config.MaxFailedSignIns),
-                launch
+                launch,
+                new PackageFeedConfig(
+                    config.PackageFeeds.NuGetEnabled,
+                    config.PackageFeeds.NpmEnabled,
+                    config.PackageFeeds.Anonymous & PackagePermissionsExtensions.Reads,
+                    config.PackageFeeds.NpmUseUpstream,
+                    config.PackageFeeds.NpmAllowUnpublish,
+                    config.PackageFeeds.NuGetPermanentDelete
+                )
             )
         );
     }

@@ -90,6 +90,13 @@ namespace ShinyFileServe.Server;
 [JsonSerializable(typeof(List<BandwidthByUser>))]
 [JsonSerializable(typeof(IReadOnlyList<string>))]
 [JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(PackageAccessInfo))]
+[JsonSerializable(typeof(PackageFeedConfig))]
+[JsonSerializable(typeof(AccessTokenInfo))]
+[JsonSerializable(typeof(IReadOnlyList<AccessTokenInfo>))]
+[JsonSerializable(typeof(List<AccessTokenInfo>))]
+[JsonSerializable(typeof(CreateAccessTokenRequest))]
+[JsonSerializable(typeof(CreatedAccessToken))]
 [JsonSerializable(typeof(IReadOnlyList<ActivityAction>))]
 [JsonSerializable(typeof(List<ActivityAction>))]
 public partial class ServerJsonContext : JsonSerializerContext;

@@ -24,7 +24,39 @@ public class Role
     /// </summary>
     public bool IsProtected { get; set; }
 
+    /// <summary>
+    /// What members may do with the package feeds. Folded across every group a person is in, the
+    /// same way folder grants are, so joining a group can only ever add to it.
+    /// </summary>
+    public PackagePermissions PackagePermissions { get; set; }
+
     public DateTimeOffset CreatedUtc { get; set; }
+}
+
+/// <summary>
+/// A personal access token - what <c>nuget.config</c> and <c>.npmrc</c> carry instead of a password.
+/// Only a SHA-256 of the secret is kept: a token is 256 random bits, so there is nothing for a salt
+/// or a slow hash to protect, and a plain hash is what lets a request find its token in one lookup.
+/// </summary>
+public class AccessToken
+{
+    public string Id { get; set; } = "";
+    public string UserId { get; set; } = "";
+    public string Name { get; set; } = "";
+
+    /// <summary>Lower-case hex SHA-256 of the whole secret, prefix included.</summary>
+    public string TokenHash { get; set; } = "";
+
+    /// <summary>The secret's last four characters, for telling tokens apart in a list.</summary>
+    public string Hint { get; set; } = "";
+
+    public DateTimeOffset CreatedUtc { get; set; }
+    public DateTimeOffset? LastUsedUtc { get; set; }
+
+    /// <summary>Null never expires.</summary>
+    public DateTimeOffset? ExpiresAtUtc { get; set; }
+
+    public bool IsExpired(DateTimeOffset now) => this.ExpiresAtUtc is { } expiry && expiry <= now;
 }
 
 public class User
@@ -288,7 +320,34 @@ public class ServerSettings
     /// </summary>
     public List<ActivityAction> NotifyOn { get; set; } = [ActivityAction.Login, ActivityAction.Denied];
 
+    /// <summary>The NuGet feed and npm registry. Both off until an administrator turns them on.</summary>
+    public PackageFeedSettings PackageFeeds { get; set; } = new();
+
     public DateTimeOffset? UpdatedUtc { get; set; }
+}
+
+/// <summary>How the package feeds run. Who may use them is on <see cref="Role.PackagePermissions"/>.</summary>
+public class PackageFeedSettings
+{
+    public bool NuGetEnabled { get; set; }
+    public bool NpmEnabled { get; set; }
+
+    /// <summary>
+    /// What a request carrying no token may do. Reads only - the save path strips anything else,
+    /// because a package nobody can be held to account for is how a supply chain gets poisoned.
+    /// </summary>
+    public PackagePermissions Anonymous { get; set; }
+
+    /// <summary>Fall through to registry.npmjs.org for anything not published here.</summary>
+    public bool NpmUseUpstream { get; set; }
+
+    public bool NpmAllowUnpublish { get; set; } = true;
+
+    /// <summary>
+    /// <c>dotnet nuget delete</c> removes the version for good. Off by default, which unlists it the
+    /// way nuget.org does - anything already pinned to that version keeps restoring.
+    /// </summary>
+    public bool NuGetPermanentDelete { get; set; }
 }
 
 /// <summary>

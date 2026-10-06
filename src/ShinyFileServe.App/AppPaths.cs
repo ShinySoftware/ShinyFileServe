@@ -15,4 +15,7 @@ public static class AppPaths
     public static string DatabaseFile => Path.Combine(DataDirectory, "fileserve.db");
     public static string TicketKeyFile => Path.Combine(DataDirectory, "cookie.key");
     public static string WebAppDirectory => Path.Combine(DataDirectory, "webapp");
+
+    /// <summary>The NuGet feed's and npm registry's packages. Not in the database backup - they are files.</summary>
+    public static string PackagesDirectory => Path.Combine(DataDirectory, "packages");
 }
