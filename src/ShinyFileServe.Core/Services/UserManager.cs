@@ -126,8 +126,8 @@ public static class AdminRules
 
     /// <summary>
     /// What one account may do with the package feeds: everything for an administrator, otherwise
-    /// the union of its groups. An account anybody can sign in as gets nothing of its own - the
-    /// anonymous set in the settings is what covers it.
+    /// the union of its groups with the account's own per-feed overrides laid over it. An account
+    /// anybody can sign in as gets nothing of its own - the anonymous set in the settings covers it.
     /// </summary>
     public static PackagePermissions PackagePermissions(this User user, IReadOnlyList<Role> roles)
     {
@@ -137,8 +137,12 @@ public static class AdminRules
         if (user.IsAdministrator(roles))
             return PackagePermissionsExtensions.All;
 
-        return roles.Aggregate(Shared.PackagePermissions.None, (acc, r) => acc | r.PackagePermissions);
+        return GroupPackagePermissions(roles).Apply(user.NuGetAccess, user.NpmAccess);
     }
+
+    /// <summary>The union of the groups alone - what an override of <see cref="PackageAccessLevel.Inherit"/> falls back to.</summary>
+    public static PackagePermissions GroupPackagePermissions(IReadOnlyList<Role> roles)
+        => roles.Aggregate(Shared.PackagePermissions.None, (acc, r) => acc | r.PackagePermissions);
 }
 
 public class UserManager(IDocumentStore store, IPasswordPolicy passwords, ISettingsManager settings, TimeProvider time) : IUserManager

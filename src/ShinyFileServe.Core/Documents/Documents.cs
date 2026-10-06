@@ -3,7 +3,11 @@ using ShinyFileServe.Shared;
 
 namespace ShinyFileServe.Core.Documents;
 
-/// <summary>A named group. Permissions are never granted to a user directly - only to a role.</summary>
+/// <summary>
+/// A named group. Folder permissions are never granted to a user directly - only to a role. Package
+/// feed rights are the one exception: a group grants them, and an account may override them per feed
+/// (see <see cref="User.NuGetAccess"/>).
+/// </summary>
 public class Role
 {
     public string Id { get; set; } = "";
@@ -135,6 +139,15 @@ public class User
     public long? UploadQuotaBytes { get; set; }
 
     /// <summary>
+    /// This account's own NuGet access, laid over what its groups grant. The one package right that
+    /// is a fact about the person - see <see cref="PackageAccessLevelExtensions.Apply"/>.
+    /// </summary>
+    public PackageAccessLevel NuGetAccess { get; set; }
+
+    /// <summary>The same, for the npm registry.</summary>
+    public PackageAccessLevel NpmAccess { get; set; }
+
+    /// <summary>
     /// The administrator created during first-run setup. It can be renamed and have its password
     /// changed, but it cannot be deleted, expired, made anonymous, or stripped of admin - the same
     /// reason the administrators group is protected.
@@ -257,6 +270,36 @@ public class ActivityLogEntry
 }
 
 /// <summary>
+/// One request to the NuGet feed or the npm registry. Kept apart from <see cref="ActivityLogEntry"/>
+/// because a single restore is dozens of these: the activity log answers "who changed what", and this
+/// answers "who pulled what, with which token, and how often".
+/// </summary>
+public class PackageRequestLogEntry
+{
+    public string Id { get; set; } = "";
+    public DateTimeOffset TimestampUtc { get; set; }
+    public PackageFeedKind Feed { get; set; }
+    public PackageOperation Operation { get; set; }
+    public string Method { get; set; } = "";
+    public string Path { get; set; } = "";
+    public string? PackageId { get; set; }
+
+    /// <summary>Lower-cased <see cref="PackageId"/>, so a filter can match without caring how it was typed.</summary>
+    public string? PackageKey { get; set; }
+    public string? Version { get; set; }
+    public int StatusCode { get; set; }
+    public long BytesIn { get; set; }
+    public long BytesOut { get; set; }
+    public long DurationMs { get; set; }
+    public string? UserId { get; set; }
+    public string? Username { get; set; }
+    public string? TokenId { get; set; }
+    public string? TokenName { get; set; }
+    public string? IpAddress { get; set; }
+    public string? UserAgent { get; set; }
+}
+
+/// <summary>
 /// The server's own configuration. A single document (<see cref="SingletonId"/>) so the desktop app
 /// and the web UI read and write the same values rather than each keeping their own copy.
 /// </summary>
@@ -326,7 +369,7 @@ public class ServerSettings
     public DateTimeOffset? UpdatedUtc { get; set; }
 }
 
-/// <summary>How the package feeds run. Who may use them is on <see cref="Role.PackagePermissions"/>.</summary>
+/// <summary>How the package feeds run. Who may use them is on <see cref="Role.PackagePermissions"/>, overridden per account by <see cref="User.NuGetAccess"/> and <see cref="User.NpmAccess"/>.</summary>
 public class PackageFeedSettings
 {
     public bool NuGetEnabled { get; set; }

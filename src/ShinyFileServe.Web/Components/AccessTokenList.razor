@@ -1,0 +1,138 @@
+@*
+    Every access token on the server and whose it is. An administrator can see when each was last
+    used, what its owner may do with it, and revoke it - but never the secret, which the server
+    threw away the moment it was shown to its owner.
+*@
+@inject AdminApi Admin
+@inject IToastService Toasts
+@inject IDialogService Dialogs
+
+<div class="pkg__keys">
+    <div class="log__filters">
+        <label class="log__filter">
+            <span class="field__label">Whose</span>
+            <select @bind="this.userId" @bind:after="this.Reload">
+                <option value="">Everyone</option>
+                @foreach (var user in this.owners)
+                {
+                    <option value="@user.Id">@user.Name</option>
+                }
+            </select>
+        </label>
+    </div>
+
+    @if (this.loading)
+    {
+        <p class="admin__loading">Loading tokens…</p>
+    }
+    else if (this.Visible.Count == 0)
+    {
+        <p class="admin__loading">No access tokens@(this.userId.Length > 0 ? " for this account" : "").</p>
+    }
+    else
+    {
+        <ul class="rows">
+            @foreach (var item in this.Visible)
+            {
+                var token = item.Token;
+                <li class="row">
+                    <div class="row__main">
+                        <span class="row__title">
+                            @token.Name
+                            <span class="row__id num">…@token.Hint</span>
+                        </span>
+                        <span class="row__sub">
+                            @item.DisplayName <span class="num">(@item.Username)</span>
+                            · @Rights(item.Packages)
+                        </span>
+                        <span class="row__sub">
+                            Made @Format.When(token.CreatedUtc)
+                            · @(token.LastUsedUtc is { } used ? $"last used {Format.When(used)}" : "never used")
+                            @if (token.ExpiresUtc is { } expires)
+                            {
+                                <span> · @(expires <= DateTimeOffset.UtcNow ? "expired" : "expires") @Format.When(expires)</span>
+                            }
+                        </span>
+                    </div>
+
+                    @if (token.ExpiresUtc is { } exp && exp <= DateTimeOffset.UtcNow)
+                    {
+                        <span class="tag tag--off">Expired</span>
+                    }
+
+                    <span class="row__actions">
+                        <button type="button" class="action" @onclick="() => this.OnShowTraffic.InvokeAsync(item)">Traffic</button>
+                        <button type="button" class="action action--danger" @onclick="() => this.Revoke(item)">Revoke</button>
+                    </span>
+                </li>
+            }
+        </ul>
+    }
+</div>
+
+@code {
+    List<AdminAccessTokenInfo> tokens = [];
+    List<(string Id, string Name)> owners = [];
+    string userId = "";
+    bool loading = true;
+
+    /// <summary>Asked to show the traffic log filtered to one token.</summary>
+    [Parameter] public EventCallback<AdminAccessTokenInfo> OnShowTraffic { get; set; }
+
+    List<AdminAccessTokenInfo> Visible => this.userId.Length == 0
+        ? this.tokens
+        : this.tokens.Where(t => t.UserId == this.userId).ToList();
+
+    protected override Task OnInitializedAsync() => this.Reload();
+
+    async Task Reload()
+    {
+        try
+        {
+            // Always everything: the owner filter is over what is in hand, and the list of owners
+            // to pick from is the list of people who actually hold a token.
+            this.tokens = await this.Admin.GetAccessTokens();
+            this.owners = this.tokens
+                .GroupBy(t => t.UserId)
+                .Select(g => (g.Key, $"{g.First().DisplayName} ({g.First().Username})"))
+                .OrderBy(x => x.Item2, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+        finally
+        {
+            this.loading = false;
+        }
+    }
+
+    /// <summary>What the token can do, which is what its owner can do - said per feed.</summary>
+    static string Rights(PackagePermissions packages)
+        => $"NuGet: {packages.LevelFor(PackageFeedKind.NuGet).ToDisplay().ToLowerInvariant()} · npm: {packages.LevelFor(PackageFeedKind.Npm).ToDisplay().ToLowerInvariant()}";
+
+    async Task Revoke(AdminAccessTokenInfo item)
+    {
+        var confirmed = await this.Dialogs.Confirm(
+            $"Revoke {item.Token.Name}?",
+            $"{item.DisplayName}'s token stops working on the next request. Anything still configured with it is refused.",
+            okText: "Revoke",
+            cancelText: "Keep"
+        );
+
+        if (!confirmed)
+            return;
+
+        try
+        {
+            await this.Admin.RevokeAccessToken(item.Token.Id);
+            await this.Reload();
+            await this.Toasts.SuccessAsync($"Revoked {item.Token.Name}.");
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+}

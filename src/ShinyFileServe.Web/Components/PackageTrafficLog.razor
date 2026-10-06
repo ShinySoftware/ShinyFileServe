@@ -1,0 +1,270 @@
+@*
+    Every request the NuGet feed and npm registry answered: who made it, with which token, for which
+    package, and how it went. Refusals are here too - a token being turned away is usually the first
+    sign a config somewhere has gone stale. Paged and filtered by the server, like the activity log.
+*@
+@implements IDisposable
+@inject FileServeApi Api
+@inject AdminApi Admin
+@inject IToastService Toasts
+
+<div class="log">
+    <div class="log__filters">
+        <label class="log__filter">
+            <span class="field__label">Who</span>
+            <select @bind="this.userId" @bind:after="this.Restart">
+                <option value="">Everyone</option>
+                @foreach (var user in this.users)
+                {
+                    <option value="@user.Id">@user.DisplayName (@user.Username)</option>
+                }
+            </select>
+        </label>
+
+        <label class="log__filter">
+            <span class="field__label">Feed</span>
+            <select @bind="this.feed" @bind:after="this.Restart">
+                <option value="">Both</option>
+                <option value="@((int)PackageFeedKind.NuGet)">NuGet</option>
+                <option value="@((int)PackageFeedKind.Npm)">npm</option>
+            </select>
+        </label>
+
+        <label class="log__filter">
+            <span class="field__label">What</span>
+            <select @bind="this.operation" @bind:after="this.Restart">
+                <option value="">Everything</option>
+                @foreach (var value in Enum.GetValues<PackageOperation>())
+                {
+                    <option value="@((int)value)">@value.ToDisplay()</option>
+                }
+            </select>
+        </label>
+
+        <label class="log__filter">
+            <span class="field__label">Package</span>
+            <input placeholder="Exact id" @bind="this.packageId" @bind:after="this.Restart" />
+        </label>
+
+        <label class="log__filter">
+            <span class="field__label">From</span>
+            <input type="date" @bind="this.from" @bind:after="this.Restart" />
+        </label>
+
+        <label class="log__filter">
+            <span class="field__label">To</span>
+            <input type="date" @bind="this.to" @bind:after="this.Restart" />
+        </label>
+
+        <label class="field--check">
+            <input type="checkbox" @bind="this.refusedOnly" @bind:after="this.Restart" />
+            Refused only
+        </label>
+
+        @if (this.tokenId is not null)
+        {
+            <button type="button" class="action" title="Show every token's traffic" @onclick="this.ClearToken">
+                One token only ✕
+            </button>
+        }
+
+        <button type="button" class="action" disabled="@(!this.HasFilters)" @onclick="this.Clear">Clear filters</button>
+    </div>
+
+    <div class="log__grid">
+        <DataGrid TItem="PackageRequestInfo"
+                  @key="this.FilterKey"
+                  ServerData="this.LoadPage"
+                  RowsPerPage="50"
+                  FixedHeader="true"
+                  Height="100%"
+                  Dense="true"
+                  Hover="true"
+                  Striped="true"
+                  NoRecordsText="No feed requests match those filters.">
+            <Columns>
+                <TemplateColumn TItem="PackageRequestInfo" Title="When" Width="150px">
+                    <CellTemplate>
+                        <span class="num" title="@context.Item.TimestampUtc.UtcDateTime.ToString("u")">
+                            @context.Item.TimestampUtc.ToLocalTime().ToString("d MMM HH:mm:ss")
+                        </span>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn TItem="PackageRequestInfo" Title="Who" Width="150px">
+                    <CellTemplate>
+                        <span>@(context.Item.Username ?? "anonymous")</span>
+                        @if (context.Item.TokenName is { Length: > 0 } tokenName)
+                        {
+                            <span class="log__detail" title="Access token">@tokenName</span>
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn TItem="PackageRequestInfo" Title="What">
+                    <CellTemplate>
+                        <span class="log__what @(context.Item.Succeeded ? "" : "log__what--failed")">
+                            @context.Item.Feed.ToDisplay() · @context.Item.Operation.ToDisplay()
+                            @if (context.Item.PackageId is { Length: > 0 } id)
+                            {
+                                <span class="num"> @id@(context.Item.Version is { Length: > 0 } v ? $" {v}" : "")</span>
+                            }
+                        </span>
+                        <span class="log__detail num" title="@context.Item.UserAgent">@context.Item.Method @context.Item.Path</span>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn TItem="PackageRequestInfo" Title="Status" Width="70px">
+                    <CellTemplate>
+                        <span class="num @(context.Item.Succeeded ? "" : "log__what--failed")">@context.Item.StatusCode</span>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn TItem="PackageRequestInfo" Title="Address" Width="150px">
+                    <CellTemplate>
+                        <span class="num" title="@context.Item.HostName">@(context.Item.IpAddress is { Length: > 0 } ip ? ip : Nothing)</span>
+                        @if (context.Item.HostName is { Length: > 0 } host)
+                        {
+                            <span class="log__detail num">@host</span>
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn TItem="PackageRequestInfo" Title="Size" Width="90px">
+                    <CellTemplate>
+                        @* Whichever way the bulk went: a push is all request, a restore all response. *@
+                        <span class="num log__right">@Size(context.Item)</span>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn TItem="PackageRequestInfo" Title="Time" Width="70px">
+                    <CellTemplate>
+                        <span class="num log__right">@context.Item.DurationMs ms</span>
+                    </CellTemplate>
+                </TemplateColumn>
+            </Columns>
+            <PagerContent>
+                <DataGridPager TItem="PackageRequestInfo" PageSizeOptions="new[] { 25, 50, 100, 250 }" />
+            </PagerContent>
+        </DataGrid>
+    </div>
+</div>
+
+@code {
+    const string Nothing = "—";
+
+    List<UserSummary> users = [];
+    string userId = "";
+    string feed = "";
+    string operation = "";
+    string packageId = "";
+    bool refusedOnly;
+    DateTime? from;
+    DateTime? to;
+    string? tokenId;
+    CancellationTokenSource? inflight;
+
+    /// <summary>Starts the log filtered to one token, when the screen was opened from that token.</summary>
+    [Parameter] public string? TokenId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        this.tokenId = this.TokenId;
+
+        try
+        {
+            this.users = await this.Api.GetUsers();
+        }
+        catch (ApiException)
+        {
+        }
+    }
+
+    public void Dispose()
+    {
+        this.inflight?.Cancel();
+        this.inflight?.Dispose();
+    }
+
+    bool HasFilters => this.userId.Length > 0
+        || this.feed.Length > 0
+        || this.operation.Length > 0
+        || this.packageId.Length > 0
+        || this.refusedOnly
+        || this.tokenId is not null
+        || this.from is not null
+        || this.to is not null;
+
+    string FilterKey => $"{this.userId}|{this.feed}|{this.operation}|{this.packageId}|{this.refusedOnly}|{this.tokenId}|{this.from:yyyy-MM-dd}|{this.to:yyyy-MM-dd}";
+
+    static string Size(PackageRequestInfo item)
+    {
+        var bytes = Math.Max(item.BytesIn, item.BytesOut);
+        return bytes > 0 ? Format.Bytes(bytes) : "";
+    }
+
+    void Restart() => this.StateHasChanged();
+
+    async Task<GridData<PackageRequestInfo>> LoadPage(GridState state)
+    {
+        this.inflight?.Cancel();
+        this.inflight?.Dispose();
+
+        var cts = new CancellationTokenSource();
+        this.inflight = cts;
+
+        try
+        {
+            var page = await this.Admin.GetPackageTraffic(new PackageTrafficQuery(
+                UserId: String.IsNullOrEmpty(this.userId) ? null : this.userId,
+                TokenId: this.tokenId,
+                Feed: String.IsNullOrEmpty(this.feed) ? null : (PackageFeedKind)Int32.Parse(this.feed),
+                Operation: String.IsNullOrEmpty(this.operation) ? null : (PackageOperation)Int32.Parse(this.operation),
+                PackageId: String.IsNullOrWhiteSpace(this.packageId) ? null : this.packageId,
+                RefusedOnly: this.refusedOnly,
+                FromUtc: this.from is { } f ? LocalDay.Start(f) : null,
+                ToUtc: this.to is { } t ? LocalDay.End(t) : null,
+                Page: state.Page + 1,
+                PageSize: state.PageSize
+            ), cts.Token);
+
+            return new GridData<PackageRequestInfo>(page.Items, page.Total);
+        }
+        catch (OperationCanceledException)
+        {
+            return new GridData<PackageRequestInfo>([], 0);
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+            return new GridData<PackageRequestInfo>([], 0);
+        }
+        finally
+        {
+            if (this.inflight == cts)
+            {
+                this.inflight = null;
+                cts.Dispose();
+            }
+        }
+    }
+
+    void ClearToken()
+    {
+        this.tokenId = null;
+        this.Restart();
+    }
+
+    void Clear()
+    {
+        this.userId = "";
+        this.feed = "";
+        this.operation = "";
+        this.packageId = "";
+        this.refusedOnly = false;
+        this.tokenId = null;
+        this.from = null;
+        this.to = null;
+        this.Restart();
+    }
+}

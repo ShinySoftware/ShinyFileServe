@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using Shiny.Net.HttpServer;
 using ShinyFileServe.Core.Services;
 using ShinyFileServe.Server.Security;
+using ShinyFileServe.Server.Transfers;
 using ShinyFileServe.Shared;
 using CoreUser = ShinyFileServe.Core.Documents.User;
 
@@ -32,7 +34,9 @@ public class PackageGateMiddleware(
     IAccessTokenManager tokens,
     IUserManager users,
     IActivityLogger activity,
-    ICurrentUserResolver current
+    IPackageTrafficLog traffic,
+    ICurrentUserResolver current,
+    TimeProvider time
 ) : IHttpMiddleware
 {
     const string UserItem = "fileserve.package-user";
@@ -61,6 +65,38 @@ public class PackageGateMiddleware(
             return;
         }
 
+        // Every request past this point is in the traffic log, refusals included - a token that is
+        // being turned away is exactly the one an administrator wants to see.
+        var started = Stopwatch.GetTimestamp();
+        var request = new GateResult();
+        var failed = false;
+
+        try
+        {
+            await this.Gate(context, next, feed, config, request);
+        }
+        catch
+        {
+            failed = true;
+            throw;
+        }
+        finally
+        {
+            this.Record(context, feed, request, started, failed);
+        }
+    }
+
+    /// <summary>Who the gate settled on, filled in as soon as it knows - so a refusal is still logged against them.</summary>
+    sealed class GateResult
+    {
+        public AccessTokenMatch? Match;
+
+        /// <summary>A token was sent and did not check out - logged as such rather than as nobody.</summary>
+        public bool RejectedToken;
+    }
+
+    async Task Gate(HttpContext context, RequestDelegate next, PackageFeed feed, Core.Documents.PackageFeedSettings config, GateResult result)
+    {
         var (required, write) = Classify(feed, context.Request.Method, context.Request.Path);
         var secret = ReadSecret(context.Request);
         var ct = context.RequestAborted;
@@ -70,9 +106,12 @@ public class PackageGateMiddleware(
 
         if (secret is not null)
         {
-            user = await tokens.Validate(secret, ct);
+            result.Match = await tokens.Validate(secret, ct);
+            user = result.Match?.User;
             if (user is null)
             {
+                result.RejectedToken = true;
+
                 // Logged, unlike a missing token: a request without one is how every NuGet client
                 // starts before the challenge, whereas a wrong one is somebody's config gone stale.
                 await activity.Log(
@@ -123,6 +162,44 @@ public class PackageGateMiddleware(
 
         if (write && user is not null && context.Response.StatusCode is >= 200 and < 300)
             await this.LogWrite(context, feed, user, ct);
+    }
+
+    /// <summary>One row in the traffic log. Never throws: the response has already gone, or is going.</summary>
+    void Record(HttpContext context, PackageFeed feed, GateResult result, long started, bool failed)
+    {
+        try
+        {
+            var match = result.Match;
+            var published = context.Items.TryGetValue(PackageFeedHost.PublishedItem, out var item) ? item as string : null;
+            var (operation, packageId, version) = PackageRequestParser.Parse(feed, context.Request.Method, context.Request.Path, published);
+            var (bytesIn, bytesOut) = BandwidthMeteringMiddleware.CountsOf(context);
+            var who = current.GetActivityContext(context);
+
+            traffic.Record(new Core.Documents.PackageRequestLogEntry
+            {
+                TimestampUtc = time.GetUtcNow(),
+                Feed = feed == PackageFeed.NuGet ? PackageFeedKind.NuGet : PackageFeedKind.Npm,
+                Operation = operation,
+                Method = context.Request.Method,
+                Path = context.Request.Path,
+                PackageId = packageId,
+                Version = version,
+                StatusCode = failed ? StatusCodes.Status500InternalServerError : context.Response.StatusCode,
+                BytesIn = bytesIn,
+                BytesOut = bytesOut,
+                DurationMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                UserId = match?.User.Id,
+                Username = match?.User.Username,
+                TokenId = match?.Token.Id,
+                TokenName = match?.Token.Name ?? (result.RejectedToken ? "(unknown, expired or revoked token)" : null),
+                IpAddress = who.IpAddress,
+                UserAgent = who.UserAgent
+            });
+        }
+        catch
+        {
+            // The log is a record of the feed, not a condition of it.
+        }
     }
 
     async Task LogWrite(HttpContext context, PackageFeed feed, CoreUser user, CancellationToken ct)

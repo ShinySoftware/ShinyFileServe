@@ -15,4 +15,11 @@ public class FileServeOptions
     /// deleted that file".
     /// </summary>
     public TimeSpan? BandwidthRetention { get; set; } = TimeSpan.FromDays(730);
+
+    /// <summary>
+    /// Package feed requests older than this are pruned at startup. Null keeps everything. Shorter
+    /// than the activity log by default, because a restore is dozens of rows and a busy build agent
+    /// writes thousands a day.
+    /// </summary>
+    public TimeSpan? PackageTrafficRetention { get; set; } = TimeSpan.FromDays(90);
 }

@@ -20,6 +20,7 @@ public class AdminUsersEndpoints(
     IActivityLogger activity,
     ITransferMonitor transfers,
     IQuotaTracker quotas,
+    IAccessTokenManager tokens,
     TimeProvider time
 )
 {
@@ -31,10 +32,11 @@ public class AdminUsersEndpoints(
     {
         var all = await users.GetUsers(ct);
         var roles = await users.GetRoles(ct);
+        var tokenCounts = (await tokens.GetAllTokens(ct)).GroupBy(t => t.UserId).ToDictionary(g => g.Key, g => g.Count());
 
         var details = new List<UserDetail>(all.Count);
         foreach (var user in all)
-            details.Add(await this.ToDetail(user, roles, ct));
+            details.Add(await this.ToDetail(user, roles, ct, tokenCounts.GetValueOrDefault(user.Id)));
 
         return new OkObjectResult(details);
     }
@@ -106,6 +108,13 @@ public class AdminUsersEndpoints(
         (user.UploadQuotaWindow, user.UploadQuotaBytes) = Quota(request.UploadQuotaWindow, request.UploadQuotaBytes);
         user.RoleIds = request.RoleIds.Where(id => roles.Any(r => r.Id == id)).ToList();
 
+        // Null leaves them alone, so an older client that knows nothing of them cannot reset them.
+        if (request.NuGetAccess is { } nuget && Enum.IsDefined(nuget))
+            user.NuGetAccess = nuget;
+
+        if (request.NpmAccess is { } npm && Enum.IsDefined(npm))
+            user.NpmAccess = npm;
+
         // The protected account keeps its admin and its perpetual life whatever was sent, and an
         // anonymous account is refused administration through a group here rather than in the pages.
         // Re-reading afterwards is what makes the portal show the truth.
@@ -122,7 +131,10 @@ public class AdminUsersEndpoints(
             await users.SetPassword(user.Id, request.Password, ct);
 
         await this.Log(ctx, $"Saved the account '{user.Username}'", ct);
-        return new OkObjectResult(await this.ToDetail((await users.GetUser(user.Id, ct))!, roles, ct));
+        return new OkObjectResult(await this.ToDetail(
+            (await users.GetUser(user.Id, ct))!, roles, ct,
+            (await tokens.GetTokens(user.Id, ct)).Count
+        ));
     }
 
     /// <summary>
@@ -276,26 +288,36 @@ public class AdminUsersEndpoints(
 
     // -----------------------------------------------------------------------
 
-    async Task<UserDetail> ToDetail(User user, IReadOnlyList<Role> roles, CancellationToken ct) => new(
-        user.Id,
-        user.Username,
-        user.DisplayName,
-        user.Email,
-        user.IsAdmin,
-        user.ExpiresAtUtc,
-        user.IsProtected,
-        user.IsAnonymous,
-        this.CapState(user.Id, user.MaxParallelDownloads, TransferDirection.Download),
-        this.CapState(user.Id, user.MaxParallelUploads, TransferDirection.Upload),
-        await this.AccountQuota(user, download: true, ct),
-        await this.AccountQuota(user, download: false, ct),
-        user.RoleIds,
-        roles.Where(r => user.RoleIds.Contains(r.Id)).Select(r => r.Name).ToList(),
-        user.CreatedUtc,
-        user.LastLoginUtc,
-        user.LockedOutUtc,
-        user.FailedSignInCount
-    );
+    async Task<UserDetail> ToDetail(User user, IReadOnlyList<Role> roles, CancellationToken ct, int tokenCount)
+    {
+        var memberOf = roles.Where(r => user.RoleIds.Contains(r.Id)).ToList();
+
+        return new(
+            user.Id,
+            user.Username,
+            user.DisplayName,
+            user.Email,
+            user.IsAdmin,
+            user.ExpiresAtUtc,
+            user.IsProtected,
+            user.IsAnonymous,
+            this.CapState(user.Id, user.MaxParallelDownloads, TransferDirection.Download),
+            this.CapState(user.Id, user.MaxParallelUploads, TransferDirection.Upload),
+            await this.AccountQuota(user, download: true, ct),
+            await this.AccountQuota(user, download: false, ct),
+            user.RoleIds,
+            memberOf.Select(r => r.Name).ToList(),
+            user.CreatedUtc,
+            user.LastLoginUtc,
+            user.LockedOutUtc,
+            user.FailedSignInCount,
+            user.PackagePermissions(memberOf),
+            user.NuGetAccess,
+            user.NpmAccess,
+            AdminRules.GroupPackagePermissions(memberOf),
+            tokenCount
+        );
+    }
 
     /// <summary>
     /// One account-wide quota with this period's spend read against it, so the People list can show

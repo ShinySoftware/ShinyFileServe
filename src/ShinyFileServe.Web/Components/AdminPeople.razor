@@ -47,6 +47,17 @@
                                     <span class="row__sub">@caps</span>
                                 }
 
+                                @if (!user.IsAnonymous)
+                                {
+                                    <span class="row__sub">
+                                        @PackageText(user)
+                                        @if (user.TokenCount > 0)
+                                        {
+                                            <span> · @(user.TokenCount == 1 ? "1 access token" : $"{user.TokenCount} access tokens")</span>
+                                        }
+                                    </span>
+                                }
+
                                 @* Said with the count, because a run of ten is a person who forgot
                                    their password and a run of a hundred is somebody else. *@
                                 @if (user.LockedOutUtc is { } locked)
@@ -100,8 +111,9 @@
                                 }
                             </span>
 
-                            @* Package rights sit with the group, like share grants, rather than on
-                               the account - so a team is given the feed once. *@
+                            @* Package rights sit with the group, like share grants, so a team is
+                               given the feed once. One person can still be overridden per feed from
+                               their account. *@
                             <div class="row__perms">
                                 @if (role.IsAdmin)
                                 {
@@ -233,6 +245,86 @@
                 Administrator
             </label>
 
+            @if (!draft.IsAnonymous)
+            {
+                <div class="admin__block">
+                    <h3>Packages</h3>
+                    @if (this.IsAdministrator(draft))
+                    {
+                        <span class="admin__hint">
+                            Administrators can restore, push and unlist on NuGet, and install and publish on
+                            npm, whatever is set here.
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="admin__hint">
+                            What this person may do with the NuGet feed and the npm registry. "From groups"
+                            leaves it to their groups; anything else replaces what the groups give, for this
+                            person only. Write on NuGet is push and unlist; on npm it is publish.
+                        </span>
+
+                        <div class="caps">
+                            <label class="field">
+                                <span class="field__label">NuGet</span>
+                                <select @bind="draft.NuGetAccess">
+                                    @foreach (var level in PackageAccessLevelExtensions.All)
+                                    {
+                                        <option value="@level">@this.LevelText(draft, level, PackageFeedKind.NuGet)</option>
+                                    }
+                                </select>
+                            </label>
+                            <label class="field">
+                                <span class="field__label">npm</span>
+                                <select @bind="draft.NpmAccess">
+                                    @foreach (var level in PackageAccessLevelExtensions.All)
+                                    {
+                                        <option value="@level">@this.LevelText(draft, level, PackageFeedKind.Npm)</option>
+                                    }
+                                </select>
+                            </label>
+                        </div>
+                    }
+
+                    @if (draft.Id is not null)
+                    {
+                        <span class="field__label">Access tokens</span>
+                        @if (this.draftTokens is null)
+                        {
+                            <span class="admin__hint">Loading…</span>
+                        }
+                        else if (this.draftTokens.Count == 0)
+                        {
+                            <span class="admin__hint">None. People make their own from their account.</span>
+                        }
+                        else
+                        {
+                            <ul class="rows">
+                                @foreach (var item in this.draftTokens)
+                                {
+                                    <li class="row">
+                                        <div class="row__main">
+                                            <span class="row__title">@item.Token.Name <span class="row__id num">…@item.Token.Hint</span></span>
+                                            <span class="row__sub">
+                                                Made @Format.When(item.Token.CreatedUtc)
+                                                · @(item.Token.LastUsedUtc is { } used ? $"last used {Format.When(used)}" : "never used")
+                                                @if (item.Token.ExpiresUtc is { } expires)
+                                                {
+                                                    <span> · @(expires <= DateTimeOffset.UtcNow ? "expired" : "expires") @Format.When(expires)</span>
+                                                }
+                                            </span>
+                                        </div>
+                                        <span class="row__actions">
+                                            <button type="button" class="action action--danger" @onclick="() => this.RevokeToken(item)">Revoke</button>
+                                        </span>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    }
+                </div>
+            }
+
             <div class="admin__block">
                 <h3>Expiry</h3>
 
@@ -356,6 +448,7 @@
     PasswordPolicyInfo passwords = PasswordPolicyInfo.Off;
     bool editorOpen;
     Draft? draft;
+    List<AdminAccessTokenInfo>? draftTokens;
     string? editorError;
 
     protected override Task OnInitializedAsync() => this.Reload();
@@ -382,6 +475,37 @@
         public QuotaWindow UploadWindow;
         public double? UploadMb;
         public List<string> RoleIds = [];
+        public PackageAccessLevel NuGetAccess;
+        public PackageAccessLevel NpmAccess;
+    }
+
+    /// <summary>Admin directly or through a group being ticked right now - the same rule the server folds.</summary>
+    bool IsAdministrator(Draft draft)
+        => !draft.IsAnonymous && (draft.IsAdmin || this.roles.Any(r => r.IsAdmin && draft.RoleIds.Contains(r.Id)));
+
+    /// <summary>
+    /// The option's words. "From groups" says what that currently comes to, worked out from the groups
+    /// ticked in this editor, so changing a group above shows what it does to the feed below.
+    /// </summary>
+    string LevelText(Draft draft, PackageAccessLevel level, PackageFeedKind feed)
+    {
+        if (level != PackageAccessLevel.Inherit)
+            return level.ToDisplay();
+
+        var fromGroups = this.roles
+            .Where(r => draft.RoleIds.Contains(r.Id))
+            .Aggregate(PackagePermissions.None, (acc, r) => acc | r.Packages);
+
+        return $"From groups ({fromGroups.LevelFor(feed).ToDisplay().ToLowerInvariant()})";
+    }
+
+    /// <summary>"NuGet: read · npm: no access", with a note when the account's own setting is doing it.</summary>
+    static string PackageText(UserDetail user)
+    {
+        static string One(string name, PackagePermissions packages, PackageFeedKind feed, PackageAccessLevel own)
+            => $"{name}: {packages.LevelFor(feed).ToDisplay().ToLowerInvariant()}{(own == PackageAccessLevel.Inherit ? "" : " (set on account)")}";
+
+        return $"{One("NuGet", user.Packages, PackageFeedKind.NuGet, user.NuGetAccess)} · {One("npm", user.Packages, PackageFeedKind.Npm, user.NpmAccess)}";
     }
 
     bool CanSave(Draft draft)
@@ -539,10 +663,55 @@
                 DownloadMb = ToMb(user.AccountDownload.LimitBytes),
                 UploadWindow = user.AccountUpload.Window,
                 UploadMb = ToMb(user.AccountUpload.LimitBytes),
-                RoleIds = [.. user.RoleIds]
+                RoleIds = [.. user.RoleIds],
+                NuGetAccess = user.NuGetAccess,
+                NpmAccess = user.NpmAccess
             };
 
+        this.draftTokens = null;
         this.editorOpen = true;
+
+        if (user is not null)
+            _ = this.LoadTokens(user.Id);
+    }
+
+    async Task LoadTokens(string userId)
+    {
+        try
+        {
+            this.draftTokens = await this.Admin.GetAccessTokens(userId);
+        }
+        catch (ApiException ex)
+        {
+            this.draftTokens = [];
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+
+        await this.InvokeAsync(this.StateHasChanged);
+    }
+
+    async Task RevokeToken(AdminAccessTokenInfo item)
+    {
+        var confirmed = await this.Dialogs.Confirm(
+            $"Revoke {item.Token.Name}?",
+            "It stops working on the next request. Anything still configured with it is refused.",
+            okText: "Revoke",
+            cancelText: "Keep"
+        );
+
+        if (!confirmed)
+            return;
+
+        try
+        {
+            await this.Admin.RevokeAccessToken(item.Token.Id);
+            await this.LoadTokens(item.UserId);
+            await this.Reload();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
     }
 
     async Task Save()
@@ -579,7 +748,9 @@
                 draft.DownloadWindow,
                 ToBytes(draft.DownloadMb),
                 draft.UploadWindow,
-                ToBytes(draft.UploadMb)
+                ToBytes(draft.UploadMb),
+                draft.NuGetAccess,
+                draft.NpmAccess
             ));
 
             this.editorOpen = false;

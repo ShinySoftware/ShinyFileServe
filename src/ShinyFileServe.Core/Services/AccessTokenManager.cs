@@ -5,6 +5,9 @@ using ShinyFileServe.Core.Documents;
 
 namespace ShinyFileServe.Core.Services;
 
+/// <summary>A secret that checked out: the token it belongs to and the account behind it.</summary>
+public record AccessTokenMatch(AccessToken Token, User User);
+
 public interface IAccessTokenManager
 {
     /// <summary>Issues a token. The secret in the result exists nowhere else - it is not stored.</summary>
@@ -12,14 +15,20 @@ public interface IAccessTokenManager
 
     Task<IReadOnlyList<AccessToken>> GetTokens(string userId, CancellationToken ct = default);
 
+    /// <summary>Every token on the server, newest first. For administrators only.</summary>
+    Task<IReadOnlyList<AccessToken>> GetAllTokens(CancellationToken ct = default);
+
     /// <summary>False when the user holds no token by that id - somebody else's included.</summary>
     Task<bool> Revoke(string userId, string tokenId, CancellationToken ct = default);
 
+    /// <summary>Removes a token whoever holds it, and hands back what was removed. For administrators only.</summary>
+    Task<AccessToken?> RevokeAny(string tokenId, CancellationToken ct = default);
+
     /// <summary>
-    /// The account a secret belongs to, or null for anything that should not be let in: an unknown
-    /// or expired token, or one whose account has expired, locked, been deleted or become anonymous.
+    /// The token and account a secret belongs to, or null for anything that should not be let in: an
+    /// unknown or expired token, or one whose account has expired, locked, been deleted or become anonymous.
     /// </summary>
-    Task<User?> Validate(string secret, CancellationToken ct = default);
+    Task<AccessTokenMatch?> Validate(string secret, CancellationToken ct = default);
 }
 
 public class AccessTokenManager(IDocumentStore store, IUserManager users, TimeProvider time) : IAccessTokenManager
@@ -66,6 +75,20 @@ public class AccessTokenManager(IDocumentStore store, IUserManager users, TimePr
             .OrderByDescending(x => x.CreatedUtc)
             .ToList();
 
+    public async Task<IReadOnlyList<AccessToken>> GetAllTokens(CancellationToken ct = default)
+        => (await store.Query<AccessToken>().ToList(ct))
+            .OrderByDescending(x => x.CreatedUtc)
+            .ToList();
+
+    public async Task<AccessToken?> RevokeAny(string tokenId, CancellationToken ct = default)
+    {
+        var token = await store.Get<AccessToken>(tokenId, cancellationToken: ct);
+        if (token is not null)
+            await store.Remove<AccessToken>(tokenId, cancellationToken: ct);
+
+        return token;
+    }
+
     public async Task<bool> Revoke(string userId, string tokenId, CancellationToken ct = default)
     {
         // Looked up by owner as well as id, so one account cannot revoke another's by guessing.
@@ -77,7 +100,7 @@ public class AccessTokenManager(IDocumentStore store, IUserManager users, TimePr
         return true;
     }
 
-    public async Task<User?> Validate(string secret, CancellationToken ct = default)
+    public async Task<AccessTokenMatch?> Validate(string secret, CancellationToken ct = default)
     {
         if (String.IsNullOrEmpty(secret) || !secret.StartsWith(Prefix, StringComparison.Ordinal))
             return null;
@@ -102,7 +125,7 @@ public class AccessTokenManager(IDocumentStore store, IUserManager users, TimePr
             await store.Update(token, cancellationToken: ct);
         }
 
-        return user;
+        return new AccessTokenMatch(token, user);
     }
 
     static string Hash(string secret) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(secret)));

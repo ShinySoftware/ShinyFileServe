@@ -70,6 +70,58 @@ public class AdminApi(FileServeApi api)
         await Ensure(response);
     }
 
+    // -- package feeds ------------------------------------------------------
+
+    /// <summary>Every access token on the server, or only one account's.</summary>
+    public async Task<List<AdminAccessTokenInfo>> GetAccessTokens(string? userId = null, CancellationToken ct = default)
+    {
+        var url = String.IsNullOrEmpty(userId)
+            ? "api/admin/packages/tokens"
+            : $"api/admin/packages/tokens?userId={Uri.EscapeDataString(userId)}";
+
+        using var response = await this.Http.GetAsync(url, ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.ListAdminAccessTokenInfo, ct) ?? [];
+    }
+
+    /// <summary>Revokes anybody's token.</summary>
+    public async Task RevokeAccessToken(string id, CancellationToken ct = default)
+    {
+        using var response = await this.Http.DeleteAsync($"api/admin/packages/tokens/{Uri.EscapeDataString(id)}", ct);
+        await Ensure(response);
+    }
+
+    public async Task<PagedResponse<PackageRequestInfo>> GetPackageTraffic(PackageTrafficQuery query, CancellationToken ct = default)
+    {
+        var parts = new List<string>
+        {
+            $"page={query.Page}",
+            $"pageSize={query.PageSize}"
+        };
+
+        if (!String.IsNullOrEmpty(query.UserId))
+            parts.Add($"userId={Uri.EscapeDataString(query.UserId)}");
+        if (!String.IsNullOrEmpty(query.TokenId))
+            parts.Add($"tokenId={Uri.EscapeDataString(query.TokenId)}");
+        if (query.Feed is { } feed)
+            parts.Add($"feed={(int)feed}");
+        if (query.Operation is { } operation)
+            parts.Add($"operation={(int)operation}");
+        if (!String.IsNullOrWhiteSpace(query.PackageId))
+            parts.Add($"packageId={Uri.EscapeDataString(query.PackageId.Trim())}");
+        if (query.RefusedOnly)
+            parts.Add("refusedOnly=true");
+        if (query.FromUtc is { } from)
+            parts.Add($"fromUtc={Uri.EscapeDataString(from.ToString("O"))}");
+        if (query.ToUtc is { } to)
+            parts.Add($"toUtc={Uri.EscapeDataString(to.ToString("O"))}");
+
+        using var response = await this.Http.GetAsync($"api/admin/packages/traffic?{String.Join("&", parts)}", ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.PagedResponsePackageRequestInfo, ct)
+            ?? new PagedResponse<PackageRequestInfo>([], 0, 1, query.PageSize);
+    }
+
     // -- shares -------------------------------------------------------------
 
     public async Task<List<ShareInfo>> GetShares(CancellationToken ct = default)

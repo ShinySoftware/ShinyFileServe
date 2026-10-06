@@ -72,6 +72,10 @@ namespace ShinyFileServe.Web.Services;
 [JsonSerializable(typeof(List<AccessTokenInfo>))]
 [JsonSerializable(typeof(CreateAccessTokenRequest))]
 [JsonSerializable(typeof(CreatedAccessToken))]
+[JsonSerializable(typeof(AdminAccessTokenInfo))]
+[JsonSerializable(typeof(List<AdminAccessTokenInfo>))]
+[JsonSerializable(typeof(PackageRequestInfo))]
+[JsonSerializable(typeof(PagedResponse<PackageRequestInfo>))]
 [JsonSerializable(typeof(FinishedTransferInfo))]
 [JsonSerializable(typeof(List<FinishedTransferInfo>))]
 public partial class ClientJsonContext : JsonSerializerContext;

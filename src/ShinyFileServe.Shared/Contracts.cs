@@ -184,6 +184,68 @@ public record CreateAccessTokenRequest(string Name, int? ExpiresInDays = null);
 /// <summary>The one response that carries a token's secret.</summary>
 public record CreatedAccessToken(AccessTokenInfo Token, string Secret);
 
+/// <summary>
+/// A token as an administrator sees it: whose it is as well as what it is. Never the secret - the
+/// server does not have it.
+/// </summary>
+public record AdminAccessTokenInfo(
+    AccessTokenInfo Token,
+    string UserId,
+    string Username,
+    string DisplayName,
+
+    /// <summary>What the token's owner may do with the feeds right now - which is what the token may do.</summary>
+    PackagePermissions Packages
+);
+
+/// <summary>One request to a feed, as the traffic log keeps it.</summary>
+public record PackageRequestInfo(
+    string Id,
+    DateTimeOffset TimestampUtc,
+    PackageFeedKind Feed,
+    PackageOperation Operation,
+    string Method,
+    string Path,
+
+    /// <summary>The package the request was about, when the path names one.</summary>
+    string? PackageId,
+    string? Version,
+    int StatusCode,
+    long BytesIn,
+    long BytesOut,
+    long DurationMs,
+
+    /// <summary>Null for a request that carried no token, or one that was refused.</summary>
+    string? UserId,
+    string? Username,
+    string? TokenId,
+    string? TokenName,
+    string? IpAddress,
+    string? UserAgent,
+    string? HostName = null
+)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool Succeeded => this.StatusCode is >= 200 and < 400;
+}
+
+public record PackageTrafficQuery(
+    string? UserId = null,
+    string? TokenId = null,
+    PackageFeedKind? Feed = null,
+    PackageOperation? Operation = null,
+
+    /// <summary>One package id, ignoring case.</summary>
+    string? PackageId = null,
+
+    /// <summary>Only refused requests - 401 and 403 - when true.</summary>
+    bool RefusedOnly = false,
+    DateTimeOffset? FromUtc = null,
+    DateTimeOffset? ToUtc = null,
+    int Page = 1,
+    int PageSize = 50
+);
+
 /// <summary>How the feeds are run. Part of the settings screen.</summary>
 public record PackageFeedConfig(
     bool NuGetEnabled,
@@ -652,7 +714,20 @@ public record UserDetail(
     /// The run of failed sign-ins behind that lock, or the run so far on an account still open.
     /// Shown beside the lock so an administrator can tell a fat-fingered person from an attack.
     /// </summary>
-    int FailedSignInCount = 0
+    int FailedSignInCount = 0,
+
+    /// <summary>What this account may do with the feeds once its groups and its own overrides are folded.</summary>
+    PackagePermissions Packages = PackagePermissions.None,
+
+    /// <summary>The account's own say over each feed. <see cref="PackageAccessLevel.Inherit"/> leaves it to the groups.</summary>
+    PackageAccessLevel NuGetAccess = PackageAccessLevel.Inherit,
+    PackageAccessLevel NpmAccess = PackageAccessLevel.Inherit,
+
+    /// <summary>What the groups alone would give, so the editor can say what "from groups" currently means.</summary>
+    PackagePermissions GroupPackages = PackagePermissions.None,
+
+    /// <summary>How many access tokens the account holds, expired ones included.</summary>
+    int TokenCount = 0
 )
 {
     /// <summary>Whether the expiry has already passed. Derived, so the list and the editor agree.</summary>
@@ -709,7 +784,11 @@ public record SaveUserRequest(
     QuotaWindow DownloadQuotaWindow = QuotaWindow.None,
     long? DownloadQuotaBytes = null,
     QuotaWindow UploadQuotaWindow = QuotaWindow.None,
-    long? UploadQuotaBytes = null
+    long? UploadQuotaBytes = null,
+
+    /// <summary>The account's own NuGet and npm access. Null leaves what is stored alone.</summary>
+    PackageAccessLevel? NuGetAccess = null,
+    PackageAccessLevel? NpmAccess = null
 );
 
 public record RoleInfo(

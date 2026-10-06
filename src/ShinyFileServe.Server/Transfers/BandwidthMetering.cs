@@ -21,9 +21,21 @@ namespace ShinyFileServe.Server.Transfers;
 /// </remarks>
 public class BandwidthMeteringMiddleware(IBandwidthTracker tracker) : IHttpMiddleware
 {
+    const string CounterItem = "fileserve.request-counter";
+
+    /// <summary>
+    /// The bytes this request has moved so far in each direction, for anything further down the
+    /// pipeline that wants to log them. Zero when the meter is not in the pipeline.
+    /// </summary>
+    public static (long In, long Out) CountsOf(HttpContext context)
+        => context.Items.TryGetValue(CounterItem, out var value) && value is RequestCounter counter
+            ? (counter.In, counter.Out)
+            : (0, 0);
+
     public async ValueTask InvokeAsync(HttpContext context, RequestDelegate next)
     {
         var counter = new RequestCounter();
+        context.Items[CounterItem] = counter;
 
         context.Request.Body = new CountingReadStream(context.Request.Body, counter);
         context.Response.Bind(new CountingBodyControl(context.Response.BodyControl, counter));

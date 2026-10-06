@@ -1,0 +1,37 @@
+@page "/packages"
+
+@* Two questions about the feeds, one screen: what has been pulled and pushed, and with which keys.
+   The traffic log owns the window's scrolling, so the keys are a second view rather than a section
+   stacked above it. *@
+<AdminScreen Title="Packages" Subtitle="NuGet and npm requests, and every access token that can make them" Fill="true">
+    <div class="pkg">
+        <div class="pkg__views" role="tablist">
+            <button type="button" role="tab" aria-selected="@(!this.showKeys)"
+                    class="action @(this.showKeys ? "" : "action--primary")"
+                    @onclick="() => this.Show(keys: false, tokenId: null)">Traffic</button>
+            <button type="button" role="tab" aria-selected="@this.showKeys"
+                    class="action @(this.showKeys ? "action--primary" : "")"
+                    @onclick="() => this.Show(keys: true, tokenId: null)">Access tokens</button>
+        </div>
+
+        @if (this.showKeys)
+        {
+            <AccessTokenList OnShowTraffic="t => this.Show(keys: false, tokenId: t.Token.Id)" />
+        }
+        else
+        {
+            <PackageTrafficLog @key="this.tokenFilter" TokenId="@this.tokenFilter" />
+        }
+    </div>
+</AdminScreen>
+
+@code {
+    bool showKeys;
+    string? tokenFilter;
+
+    void Show(bool keys, string? tokenId)
+    {
+        this.showKeys = keys;
+        this.tokenFilter = tokenId;
+    }
+}

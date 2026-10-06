@@ -50,6 +50,7 @@ public static class Registration
         services.AddSingleton<IAccessResolver, AccessResolver>();
         services.AddSingleton<IActivityLogger, ActivityLogger>();
         services.AddSingleton<IBandwidthMeter, BandwidthMeter>();
+        services.AddSingleton<IPackageTrafficLog, PackageTrafficLog>();
         services.AddSingleton<ISettingsManager, SettingsManager>();
         services.AddSingleton<IPasswordPolicy, PasswordPolicy>();
         services.AddSingleton<IBackupService, BackupService>();
@@ -109,6 +110,7 @@ public class FileServeInitializer(
     IUserManager users,
     IActivityLogger activity,
     IBandwidthMeter bandwidth,
+    IPackageTrafficLog packageTraffic,
     ISettingsManager settings,
     IUploadScanner scanner,
     FileServeOptions options,
@@ -158,6 +160,13 @@ public class FileServeInitializer(
             var pruned = await bandwidth.Prune(bandwidthRetention, ct);
             if (pruned > 0)
                 logger.LogInformation("Pruned {Count} bandwidth rows older than {Retention}", pruned, bandwidthRetention);
+        }
+
+        if (options.PackageTrafficRetention is { } trafficRetention)
+        {
+            var pruned = await packageTraffic.Prune(trafficRetention, ct);
+            if (pruned > 0)
+                logger.LogInformation("Pruned {Count} package feed requests older than {Retention}", pruned, trafficRetention);
         }
     }
 

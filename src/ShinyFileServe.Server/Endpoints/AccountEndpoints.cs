@@ -147,7 +147,7 @@ public class AccountEndpoints(
         return new NoContentResult();
     }
 
-    static AccessTokenInfo ToInfo(Core.Documents.AccessToken token)
+    internal static AccessTokenInfo ToInfo(Core.Documents.AccessToken token)
         => new(token.Id, token.Name, token.Hint, token.CreatedUtc, token.LastUsedUtc, token.ExpiresAtUtc);
 
     /// <summary>
