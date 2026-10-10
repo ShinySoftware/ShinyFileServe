@@ -46,6 +46,7 @@ public static class Registration
         services.AddSingleton<IUserManager, UserManager>();
         services.AddSingleton<IAccessTokenManager, AccessTokenManager>();
         services.AddSingleton<IFolderManager, FolderManager>();
+        services.AddSingleton<IShareLinkManager, ShareLinkManager>();
         services.AddSingleton<IQuotaTracker, QuotaTracker>();
         services.AddSingleton<IAccessResolver, AccessResolver>();
         services.AddSingleton<IActivityLogger, ActivityLogger>();

@@ -363,6 +363,47 @@ An administrator can give any file or folder inside a share a friendly name and 
 disk stays visible beside the alias — a renamed file nobody can find by its real name is worse than
 one with an awkward name.
 
+## Share links
+
+A file or a folder can be handed out as an address. The 🔗 beside an entry in the file list makes a
+link to it, and **Share** in the toolbar makes one to the folder on screen. Each link is for one of two
+audiences:
+
+- **Anyone with the link**: no account and no sign-in. The address is 128 random bits, and that is
+  the whole of its protection, so treat it like a key.
+- **Particular accounts**: picked from a list. Somebody without a session is sent to sign in and
+  brought straight back; anybody signed in as somebody else is told the link was for other people.
+
+A link can also stop working after a day, a week, 30 or 90 days. A folder opens as a **gallery**:
+photos and videos as tiles, a full-screen viewer with the arrow keys, and everything else as a plain
+list with a download button. HEIC goes in the list rather than the gallery, because only Safari can
+draw it.
+
+- **Anybody who may download something may share it.** A link carries no rights of its own. It lends
+  its creator's, re-checked on every request, so taking away their grant or their account closes
+  every link they made on the next click. It is narrowed to reading whatever the creator could do.
+- **Downloads count against the creator's quotas**, folder and account both. Otherwise an "anyone"
+  link would be a way round every quota on the server.
+- **An anonymous account cannot make links.** Anybody can be one, so its links would be nobody's.
+- The address uses the **public tunnel when it is open, otherwise the LAN address**, worked out
+  when the link is read rather than stored. A link copied from the desktop window is therefore never
+  `127.0.0.1`, and one made before the tunnel opened picks up the tunnel's address afterwards.
+- **Copy** works over plain http too. The clipboard API exists only on https and loopback, so it
+  falls back to the older copy command there.
+- **Links** in the top bar lists what you made (copy again, open, revoke) and what was shared with you.
+  An administrator can switch it to everybody's links. Making, revoking and opening a link all go in
+  the activity log, under the visitor's name when they signed in and as "link from …" when they did
+  not.
+- Each photo in a gallery is a download in its own right, so it is charged and logged as one. An
+  album viewed once is the album's size against the creator's quota.
+
+### Anonymous access without a link
+
+For a folder that should simply be open, with no address to pass around, use an **anonymous account**
+instead: create an account with *Anyone can sign in as this account*, put it in a group of its own,
+and grant that group List and Download on the folder. The sign-in page then offers *Continue as …*
+to everybody who reaches the server, and what they see is exactly what that group was granted.
+
 ## The tray
 
 The tray icon is the app's front door; the window is one view onto it.

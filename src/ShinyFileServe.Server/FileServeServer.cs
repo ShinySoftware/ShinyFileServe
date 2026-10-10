@@ -141,6 +141,8 @@ public static class ServerRegistration
                     server.MapAdminPackagesEndpoints();
                     server.MapFolderEndpoints();
                     server.MapFileEndpoints();
+                    server.MapShareLinkEndpoints();
+                    server.MapSharedEndpoints();
                     server.MapActivityEndpoints();
                     server.MapPackageFeeds();
                 });

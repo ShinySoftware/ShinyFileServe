@@ -91,6 +91,8 @@ public class ActivityNotifier(
         ActivityAction.Denied => "Action refused",
         ActivityAction.PackagePublish => "Package published",
         ActivityAction.PackageRemove => "Package removed",
+        ActivityAction.ShareLinkCreated => "Share link made",
+        ActivityAction.ShareLinkRevoked => "Share link revoked",
         _ => "FileServe"
     };
 

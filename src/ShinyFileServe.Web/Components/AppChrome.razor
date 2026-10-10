@@ -24,12 +24,22 @@
     {
         <nav class="chrome__nav" aria-label="Administration">
             <NavLink class="chrome__link" href="shares" title="Folders published to groups">Shares</NavLink>
+            <NavLink class="chrome__link" href="links" title="Share links - yours and everybody's">Links</NavLink>
             <NavLink class="chrome__link" href="people" title="Accounts and groups">People</NavLink>
             <NavLink class="chrome__link" href="activity" title="The audit trail">Activity</NavLink>
             <NavLink class="chrome__link" href="bandwidth" title="How much has gone in and out">Bandwidth</NavLink>
             <NavLink class="chrome__link" href="packages" title="NuGet and npm traffic, and every access token">Packages</NavLink>
             <NavLink class="chrome__link" href="live" title="Who is signed in and what is moving">Right now</NavLink>
             <NavLink class="chrome__link" href="settings" title="Server settings">Settings</NavLink>
+        </nav>
+    }
+
+    @* Every account with its own password makes and receives share links, so this one is not
+       role-gated. An anonymous account can do neither. *@
+    @if (this.State.User is { IsAnonymous: false, IsAdmin: false })
+    {
+        <nav class="chrome__nav" aria-label="Sharing">
+            <NavLink class="chrome__link" href="links" title="Files and folders you shared, or were shared with you">Links</NavLink>
         </nav>
     }
 

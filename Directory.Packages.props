@@ -5,22 +5,20 @@
     </PropertyGroup>
     <ItemGroup>
         <!-- Shiny -->
-        <!-- 2.1 is where the NuGet feed and npm registry arrive. Until it is on nuget.org it comes from
-             the httpserver repo's artifacts/local-feed - see nuget.config. -->
-        <PackageVersion Include="Shiny.Net.HttpServer" Version="2.1.0-beta.2.g65d554ce8c"/>
-        <PackageVersion Include="Shiny.Net.HttpServer.NuGet" Version="2.1.0-beta.2.g65d554ce8c"/>
-        <PackageVersion Include="Shiny.Net.HttpServer.Npm" Version="2.1.0-beta.2.g65d554ce8c"/>
-        <PackageVersion Include="Shiny.AppDeviceBridge" Version="1.1.0"/>
-        <PackageVersion Include="Shiny.AppDeviceBridge.WebView" Version="1.1.0"/>
-        <PackageVersion Include="Shiny.AppDeviceBridge.Tunnel" Version="1.1.0"/>
-        <PackageVersion Include="Shiny.DocumentDb" Version="14.0.0"/>
-        <PackageVersion Include="Shiny.DocumentDb.Sqlite" Version="14.0.0"/>
+        <PackageVersion Include="Shiny.Net.HttpServer" Version="2.1.0"/>
+        <PackageVersion Include="Shiny.Net.HttpServer.NuGet" Version="2.1.0"/>
+        <PackageVersion Include="Shiny.Net.HttpServer.Npm" Version="2.1.0"/>
+        <PackageVersion Include="Shiny.AppDeviceBridge" Version="1.2.0"/>
+        <PackageVersion Include="Shiny.AppDeviceBridge.WebView" Version="1.2.0"/>
+        <PackageVersion Include="Shiny.AppDeviceBridge.Tunnel" Version="1.2.0"/>
+        <PackageVersion Include="Shiny.DocumentDb" Version="14.1.0"/>
+        <PackageVersion Include="Shiny.DocumentDb.Sqlite" Version="14.1.0"/>
         <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.7"/>
-        <PackageVersion Include="Shiny.Blazor.Controls" Version="1.5.0"/>
-        <PackageVersion Include="Shiny.Maui.Controls" Version="1.5.0"/>
-        <PackageVersion Include="Shiny.Maui.Controls.Desktop" Version="1.5.0"/>
-        <PackageVersion Include="Shiny.Notifications" Version="5.8.0"/>
-        <PackageVersion Include="Shiny.Notifications.Linux" Version="5.8.0"/>
+        <PackageVersion Include="Shiny.Blazor.Controls" Version="1.6.0"/>
+        <PackageVersion Include="Shiny.Maui.Controls" Version="1.6.0"/>
+        <PackageVersion Include="Shiny.Maui.Controls.Desktop" Version="1.6.0"/>
+        <PackageVersion Include="Shiny.Notifications" Version="5.9.0"/>
+        <PackageVersion Include="Shiny.Notifications.Linux" Version="5.9.0"/>
         <PackageVersion Include="Shiny.Extensions.MauiHosting" Version="5.3.1"/>
 
         <!-- Virus scanning: a client for a ClamAV daemon, Apache-2.0. clamd itself is GPL and stays a

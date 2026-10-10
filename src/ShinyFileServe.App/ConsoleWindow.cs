@@ -22,10 +22,19 @@ public class ConsoleWindowPage : ContentPage
 {
     readonly ServerController server;
     readonly WebView web = new();
+    // The portal's paper, ink-2 and accent in both themes (see app.css). This window shows before the
+    // portal has painted and whenever the server is down, so a fixed light grey here is a light flash
+    // on every dark machine, and a light panel left behind when the server stops.
+    static readonly Color PaperLight = Color.FromArgb("#F1F4F6");
+    static readonly Color PaperDark = Color.FromArgb("#0B1013");
+    static readonly Color InkLight = Color.FromArgb("#5D6874");
+    static readonly Color InkDark = Color.FromArgb("#9AA7B0");
+    static readonly Color AccentLight = Color.FromArgb("#0E6F70");
+    static readonly Color AccentDark = Color.FromArgb("#2FA6A5");
+
     readonly Label status = new()
     {
         HorizontalTextAlignment = TextAlignment.Center,
-        TextColor = Color.FromArgb("#5D6874"),
         FontSize = 14
     };
     readonly Grid placeholder;
@@ -37,12 +46,21 @@ public class ConsoleWindowPage : ContentPage
         this.server = server;
         this.web.Navigating += this.OnNavigating;
         this.Title = "FileServe";
-        this.BackgroundColor = Color.FromArgb("#F1F4F6");
+        this.SetAppThemeColor(BackgroundColorProperty, PaperLight, PaperDark);
+        this.status.SetAppThemeColor(Label.TextColorProperty, InkLight, InkDark);
         this.Padding = 0;
+
+        var mark = new BoxView
+        {
+            WidthRequest = 30,
+            HeightRequest = 30,
+            CornerRadius = 7,
+            HorizontalOptions = LayoutOptions.Center
+        };
+        mark.SetAppThemeColor(BoxView.ColorProperty, AccentLight, AccentDark);
 
         this.placeholder = new Grid
         {
-            BackgroundColor = Color.FromArgb("#F1F4F6"),
             Padding = 32,
             Children =
             {
@@ -53,19 +71,14 @@ public class ConsoleWindowPage : ContentPage
                     HorizontalOptions = LayoutOptions.Center,
                     Children =
                     {
-                        new BoxView
-                        {
-                            WidthRequest = 30,
-                            HeightRequest = 30,
-                            CornerRadius = 7,
-                            Color = Color.FromArgb("#0E6F70"),
-                            HorizontalOptions = LayoutOptions.Center
-                        },
+                        mark,
                         this.status
                     }
                 }
             }
         };
+
+        this.placeholder.SetAppThemeColor(VisualElement.BackgroundColorProperty, PaperLight, PaperDark);
 
         this.Content = new Grid { Children = { this.web, this.placeholder } };
     }

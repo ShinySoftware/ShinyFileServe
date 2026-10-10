@@ -37,6 +37,16 @@
     --danger:     #A3162A;
     --danger-soft:#FBE7E9;
 
+    /* Text that sits on a solid fill of the colour it is named after. White in the light theme;
+       in the dark one the fills turn pale, and white on them would all but disappear. */
+    --on-accent:  #FFFFFF;
+    --on-warn:    #FFFFFF;
+    --on-danger:  #FFFFFF;
+
+    /* The accent as it reads on an inverted surface - a toast is dark in the light theme and pale
+       in the dark one, so the teal on it has to swap ends too. */
+    --accent-inverse: #6ED3D1;
+
     --sans: "IBM Plex Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
@@ -82,6 +92,12 @@
         --warn-soft:  #33240F;
         --danger:     #E4788A;
         --danger-soft:#331319;
+
+        --on-accent:  #04201F;
+        --on-warn:    #2A1A05;
+        --on-danger:  #2A0A10;
+
+        --accent-inverse: #0E6F70;
 
         --shadow-pane: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -14px rgba(0,0,0,.7);
         --shadow-pop:  0 16px 44px -14px rgba(0,0,0,.75);
@@ -146,13 +162,13 @@ button { font: inherit; }
     z-index: 1000;
     padding: 12px 20px;
     background: var(--danger);
-    color: #fff;
+    color: var(--on-danger);
     font-size: 13px;
 }
 
 #blazor-error-ui .reload,
 #blazor-error-ui .dismiss {
-    color: #fff;
+    color: var(--on-danger);
     margin-left: 12px;
     cursor: pointer;
 }
@@ -482,10 +498,10 @@ button { font: inherit; }
 .action--primary {
     background: var(--accent);
     border-color: var(--accent);
-    color: #fff;
+    color: var(--on-accent);
 }
 
-.action--primary:hover:not(:disabled) { background: var(--accent-ink); border-color: var(--accent-ink); color: #fff; }
+.action--primary:hover:not(:disabled) { background: var(--accent-ink); border-color: var(--accent-ink); color: var(--on-accent); }
 
 .action--danger { color: var(--danger); }
 .action--danger:hover:not(:disabled) { background: var(--danger-soft); border-color: var(--danger); }
@@ -688,11 +704,78 @@ button.cell-name__link:hover { color: var(--accent); text-decoration: underline;
    Shiny control theming — bend the library's tokens toward this palette.
    --------------------------------------------------------------------------- */
 
+/* The library's own theme sheet is not loaded - its palette is a different product's - so every
+   colour token its components read is answered here, from ours. Missing one is not harmless: each
+   falls back to a light-theme hex inside the component, which is how a modal or a grid header ends
+   up white in the dark theme. Everything below is a var() of a token the dark block redefines, so
+   one switch of theme moves the controls with the rest of the page. */
 :root {
     --shiny-color-primary: var(--accent);
+    --shiny-color-on-primary: var(--on-accent);
+    --shiny-color-primary-container: var(--accent-soft);
+    --shiny-color-on-primary-container: var(--accent-ink);
+
+    --shiny-color-secondary: var(--ink-2);
+    --shiny-color-on-secondary: var(--surface);
+    --shiny-color-secondary-container: var(--surface-2);
+    --shiny-color-on-secondary-container: var(--ink);
+
+    --shiny-color-tertiary: var(--accent);
+    --shiny-color-tertiary-container: var(--accent-soft);
+    --shiny-color-on-tertiary-container: var(--accent-ink);
+
+    --shiny-color-background: var(--paper);
+    --shiny-color-on-background: var(--ink);
     --shiny-color-surface: var(--surface);
     --shiny-color-on-surface: var(--ink);
+    --shiny-color-surface-variant: var(--surface-2);
+    --shiny-color-on-surface-variant: var(--ink-2);
+    --shiny-color-surface-container-lowest: var(--surface);
+    --shiny-color-surface-container-low: var(--surface-2);
+    --shiny-color-surface-container: var(--paper);
+    --shiny-color-surface-container-high: color-mix(in srgb, var(--ink) 6%, var(--surface));
+    --shiny-color-surface-container-highest: color-mix(in srgb, var(--ink) 10%, var(--surface));
+
     --shiny-color-outline: var(--rule);
+    --shiny-color-outline-variant: var(--rule);
+
+    --shiny-color-inverse-surface: var(--ink);
+    --shiny-color-inverse-on-surface: var(--surface);
+    --shiny-color-inverse-primary: var(--accent-inverse);
+
+    /* Amber and red keep their one meaning here too: a limit approached, a limit hit. Success and
+       information are not colours this design spends, so they wear the accent. */
+    --shiny-color-error: var(--danger);
+    --shiny-color-on-error: var(--on-danger);
+    --shiny-color-error-container: var(--danger-soft);
+    --shiny-color-on-error-container: var(--danger);
+    --shiny-color-critical: var(--danger);
+    --shiny-color-on-critical: var(--on-danger);
+    --shiny-color-critical-container: var(--danger-soft);
+    --shiny-color-on-critical-container: var(--danger);
+    --shiny-color-warning: var(--warn);
+    --shiny-color-on-warning: var(--on-warn);
+    --shiny-color-warning-container: var(--warn-soft);
+    --shiny-color-on-warning-container: var(--warn);
+    --shiny-color-caution: var(--warn);
+    --shiny-color-caution-container: var(--warn-soft);
+    --shiny-color-on-caution-container: var(--warn);
+    --shiny-color-success: var(--accent);
+    --shiny-color-on-success: var(--on-accent);
+    --shiny-color-success-container: var(--accent-soft);
+    --shiny-color-on-success-container: var(--accent-ink);
+    --shiny-color-info: var(--accent);
+    --shiny-color-on-info: var(--on-accent);
+    --shiny-color-info-container: var(--accent-soft);
+    --shiny-color-on-info-container: var(--accent-ink);
+
+    /* The fallbacks are tuned for a light page; on a dark one they vanish into it. */
+    --shiny-elevation-1: var(--shadow-pane);
+    --shiny-elevation-2: var(--shadow-pane);
+    --shiny-elevation-3: var(--shadow-pop);
+    --shiny-elevation-4: var(--shadow-pop);
+    --shiny-elevation-5: var(--shadow-pop);
+
     --shiny-shape-corner-medium: var(--r-md);
     --shiny-shape-corner-small: var(--r-sm);
 }
@@ -2039,3 +2122,351 @@ button.cell-name__link:hover { color: var(--accent); text-decoration: underline;
 .pkg .log { flex: 1; min-height: 0; }
 .pkg__keys { display: grid; gap: 14px; overflow: auto; min-height: 0; }
 .log__filters .field--check { align-self: center; white-space: nowrap; }
+
+/* ---------------------------------------------------------------------------
+   Share links — the modal that makes one, the screen that lists them, and the
+   page somebody lands on when they follow one.
+   --------------------------------------------------------------------------- */
+
+.field select,
+.sharelink__filter {
+    font: inherit;
+    padding: 8px 10px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--ink);
+}
+
+.field select:focus,
+.sharelink__filter:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.sharelink__people {
+    max-height: 220px;
+    overflow: auto;
+    padding: 4px 2px;
+}
+
+.sharelink__who { font-size: 11.5px; color: var(--ink-3); }
+
+.sharelink__copy {
+    display: flex;
+    gap: 8px;
+}
+
+.sharelink__url {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    padding: 9px 11px;
+    border: 1px solid var(--accent-line);
+    border-radius: var(--r-md);
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+}
+
+.sharelink__url:focus { outline: none; border-color: var(--accent); }
+
+/* --- the Links screen --- */
+
+.links { display: grid; gap: 10px; max-width: 980px; margin-bottom: 28px; }
+
+.links__heading { font-size: 15px; }
+
+.links__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-pane);
+}
+
+.links__row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--rule-soft);
+}
+
+.links__row:first-child { border-top: 0; }
+
+.links__row--expired { opacity: .6; }
+
+.links__what { display: grid; gap: 3px; flex: 1; min-width: 0; }
+
+.links__title {
+    font-weight: 600;
+    color: var(--ink);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+a.links__title:hover { color: var(--accent-ink); }
+
+.links__meta {
+    font-size: 12px;
+    color: var(--ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.links__actions { display: flex; gap: 6px; flex: none; }
+
+.links__actions a.action { text-decoration: none; }
+
+@media (max-width: 640px) {
+    .links__row { flex-direction: column; align-items: stretch; }
+    .links__actions { flex-wrap: wrap; }
+    .sharelink__copy { flex-direction: column; }
+}
+
+/* --- the page a link opens --- */
+
+.shared {
+    min-height: 100dvh;
+    background: var(--paper);
+    display: flex;
+    flex-direction: column;
+}
+
+.shared__head {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    padding: 14px 22px;
+    background: var(--chrome);
+    color: var(--on-chrome);
+}
+
+.shared__mark { color: var(--on-chrome); flex: none; }
+
+.shared__titles { display: grid; gap: 2px; min-width: 0; }
+
+.shared__titles h1 {
+    font-size: 18px;
+    color: var(--on-chrome);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.shared__sub { font-size: 12.5px; color: var(--on-chrome); opacity: .7; }
+
+.shared__body {
+    flex: 1;
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px 22px 40px;
+    display: grid;
+    gap: 18px;
+    align-content: start;
+}
+
+.shared__body .empty-state a.action { text-decoration: none; justify-self: center; }
+
+.shared__crumbs { margin-bottom: -6px; }
+
+.shared__folders { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.shared__folder {
+    font: inherit;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+}
+
+.shared__folder:hover { border-color: var(--accent-line); background: var(--accent-soft); }
+
+.shared__single { display: grid; gap: 16px; justify-items: center; }
+
+.shared__hero {
+    max-width: 100%;
+    max-height: 72dvh;
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-pane);
+    background: var(--surface);
+}
+
+.shared__filecard {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+}
+
+.shared__filecard a.action { text-decoration: none; }
+
+.shared__meta { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+
+.shared__files {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+}
+
+.shared__files li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 14px;
+    border-top: 1px solid var(--rule-soft);
+}
+
+.shared__files li:first-child { border-top: 0; }
+
+.shared__filename { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.shared__files .icon-btn { text-decoration: none; }
+
+.gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px;
+}
+
+.gallery__tile {
+    position: relative;
+    aspect-ratio: 1;
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-md);
+    overflow: hidden;
+    background: var(--rule-soft);
+    cursor: zoom-in;
+}
+
+.gallery__tile img,
+.gallery__tile video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform var(--speed) var(--ease);
+}
+
+.gallery__tile:hover img,
+.gallery__tile:hover video { transform: scale(1.03); }
+
+.gallery__tile:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.gallery__play {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 30px;
+    color: #fff;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, .6);
+    pointer-events: none;
+}
+
+@media (max-width: 560px) {
+    .shared__head { flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px 16px; }
+    .shared__body { padding: 16px 16px 32px; }
+    .gallery { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 4px; }
+}
+
+/* The full-screen viewer. Always dark, whatever the theme: a photo is judged against black. */
+.viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    background: rgba(6, 9, 11, .96);
+    color: #E7EDF0;
+    outline: none;
+}
+
+.viewer__bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    flex: none;
+}
+
+.viewer__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+
+.viewer__count { font-size: 12px; opacity: .7; }
+
+.viewer__btn {
+    display: inline-grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    font: inherit;
+    font-size: 16px;
+    color: inherit;
+    text-decoration: none;
+    background: rgba(255, 255, 255, .08);
+    border: 0;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.viewer__btn:hover { background: rgba(255, 255, 255, .18); }
+
+.viewer__stage {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    place-items: center;
+    padding: 0 56px 24px;
+}
+
+.viewer__stage img,
+.viewer__stage video {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.viewer__nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 44px;
+    height: 64px;
+    font-size: 34px;
+    line-height: 1;
+    color: inherit;
+    background: rgba(255, 255, 255, .06);
+    border: 0;
+    border-radius: var(--r-md);
+    cursor: pointer;
+}
+
+.viewer__nav:hover { background: rgba(255, 255, 255, .16); }
+.viewer__nav--prev { left: 8px; }
+.viewer__nav--next { right: 8px; }
+
+@media (max-width: 560px) {
+    .viewer__stage { padding: 0 0 16px; }
+    .viewer__nav { top: auto; bottom: 16px; transform: none; }
+}

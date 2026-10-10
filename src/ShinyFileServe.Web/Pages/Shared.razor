@@ -1,0 +1,304 @@
+@page "/s/{Token}"
+@inject FileServeApi Api
+@inject NavigationManager Nav
+
+@*
+    What a share link opens. Most of the people who arrive here have never seen the portal and may
+    have no account, so it carries none of the portal's chrome: a heading, who shared it, and the
+    thing itself. A folder of photos is a gallery, because that is what an album is; whatever is not
+    a photo or a video sits in a plain list underneath it.
+*@
+
+<PageTitle>@(this.item?.Title ?? "Shared") · FileServe</PageTitle>
+
+<div class="shared">
+    <header class="shared__head">
+        <span class="chrome__mark shared__mark">
+            <span class="chrome__glyph" aria-hidden="true"></span>
+            FileServe
+        </span>
+
+        @if (this.item is { } shared)
+        {
+            <div class="shared__titles">
+                <h1>@shared.Title</h1>
+                <p class="shared__sub">
+                    Shared by @shared.SharedBy
+                    @if (shared.ExpiresAtUtc is { } until)
+                    {
+                        <span> · until @Format.When(until)</span>
+                    }
+                </p>
+            </div>
+        }
+    </header>
+
+    <main class="shared__body">
+        @if (this.loading)
+        {
+            <p class="admin__loading">Opening…</p>
+        }
+        else if (this.needsSignIn)
+        {
+            <div class="empty-state">
+                <h2>Sign in to see this</h2>
+                <p>It was shared with particular accounts. Sign in as one of them and you will come straight back here.</p>
+                <a class="action action--primary" href="@($"signin?return=s/{this.Token}")">Sign in</a>
+            </div>
+        }
+        else if (this.error is { } error)
+        {
+            <div class="empty-state">
+                <h2>This link will not open</h2>
+                <p>@error</p>
+            </div>
+        }
+        else if (this.item is { IsDirectory: false } file)
+        {
+            <div class="shared__single">
+                @if (Media.IsImage(file.Name))
+                {
+                    <img class="shared__hero" src="@FileServeApi.SharedFileUrl(this.Token, null)" alt="@file.Title" />
+                }
+                else if (Media.IsVideo(file.Name))
+                {
+                    <video class="shared__hero" src="@FileServeApi.SharedFileUrl(this.Token, null)" controls preload="metadata"></video>
+                }
+
+                <div class="shared__filecard">
+                    <span class="num">@file.Name</span>
+                    <span class="shared__meta">@Format.Bytes(file.Size)</span>
+                    <a class="action action--primary" href="@FileServeApi.SharedFileUrl(this.Token, null, download: true)" download>
+                        <span aria-hidden="true">⤓</span> Download
+                    </a>
+                </div>
+            </div>
+        }
+        else
+        {
+            @if (this.path.Length > 0)
+            {
+                <nav class="crumbs shared__crumbs" aria-label="Where you are">
+                    <button type="button" class="crumbs__link" @onclick="() => this.Navigate(string.Empty)">@this.item?.Name</button>
+                    @{ var walked = ""; }
+                    @foreach (var segment in this.path.Split('/'))
+                    {
+                        walked = walked.Length == 0 ? segment : $"{walked}/{segment}";
+                        var target = walked;
+                        <span class="crumbs__sep" aria-hidden="true">/</span>
+                        <button type="button" class="crumbs__link" @onclick="() => this.Navigate(target)">@segment</button>
+                    }
+                </nav>
+            }
+
+            @if (this.listingLoading)
+            {
+                <p class="admin__loading">Reading the folder…</p>
+            }
+            else if (this.folders.Count + this.media.Count + this.others.Count == 0)
+            {
+                <div class="empty-state">
+                    <h2>Nothing in here</h2>
+                    <p>This folder is empty.</p>
+                </div>
+            }
+            else
+            {
+                @if (this.folders.Count > 0)
+                {
+                    <div class="shared__folders">
+                        @foreach (var folder in this.folders)
+                        {
+                            var entry = folder;
+                            <button type="button" class="shared__folder" @onclick="() => this.Navigate(entry.Path)">
+                                <span aria-hidden="true">▸</span> @entry.Label
+                            </button>
+                        }
+                    </div>
+                }
+
+                @if (this.media.Count > 0)
+                {
+                    <div class="gallery">
+                        @for (var i = 0; i < this.media.Count; i++)
+                        {
+                            var index = i;
+                            var entry = this.media[i];
+                            <button type="button" class="gallery__tile" title="@entry.Label" @onclick="() => this.View(index)">
+                                @if (Media.IsImage(entry.Name))
+                                {
+                                    <img src="@FileServeApi.SharedFileUrl(this.Token, entry.Path)" alt="@entry.Label" loading="lazy" decoding="async" />
+                                }
+                                else
+                                {
+                                    <video src="@FileServeApi.SharedFileUrl(this.Token, entry.Path)#t=0.1" preload="metadata" muted></video>
+                                    <span class="gallery__play" aria-hidden="true">▶</span>
+                                }
+                            </button>
+                        }
+                    </div>
+                }
+
+                @if (this.others.Count > 0)
+                {
+                    <ul class="shared__files">
+                        @foreach (var entry in this.others)
+                        {
+                            <li>
+                                <span class="shared__filename">@entry.Label</span>
+                                <span class="shared__meta">@Format.Bytes(entry.Size)</span>
+                                <a class="icon-btn" title="Download @entry.Name" download
+                                   href="@FileServeApi.SharedFileUrl(this.Token, entry.Path, download: true)">⤓</a>
+                            </li>
+                        }
+                    </ul>
+                }
+            }
+        }
+    </main>
+</div>
+
+@if (this.viewing is { } at && at < this.media.Count)
+{
+    var entry = this.media[at];
+    <div class="viewer" role="dialog" aria-label="@entry.Label" tabindex="0"
+         @ref="this.viewerElement" @onkeydown="this.OnViewerKey">
+        <div class="viewer__bar">
+            <span class="viewer__name">@entry.Label</span>
+            <span class="viewer__count num">@(at + 1) / @this.media.Count</span>
+            <a class="viewer__btn" title="Download" download
+               href="@FileServeApi.SharedFileUrl(this.Token, entry.Path, download: true)">⤓</a>
+            <button type="button" class="viewer__btn" title="Close" @onclick="this.Close">✕</button>
+        </div>
+
+        <div class="viewer__stage" @onclick="this.Close">
+            @if (Media.IsImage(entry.Name))
+            {
+                <img src="@FileServeApi.SharedFileUrl(this.Token, entry.Path)" alt="@entry.Label" @onclick:stopPropagation="true" />
+            }
+            else
+            {
+                <video src="@FileServeApi.SharedFileUrl(this.Token, entry.Path)" controls autoplay @onclick:stopPropagation="true"></video>
+            }
+        </div>
+
+        @if (this.media.Count > 1)
+        {
+            <button type="button" class="viewer__nav viewer__nav--prev" title="Previous" @onclick="() => this.Step(-1)">‹</button>
+            <button type="button" class="viewer__nav viewer__nav--next" title="Next" @onclick="() => this.Step(1)">›</button>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string Token { get; set; } = "";
+
+    SharedItem? item;
+    bool loading = true;
+    bool listingLoading;
+    bool needsSignIn;
+    string? error;
+
+    string path = "";
+    List<FileEntryInfo> folders = [];
+    List<FileEntryInfo> media = [];
+    List<FileEntryInfo> others = [];
+
+    int? viewing;
+    ElementReference viewerElement;
+    bool focusViewer;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        this.loading = true;
+        this.needsSignIn = false;
+        this.error = null;
+
+        try
+        {
+            this.item = await this.Api.GetShared(this.Token);
+            if (this.item.IsDirectory)
+                await this.Navigate("");
+        }
+        catch (ApiException ex) when (ex.IsUnauthorized)
+        {
+            this.needsSignIn = true;
+        }
+        catch (ApiException ex)
+        {
+            this.error = ex.Message;
+        }
+        finally
+        {
+            this.loading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // The viewer takes the keyboard as it opens, so the arrows work without a click first.
+        if (this.focusViewer)
+        {
+            this.focusViewer = false;
+            await this.viewerElement.FocusAsync();
+        }
+    }
+
+    async Task Navigate(string target)
+    {
+        this.listingLoading = true;
+        this.viewing = null;
+        this.StateHasChanged();
+
+        try
+        {
+            var listing = await this.Api.ListShared(this.Token, target);
+            this.path = listing.Path;
+            this.folders = listing.Entries.Where(e => e.IsDirectory).ToList();
+            this.media = listing.Entries.Where(e => !e.IsDirectory && Media.IsViewable(e.Name)).ToList();
+            this.others = listing.Entries.Where(e => !e.IsDirectory && !Media.IsViewable(e.Name)).ToList();
+        }
+        catch (ApiException ex)
+        {
+            this.error = ex.IsUnauthorized ? "Your session ended. Open the link again to sign back in." : ex.Message;
+        }
+        finally
+        {
+            this.listingLoading = false;
+        }
+    }
+
+    void View(int index)
+    {
+        this.viewing = index;
+        this.focusViewer = true;
+    }
+
+    void Close() => this.viewing = null;
+
+    void Step(int by)
+    {
+        if (this.viewing is not { } at || this.media.Count == 0)
+            return;
+
+        // Wraps, so the last photo leads back to the first rather than to a dead button.
+        this.viewing = (at + by + this.media.Count) % this.media.Count;
+    }
+
+    void OnViewerKey(KeyboardEventArgs args)
+    {
+        switch (args.Key)
+        {
+            case "ArrowLeft":
+                this.Step(-1);
+                break;
+            case "ArrowRight":
+            case " ":
+                this.Step(1);
+                break;
+            case "Escape":
+                this.Close();
+                break;
+        }
+    }
+}

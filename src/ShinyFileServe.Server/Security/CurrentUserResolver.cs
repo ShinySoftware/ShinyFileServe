@@ -81,6 +81,7 @@ public static class PrincipalFactory
             user.IsAdministrator(roles),
             roles.Select(r => r.Name).ToList(),
             isLocalSession,
-            mustChangePassword
+            mustChangePassword,
+            user.IsAnonymous
         );
 }

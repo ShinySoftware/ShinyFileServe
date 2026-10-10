@@ -314,6 +314,75 @@ public class FileServeApi(HttpClient http)
         await Ensure(response);
     }
 
+    // -- share links ----------------------------------------------------------
+
+    /// <summary>The caller's own links, or - for an administrator asking with <paramref name="all"/> - everybody's.</summary>
+    public async Task<List<ShareLinkInfo>> GetLinks(bool all = false, CancellationToken ct = default)
+    {
+        using var response = await http.GetAsync($"api/links{(all ? "?all=true" : "")}", ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.ListShareLinkInfo, ct) ?? [];
+    }
+
+    public async Task<List<ShareLinkInfo>> GetLinksSharedWithMe(CancellationToken ct = default)
+    {
+        using var response = await http.GetAsync("api/links/shared-with-me", ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.ListShareLinkInfo, ct) ?? [];
+    }
+
+    public async Task<List<ShareRecipient>> GetShareRecipients(CancellationToken ct = default)
+    {
+        using var response = await http.GetAsync("api/links/recipients", ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.ListShareRecipient, ct) ?? [];
+    }
+
+    public async Task<ShareLinkInfo> CreateLink(CreateShareLinkRequest request, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync("api/links", request, ClientJsonContext.Default.CreateShareLinkRequest, ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.ShareLinkInfo, ct)
+            ?? throw new ApiException(HttpStatusCode.InternalServerError, "The link was made but the server sent nothing back.");
+    }
+
+    public async Task RevokeLink(string id, CancellationToken ct = default)
+    {
+        using var response = await http.DeleteAsync($"api/links/{Uri.EscapeDataString(id)}", ct);
+        await Ensure(response);
+    }
+
+    /// <summary>What a link points at. Throws with <see cref="ApiException.IsUnauthorized"/> when it wants a sign-in.</summary>
+    public async Task<SharedItem> GetShared(string token, CancellationToken ct = default)
+    {
+        using var response = await http.GetAsync($"api/shared/{Uri.EscapeDataString(token)}", ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.SharedItem, ct)
+            ?? throw new ApiException(HttpStatusCode.InternalServerError, "The server sent nothing back.");
+    }
+
+    public async Task<SharedListing> ListShared(string token, string? path, CancellationToken ct = default)
+    {
+        var query = String.IsNullOrEmpty(path) ? "" : $"?path={Uri.EscapeDataString(path)}";
+        using var response = await http.GetAsync($"api/shared/{Uri.EscapeDataString(token)}/list{query}", ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.SharedListing, ct)
+            ?? new SharedListing(path ?? "", []);
+    }
+
+    /// <summary>A file behind a link: inline for an img or a video, or as a download.</summary>
+    public static string SharedFileUrl(string token, string? path, bool download = false)
+    {
+        var parts = new List<string>();
+        if (!String.IsNullOrEmpty(path))
+            parts.Add($"path={Uri.EscapeDataString(path)}");
+        if (download)
+            parts.Add("download=true");
+
+        var query = parts.Count == 0 ? "" : "?" + String.Join("&", parts);
+        return $"api/shared/{Uri.EscapeDataString(token)}/file{query}";
+    }
+
     // -- plumbing -----------------------------------------------------------
 
     static string Query(string folderId, string? path)

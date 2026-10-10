@@ -55,6 +55,12 @@
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
     /// <summary>
+    /// False for a screen any signed-in account may use - its own share links. The frame is the
+    /// same; only who gets turned away differs.
+    /// </summary>
+    [Parameter] public bool AdminOnly { get; set; } = true;
+
+    /// <summary>
     /// Nothing is rendered until the server has said who is here. Typing one of these addresses
     /// starts a session with no user loaded, and a non-administrator who reaches one is sent to the
     /// files rather than shown an empty screen. The endpoints refuse them regardless - this is so
@@ -71,7 +77,7 @@
                 return;
             }
 
-            if (!user.IsAdmin)
+            if (this.AdminOnly && !user.IsAdmin)
             {
                 this.Nav.NavigateTo("");
                 return;

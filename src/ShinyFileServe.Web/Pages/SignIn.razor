@@ -81,6 +81,19 @@
 </div>
 
 @code {
+    /// <summary>
+    /// Where to go once signed in - a share link that asked for a session. Only a link is honoured,
+    /// so this cannot be used to bounce somebody off to another site after they sign in.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "return")]
+    public string? ReturnTo { get; set; }
+
+    string Destination => this.ReturnTo is { Length: > 2 } to
+        && to.StartsWith("s/", StringComparison.Ordinal)
+        && to[2..].All(c => Char.IsAsciiLetterOrDigit(c) || c is '-' or '_')
+            ? to
+            : "";
+
     string username = "";
     string password = "";
     bool remember;
@@ -112,7 +125,7 @@
         if (await this.Api.GetCurrentUser() is { } existing)
         {
             this.State.SetUser(existing);
-            this.Nav.NavigateTo("");
+            this.Nav.NavigateTo(this.Destination);
         }
     }
 
@@ -128,7 +141,7 @@
         {
             var user = await this.Api.SignIn(this.username.Trim(), this.password, this.remember);
             this.State.SetUser(user);
-            this.Nav.NavigateTo("");
+            this.Nav.NavigateTo(this.Destination);
         }
         catch (ApiException ex)
         {
@@ -153,7 +166,7 @@
         {
             var user = await this.Api.SignInAnonymous(account.Id);
             this.State.SetUser(user);
-            this.Nav.NavigateTo("");
+            this.Nav.NavigateTo(this.Destination);
         }
         catch (ApiException ex)
         {

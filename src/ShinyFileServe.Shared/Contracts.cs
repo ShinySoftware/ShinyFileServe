@@ -95,7 +95,10 @@ public record CurrentUser(
     /// everything except changing the password and signing out, so the shell puts the change-password
     /// screen up and leaves it there.
     /// </summary>
-    bool MustChangePassword = false
+    bool MustChangePassword = false,
+
+    /// <summary>Signed in as an account with no password. Such an account cannot make share links.</summary>
+    bool IsAnonymous = false
 );
 
 /// <summary>
@@ -420,7 +423,13 @@ public enum ActivityAction
     PackagePublish,
 
     /// <summary>A NuGet unlist, relist or delete, or an npm unpublish.</summary>
-    PackageRemove
+    PackageRemove,
+
+    /// <summary>Somebody made a share link to a file or a folder.</summary>
+    ShareLinkCreated,
+
+    /// <summary>A share link was taken back, by whoever made it or by an administrator.</summary>
+    ShareLinkRevoked
 }
 
 public record ActivityEntryInfo(
@@ -649,7 +658,8 @@ public static class ActivityActions
         ActivityAction.CreateDirectory,
         ActivityAction.Denied,
         ActivityAction.PackagePublish,
-        ActivityAction.PackageRemove
+        ActivityAction.PackageRemove,
+        ActivityAction.ShareLinkCreated
     ];
 
     public static string ToDisplay(this ActivityAction action) => action switch
@@ -665,6 +675,8 @@ public static class ActivityActions
         ActivityAction.Denied => "An action is refused",
         ActivityAction.PackagePublish => "A package is published",
         ActivityAction.PackageRemove => "A package is unlisted or removed",
+        ActivityAction.ShareLinkCreated => "A share link is made",
+        ActivityAction.ShareLinkRevoked => "A share link is revoked",
         _ => action.ToString()
     };
 }
@@ -1075,3 +1087,75 @@ public record BandwidthReport(
     public static BandwidthReport Empty(DateTimeOffset from, DateTimeOffset to, BandwidthBucket bucket)
         => new(from, to, bucket, 0, 0, [], []);
 }
+
+
+// ---------------------------------------------------------------------------
+// Share links
+// ---------------------------------------------------------------------------
+
+/// <summary>Who may open a share link.</summary>
+public enum ShareLinkAudience
+{
+    /// <summary>Anybody holding the link, signed in or not.</summary>
+    Anyone = 0,
+
+    /// <summary>Only the accounts it names, once they have signed in.</summary>
+    Accounts = 1
+}
+
+/// <summary>An account a link can be shared with - enough to pick one from a list, and nothing more.</summary>
+public record ShareRecipient(string Id, string Username, string DisplayName);
+
+public record CreateShareLinkRequest(
+    string FolderId,
+
+    /// <summary>The file or folder inside the share, "" for the whole share.</summary>
+    string Path,
+    string? Title,
+    ShareLinkAudience Audience,
+    List<string> UserIds,
+
+    /// <summary>Null never expires.</summary>
+    DateTimeOffset? ExpiresAtUtc
+);
+
+public record ShareLinkInfo(
+    string Id,
+
+    /// <summary>
+    /// The whole address to hand out: the public tunnel when it is open, otherwise the LAN address.
+    /// Worked out when the link is read rather than stored, so a link made before the tunnel opened
+    /// copies the tunnel's address afterwards.
+    /// </summary>
+    string Url,
+    string FolderId,
+    string FolderName,
+    string Path,
+    bool IsDirectory,
+    string Title,
+    ShareLinkAudience Audience,
+    List<ShareRecipient> Recipients,
+    string CreatedByUserId,
+    string CreatedBy,
+    DateTimeOffset CreatedUtc,
+    DateTimeOffset? ExpiresAtUtc,
+    int OpenCount,
+    DateTimeOffset? LastOpenedUtc,
+    bool IsExpired
+);
+
+/// <summary>What the person following a link is shown before anything inside it.</summary>
+public record SharedItem(
+    string Title,
+    string Name,
+    bool IsDirectory,
+    string SharedBy,
+    DateTimeOffset? ExpiresAtUtc,
+
+    /// <summary>The file's size; 0 for a folder.</summary>
+    long Size,
+    DateTimeOffset ModifiedUtc
+);
+
+/// <summary>One directory inside a shared folder. Paths are relative to the link, never to the share.</summary>
+public record SharedListing(string Path, List<FileEntryInfo> Entries);

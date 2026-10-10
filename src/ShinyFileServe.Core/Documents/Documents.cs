@@ -490,3 +490,52 @@ public class BandwidthUsage
         return new DateTimeOffset(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, TimeSpan.Zero);
     }
 }
+
+/// <summary>
+/// One file or folder inside a share, handed out as an address. The link carries none of its own
+/// rights: it lends the rights of the person who made it, checked every time it is opened, so a
+/// creator who loses their grant - or their account - takes every link they made down with it.
+/// </summary>
+public class ShareLink
+{
+    public string Id { get; set; } = "";
+
+    /// <summary>
+    /// The secret in the address. Kept as it was issued rather than hashed, unlike an
+    /// <see cref="AccessToken"/>: the person who made a link has to be able to copy it again, and
+    /// anybody who can read this database can read the files it points at anyway.
+    /// </summary>
+    public string Token { get; set; } = "";
+
+    public string FolderId { get; set; } = "";
+
+    /// <summary>Path inside the share, "" for the share root. Normalised to forward slashes.</summary>
+    public string Path { get; set; } = "";
+
+    /// <summary>What was there when the link was made. A link to a file never starts serving a folder.</summary>
+    public bool IsDirectory { get; set; }
+
+    /// <summary>What the person opening it sees as the heading. Defaults to the name on disk.</summary>
+    public string Title { get; set; } = "";
+
+    public ShareLinkAudience Audience { get; set; }
+
+    /// <summary>The accounts that may open it when <see cref="Audience"/> is <see cref="ShareLinkAudience.Accounts"/>.</summary>
+    public List<string> UserIds { get; set; } = [];
+
+    public string CreatedByUserId { get; set; } = "";
+
+    /// <summary>Stamped at creation so the list can still say who made a link after they are gone.</summary>
+    public string CreatedByUsername { get; set; } = "";
+
+    public DateTimeOffset CreatedUtc { get; set; }
+
+    /// <summary>Null never expires.</summary>
+    public DateTimeOffset? ExpiresAtUtc { get; set; }
+
+    /// <summary>How many times the link itself was opened - not every photo fetched behind it.</summary>
+    public int OpenCount { get; set; }
+    public DateTimeOffset? LastOpenedUtc { get; set; }
+
+    public bool IsExpired(DateTimeOffset now) => this.ExpiresAtUtc is { } expiry && expiry <= now;
+}

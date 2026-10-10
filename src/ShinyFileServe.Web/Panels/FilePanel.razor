@@ -16,6 +16,13 @@
                 <span aria-hidden="true">↻</span> Refresh
             </button>
 
+            @if (this.CanShare)
+            {
+                <button type="button" class="action" @onclick="this.ShareHere" title="Make a link to this folder">
+                    <span aria-hidden="true">🔗</span> Share
+                </button>
+            }
+
             @if (this.Can(FolderPermissions.CreateDirectory))
             {
                 <button type="button" class="action" @onclick="this.NewFolder">
@@ -115,13 +122,18 @@
                         </CellTemplate>
                     </TemplateColumn>
 
-                    <TemplateColumn TItem="FileEntryInfo" Title="" Width="118px" Sortable="false" Alignment="DataGridCellAlignment.End">
+                    <TemplateColumn TItem="FileEntryInfo" Title="" Width="148px" Sortable="false" Alignment="DataGridCellAlignment.End">
                         <CellTemplate Context="cell">
                             <span class="cell-actions">
                                 @if (this.State.User is { IsAdmin: true })
                                 {
                                     <button type="button" class="icon-btn" title="Name and note for @cell.Item.Name"
                                             @onclick="() => this.Annotate(cell.Item)">✎</button>
+                                }
+                                @if (this.CanShare)
+                                {
+                                    <button type="button" class="icon-btn" title="Make a link to @cell.Item.Name"
+                                            @onclick="() => this.Share(cell.Item)">🔗</button>
                                 }
                                 @if (!cell.Item.IsDirectory && this.Can(FolderPermissions.DownloadFile))
                                 {
@@ -142,10 +154,24 @@
     </div>
 </div>
 
+@if (this.State.Folder is { } shareFolder)
+{
+    <ShareLinkDialog @bind-IsOpen="this.sharing"
+                     FolderId="@shareFolder.Id"
+                     Path="@this.sharePath"
+                     Name="@this.shareName"
+                     IsDirectory="this.shareIsDirectory" />
+}
+
 @code {
     const long MaxBrowserReadBytes = 4L * 1024 * 1024 * 1024;
 
     bool dragging;
+
+    bool sharing;
+    string sharePath = "";
+    string shareName = "";
+    bool shareIsDirectory;
 
     protected override void OnInitialized()
     {
@@ -264,6 +290,30 @@
         : "This folder is empty.";
 
     Task Refresh() => this.State.Reload();
+
+    /// <summary>
+    /// A link lends what you may download, so it is offered where you may download - and not to an
+    /// account anybody can be, whose links would belong to nobody.
+    /// </summary>
+    bool CanShare => this.Can(FolderPermissions.DownloadFile) && this.State.User is { IsAnonymous: false };
+
+    void Share(FileEntryInfo entry)
+    {
+        this.sharePath = entry.Path;
+        this.shareName = entry.Label;
+        this.shareIsDirectory = entry.IsDirectory;
+        this.sharing = true;
+    }
+
+    /// <summary>The folder on screen - an album, as often as not.</summary>
+    void ShareHere()
+    {
+        var path = this.State.Path;
+        this.sharePath = path;
+        this.shareName = path.Length == 0 ? this.State.Folder!.Name : path[(path.LastIndexOf('/') + 1)..];
+        this.shareIsDirectory = true;
+        this.sharing = true;
+    }
 
     Task Open(FileEntryInfo entry) => this.State.Navigate(entry.Path);
 

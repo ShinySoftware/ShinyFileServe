@@ -21,6 +21,7 @@ builder.Services.AddScoped<WorkspaceState>();
 builder.Services.AddScoped<AdminApi>();
 builder.Services.AddScoped<IdleWatch>();
 builder.Services.AddScoped<SessionActions>();
+builder.Services.AddScoped<Clipboard>();
 
 // The splash is painted before this code exists; this is what lets managed code talk to it -
 // a status line while the app works out who is here, and the dismissal when it knows.

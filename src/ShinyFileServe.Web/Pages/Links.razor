@@ -1,0 +1,181 @@
+@page "/links"
+@inject FileServeApi Api
+@inject WorkspaceState State
+@inject Clipboard Clipboard
+@inject IToastService Toasts
+@inject IDialogService Dialogs
+
+@*
+    Share links: the ones made for you, and the ones you made. Open to every account rather than
+    only administrators - a link is yours to copy again and yours to take back. An administrator can
+    widen the second list to everybody's, which is how a link nobody meant to leave open gets closed.
+*@
+
+<AdminScreen Title="Links" Subtitle="Files and folders shared by address" AdminOnly="false">
+    @if (this.mine is null)
+    {
+        <p class="admin__loading">Looking…</p>
+    }
+    else
+    {
+        @if (this.sharedWithMe is { Count: > 0 } incoming)
+        {
+            <section class="links">
+                <h2 class="links__heading">Shared with you</h2>
+                <ul class="links__list">
+                    @foreach (var link in incoming)
+                    {
+                        <li class="links__row">
+                            <div class="links__what">
+                                <a class="links__title" href="@link.Url" target="_blank" rel="noopener">@link.Title</a>
+                                <span class="links__meta">
+                                    From @link.CreatedBy · @Format.When(link.CreatedUtc)
+                                    @if (link.ExpiresAtUtc is { } until)
+                                    {
+                                        <span> · until @Format.When(until)</span>
+                                    }
+                                </span>
+                            </div>
+                            <div class="links__actions">
+                                <a class="action" href="@link.Url" target="_blank" rel="noopener">Open</a>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            </section>
+        }
+
+        <section class="links">
+            <div class="screen__bar">
+                <h2 class="links__heading">@(this.everyone ? "Every link on this server" : "Links you made")</h2>
+                @if (this.State.User is { IsAdmin: true })
+                {
+                    <label class="field--check">
+                        <input type="checkbox" checked="@this.everyone" @onchange="this.ToggleEveryone" />
+                        Show everybody's
+                    </label>
+                }
+            </div>
+
+            @if (this.mine.Count == 0)
+            {
+                <p class="admin__hint">
+                    @(this.everyone
+                        ? "Nobody has made a link yet."
+                        : "You have not shared anything yet. In your files, the 🔗 beside a file or folder makes a link to it.")
+                </p>
+            }
+            else
+            {
+                <ul class="links__list">
+                    @foreach (var link in this.mine)
+                    {
+                        var current = link;
+                        <li class="links__row @(link.IsExpired ? "links__row--expired" : "")">
+                            <div class="links__what">
+                                <span class="links__title">
+                                    <span aria-hidden="true">@(link.IsDirectory ? "▸" : "▪")</span>
+                                    @link.Title
+                                </span>
+                                <span class="links__meta num">@Where(link)</span>
+                                <span class="links__meta">
+                                    @Who(link)
+                                    · @(link.IsExpired ? "expired" : link.ExpiresAtUtc is { } until ? $"until {Format.When(until)}" : "no expiry")
+                                    · opened @(link.OpenCount == 1 ? "once" : $"{link.OpenCount} times")
+                                    @if (this.everyone)
+                                    {
+                                        <span> · made by @link.CreatedBy</span>
+                                    }
+                                </span>
+                            </div>
+                            <div class="links__actions">
+                                @if (!link.IsExpired)
+                                {
+                                    <button type="button" class="action action--primary" @onclick="() => this.Copy(current)">Copy link</button>
+                                    <a class="action" href="@link.Url" target="_blank" rel="noopener">Open</a>
+                                }
+                                <button type="button" class="action action--danger" @onclick="() => this.Revoke(current)">
+                                    @(link.IsExpired ? "Remove" : "Revoke")
+                                </button>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
+    }
+</AdminScreen>
+
+@code {
+    List<ShareLinkInfo>? mine;
+    List<ShareLinkInfo>? sharedWithMe;
+    bool everyone;
+
+    protected override Task OnInitializedAsync() => this.Load();
+
+    async Task Load()
+    {
+        try
+        {
+            var made = this.Api.GetLinks(this.everyone);
+            var received = this.Api.GetLinksSharedWithMe();
+            this.mine = await made;
+            this.sharedWithMe = await received;
+        }
+        catch (ApiException ex)
+        {
+            this.mine ??= [];
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    async Task ToggleEveryone(ChangeEventArgs args)
+    {
+        this.everyone = (bool?)args.Value == true;
+        await this.Load();
+    }
+
+    async Task Copy(ShareLinkInfo link)
+    {
+        if (await this.Clipboard.Copy(link.Url))
+            await this.Toasts.SuccessAsync("Link copied.");
+        else
+            await this.Toasts.WarningAsync($"This browser would not copy it. The link is {link.Url}");
+    }
+
+    async Task Revoke(ShareLinkInfo link)
+    {
+        if (!link.IsExpired)
+        {
+            var confirmed = await this.Dialogs.Confirm(
+                "Revoke this link?",
+                $"\"{link.Title}\" stops opening for everybody who has it, straight away. The files themselves are not touched.",
+                okText: "Revoke",
+                cancelText: "Keep"
+            );
+
+            if (!confirmed)
+                return;
+        }
+
+        try
+        {
+            await this.Api.RevokeLink(link.Id);
+            this.mine?.Remove(link);
+            await this.Toasts.SuccessAsync(link.IsExpired ? "Removed." : "Revoked.");
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    static string Where(ShareLinkInfo link)
+        => link.Path.Length == 0 ? link.FolderName : $"{link.FolderName}/{link.Path}";
+
+    static string Who(ShareLinkInfo link) => link.Audience == ShareLinkAudience.Anyone
+        ? "Anyone with the link"
+        : link.Recipients.Count == 0
+            ? "Nobody (those accounts are gone)"
+            : String.Join(", ", link.Recipients.Select(r => r.DisplayName));
+}

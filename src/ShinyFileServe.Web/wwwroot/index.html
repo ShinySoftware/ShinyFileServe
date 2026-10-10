@@ -3,6 +3,9 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Before the stylesheet arrives the browser paints its own canvas; this lets that canvas be
+         dark on a dark machine instead of a white flash. app.css takes over from there. -->
+    <meta name="color-scheme" content="light dark" />
     <title>FileServe</title>
     <base href="/" />
 

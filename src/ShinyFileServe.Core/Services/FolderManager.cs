@@ -54,6 +54,7 @@ public class FolderManager(IDocumentStore store, TimeProvider time) : IFolderMan
     {
         await store.Query<FolderGrant>().Where(x => x.FolderId == id).ExecuteDelete(ct);
         await store.Query<PathAnnotation>().Where(x => x.FolderId == id).ExecuteDelete(ct);
+        await store.Query<ShareLink>().Where(x => x.FolderId == id).ExecuteDelete(ct);
         await store.Remove<ShareFolder>(id, cancellationToken: ct);
     }
 

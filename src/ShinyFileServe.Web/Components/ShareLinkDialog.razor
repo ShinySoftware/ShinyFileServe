@@ -1,0 +1,246 @@
+@*
+    Making a share link to one file or folder. A modal because it is a short errand with an obvious
+    end - the end being an address on the clipboard. The form and the result are the same modal, so
+    the link is copied while the choices that made it are still in view.
+*@
+@inject FileServeApi Api
+@inject Clipboard Clipboard
+@inject IToastService Toasts
+
+<ModalView IsOpen="this.IsOpen"
+           IsOpenChanged="this.SetOpen"
+           Title="@(this.created is null ? $"Share {this.Name}" : "Link ready")"
+           Subtitle="@(this.IsDirectory ? "A folder - people see its photos as a gallery" : "A file")"
+           Size="ModalSize.Medium"
+           CloseOnBackdropClick="false"
+           Opened="this.Load">
+
+    <div class="admin">
+        @if (this.created is { } link)
+        {
+            <p class="form-note">
+                @(link.Audience == ShareLinkAudience.Anyone
+                    ? "Anyone with this address can open it - no account needed."
+                    : $"Only {Names(link.Recipients)} can open it, once signed in.")
+                @(link.ExpiresAtUtc is { } until ? $" It stops working on {Format.When(until)}." : "")
+            </p>
+
+            <div class="sharelink__copy">
+                <input class="sharelink__url num" readonly value="@link.Url" onfocus="this.select()" @ref="this.urlInput" />
+                <button type="button" class="action action--primary" @onclick="() => this.Copy(link.Url)">Copy link</button>
+            </div>
+
+            <span class="admin__hint">
+                Every link you have made is under <a href="links">Links</a>, where you can copy it again or revoke it.
+            </span>
+
+            <div class="admin__actions">
+                <button type="button" class="action" @onclick="() => this.SetOpen(false)">Done</button>
+            </div>
+        }
+        else
+        {
+            @if (this.error is { Length: > 0 } error)
+            {
+                <p class="form-error" role="alert">@error</p>
+            }
+
+            <label class="field">
+                <span class="field__label">Title</span>
+                <input @bind="this.title" placeholder="@this.Name" />
+            </label>
+
+            <div class="admin__block">
+                <h3>Who can open it</h3>
+                <label class="field--check">
+                    <input type="radio" name="audience" checked="@(this.audience == ShareLinkAudience.Anyone)"
+                           @onchange="() => this.audience = ShareLinkAudience.Anyone" />
+                    Anyone with the link
+                </label>
+                <label class="field--check">
+                    <input type="radio" name="audience" checked="@(this.audience == ShareLinkAudience.Accounts)"
+                           @onchange="() => this.audience = ShareLinkAudience.Accounts" />
+                    Only the accounts I pick
+                </label>
+
+                @if (this.audience == ShareLinkAudience.Accounts)
+                {
+                    @if (this.recipients is null)
+                    {
+                        <p class="admin__loading">Finding accounts…</p>
+                    }
+                    else if (this.recipients.Count == 0)
+                    {
+                        <span class="admin__hint">There is nobody else with an account on this server yet.</span>
+                    }
+                    else
+                    {
+                        @if (this.recipients.Count > 8)
+                        {
+                            <input class="sharelink__filter" type="search" placeholder="Find someone"
+                                   @bind="this.filter" @bind:event="oninput" aria-label="Find an account" />
+                        }
+                        <div class="admin__checks sharelink__people">
+                            @foreach (var person in this.Filtered)
+                            {
+                                var id = person.Id;
+                                <label class="field--check">
+                                    <input type="checkbox" checked="@this.picked.Contains(id)"
+                                           @onchange="e => this.Toggle(id, (bool?)e.Value == true)" />
+                                    @person.DisplayName <span class="num sharelink__who">@person.Username</span>
+                                </label>
+                            }
+                        </div>
+                    }
+                }
+                else
+                {
+                    <span class="admin__hint">
+                        Nobody has to sign in. Treat the address like a key: whoever has it can see
+                        this @(this.IsDirectory ? "folder" : "file"), and anything they download counts
+                        against your quota.
+                    </span>
+                }
+            </div>
+
+            <label class="field">
+                <span class="field__label">Stops working</span>
+                <select @bind="this.days">
+                    <option value="0">Never</option>
+                    <option value="1">After a day</option>
+                    <option value="7">After a week</option>
+                    <option value="30">After 30 days</option>
+                    <option value="90">After 90 days</option>
+                </select>
+            </label>
+
+            <div class="admin__actions">
+                <button type="button" class="action action--primary" disabled="@(!this.CanCreate)" @onclick="this.Create">
+                    @(this.busy ? "Making the link…" : "Make link")
+                </button>
+                <button type="button" class="action" @onclick="() => this.SetOpen(false)">Cancel</button>
+            </div>
+        }
+    </div>
+</ModalView>
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+
+    [Parameter, EditorRequired] public string FolderId { get; set; } = "";
+
+    /// <summary>Inside the share, "" for the whole share.</summary>
+    [Parameter] public string Path { get; set; } = "";
+
+    /// <summary>What it is called, for the heading and the default title.</summary>
+    [Parameter] public string Name { get; set; } = "";
+
+    [Parameter] public bool IsDirectory { get; set; }
+
+    ElementReference urlInput;
+    string title = "";
+    ShareLinkAudience audience = ShareLinkAudience.Anyone;
+    List<ShareRecipient>? recipients;
+    readonly HashSet<string> picked = [];
+    string filter = "";
+    int days;
+    bool busy;
+    string? error;
+    ShareLinkInfo? created;
+
+    bool CanCreate => !this.busy && (this.audience == ShareLinkAudience.Anyone || this.picked.Count > 0);
+
+    IEnumerable<ShareRecipient> Filtered => String.IsNullOrWhiteSpace(this.filter)
+        ? this.recipients ?? []
+        : (this.recipients ?? []).Where(p =>
+            p.DisplayName.Contains(this.filter, StringComparison.CurrentCultureIgnoreCase)
+            || p.Username.Contains(this.filter, StringComparison.CurrentCultureIgnoreCase)
+            || this.picked.Contains(p.Id));
+
+    /// <summary>Every opening starts clean - the last link's choices belong to the last file.</summary>
+    async Task Load()
+    {
+        this.title = "";
+        this.audience = ShareLinkAudience.Anyone;
+        this.picked.Clear();
+        this.filter = "";
+        this.days = 0;
+        this.error = null;
+        this.created = null;
+
+        try
+        {
+            this.recipients = await this.Api.GetShareRecipients();
+        }
+        catch (ApiException ex)
+        {
+            this.recipients = [];
+            this.error = ex.Message;
+        }
+    }
+
+    void Toggle(string id, bool on)
+    {
+        if (on)
+            this.picked.Add(id);
+        else
+            this.picked.Remove(id);
+    }
+
+    async Task Create()
+    {
+        this.busy = true;
+        this.error = null;
+
+        try
+        {
+            this.created = await this.Api.CreateLink(new CreateShareLinkRequest(
+                this.FolderId,
+                this.Path,
+                String.IsNullOrWhiteSpace(this.title) ? null : this.title.Trim(),
+                this.audience,
+                this.audience == ShareLinkAudience.Accounts ? this.picked.ToList() : [],
+                this.days == 0 ? null : DateTimeOffset.UtcNow.AddDays(this.days)
+            ));
+
+            // Straight onto the clipboard: copying it is the only reason anybody made it.
+            await this.Copy(this.created.Url);
+        }
+        catch (ApiException ex)
+        {
+            this.error = ex.Message;
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    async Task Copy(string url)
+    {
+        if (await this.Clipboard.Copy(url))
+        {
+            await this.Toasts.SuccessAsync("Link copied.");
+        }
+        else
+        {
+            await this.urlInput.FocusAsync();
+            await this.Toasts.WarningAsync("This browser would not copy it. The link is selected - copy it by hand.");
+        }
+    }
+
+    Task SetOpen(bool open)
+    {
+        this.IsOpen = open;
+        return this.IsOpenChanged.InvokeAsync(open);
+    }
+
+    static string Names(List<ShareRecipient> people) => people.Count switch
+    {
+        0 => "nobody",
+        1 => people[0].DisplayName,
+        2 => $"{people[0].DisplayName} and {people[1].DisplayName}",
+        _ => $"{people[0].DisplayName} and {people.Count - 1} others"
+    };
+}
