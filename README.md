@@ -10,6 +10,11 @@ The desktop app has **no screens of its own** — it is a window onto its own se
 an operator does happens in the portal. Building the same forms twice would have meant two of
 everything to keep in step and one of them quietly falling behind.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/browse-dark.png">
+  <img alt="Browsing a share in the FileServe portal" src="docs/screenshots/browse.png">
+</picture>
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Desktop app (.NET MAUI)          tray icon · console window        │
@@ -22,10 +27,18 @@ everything to keep in step and one of them quietly falling behind.
 │  │                                  bandwidth history               │
 │  ├── AppDeviceBridge.Tunnel ──────  optional public https (pinggy)  │
 │  ├── Shiny.Notifications   ───────  desktop notification per event  │
-│  └── Shiny.Extensions.     ───────  start at login, per platform    │
-│        MauiHosting                                                  │
+│  └── Shiny.Core            ───────  start at login, per platform    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Shares](docs/screenshots/shares.png)<br>**Shares** — folders on this machine, published to groups | ![People](docs/screenshots/people.png)<br>**People** — accounts, groups, parallel-transfer caps and quotas |
+| ![Activity](docs/screenshots/activity.png)<br>**Activity** — every sign-in, transfer and refusal | ![Bandwidth](docs/screenshots/bandwidth.png)<br>**Bandwidth** — in and out over any window, by account |
+| ![Right now](docs/screenshots/live.png)<br>**Right now** — who is signed in and what is moving | ![Links](docs/screenshots/links.png)<br>**Links** — files and folders shared by address |
+| ![Settings](docs/screenshots/settings.png)<br>**Settings** — serving, the tunnel and start at login | ![Sign in](docs/screenshots/signin.png)<br>**Sign in** — what anyone not on this machine sees first |
 
 ## Projects
 
@@ -57,7 +70,7 @@ Versions are pinned centrally in `Directory.Packages.props`.
 | `Shiny.Blazor.Controls` | Portal UI — `DataGrid`, password strength meter and the rest |
 | `Shiny.Maui.Controls` (+ `.Desktop`) | Desktop shell controls |
 | `Shiny.Notifications` (+ `.Linux`) | Desktop notifications per activity |
-| `Shiny.Extensions.MauiHosting` | Start at login (`IStartupService`) |
+| `Shiny.Core` | Start at login (`IAppStartupInstaller`) |
 | `nClam` | Talking to a ClamAV daemon |
 | `Microsoft.Maui.Platforms.MacOS` / `.Linux.Gtk4` | The AppKit and GTK4 heads, from `dotnet/maui-labs` |
 
@@ -434,7 +447,7 @@ the window, which means MAUI's Quit would only put the window away.
 ## Starting at login
 
 A switch on the Settings screen registers the app with whatever this machine uses to start things
-when its user signs in. It is `IStartupService` from **Shiny.Extensions.MauiHosting**, asked for once
+when its user signs in. It is `IAppStartupInstaller` from **Shiny.Core**, asked for once
 in `ConfigureFileServe` and answered per head by the asset NuGet picked for that head's TFM — so
 there is no per-head implementation here to write, and none to keep in step:
 
@@ -459,7 +472,7 @@ it should lose. Every read asks the platform — `/status` is fetched when the s
 rather than polled, so it costs nothing worth counting.
 
 Writing is the same principle in reverse: the switch reports what the machine actually did, not what
-it was asked to do. `StartupServiceState` is mirrored across the wire as `RunAtStartupState`, member
+it was asked to do. `AppStartupState` is mirrored across the wire as `RunAtStartupState`, member
 for member, the same way `TunnelStatus` mirrors the tunnel's own enum — because "off" is not one
 answer but four, and each is a different thing for the operator to do about it:
 
@@ -661,6 +674,11 @@ the platform's application-data directory
 `%AppData%\ShinyFileServe` on Windows). Settings live in that database rather than beside it,
 because the browser edits the same values and a second copy on disk would be a second source of
 truth.
+
+Set `FILESERVE_DATA` to run against a different directory: a demo, a second instance, a test. It has
+to be an environment variable, because on macOS the default comes from the OS rather than from
+`HOME`, so nothing else moves it. The screenshots above were taken that way, against a throwaway
+database.
 
 ## Security notes
 

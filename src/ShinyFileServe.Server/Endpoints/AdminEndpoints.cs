@@ -22,7 +22,7 @@ public class AdminEndpoints(
     IUserManager users,
     ICurrentUserResolver current,
     IActivityLogger activity,
-    IStartupService startup,
+    IAppStartupInstaller startup,
     ILogger<AdminEndpoints> logger
 )
 {

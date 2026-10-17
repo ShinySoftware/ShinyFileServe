@@ -4,35 +4,31 @@
         <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
     </PropertyGroup>
     <ItemGroup>
-        <!-- Shiny -->
-        <PackageVersion Include="Shiny.Net.HttpServer" Version="2.1.0"/>
-        <PackageVersion Include="Shiny.Net.HttpServer.NuGet" Version="2.1.0"/>
-        <PackageVersion Include="Shiny.Net.HttpServer.Npm" Version="2.1.0"/>
-        <PackageVersion Include="Shiny.AppDeviceBridge" Version="1.2.0"/>
-        <PackageVersion Include="Shiny.AppDeviceBridge.WebView" Version="1.2.0"/>
-        <PackageVersion Include="Shiny.AppDeviceBridge.Tunnel" Version="1.2.0"/>
+        <PackageVersion Include="Shiny.Core" Version="6.3.0"/>
+        <PackageVersion Include="Shiny.Net.HttpServer" Version="2.2.0"/>
+        <PackageVersion Include="Shiny.Net.HttpServer.NuGet" Version="2.2.0"/>
+        <PackageVersion Include="Shiny.Net.HttpServer.Npm" Version="2.2.0"/>
+        <PackageVersion Include="Shiny.AppDeviceBridge" Version="2.1.0"/>
+        <PackageVersion Include="Shiny.AppDeviceBridge.WebView" Version="2.1.0"/>
+        <PackageVersion Include="Shiny.AppDeviceBridge.Tunnel" Version="2.1.0"/>
         <PackageVersion Include="Shiny.DocumentDb" Version="14.1.0"/>
         <PackageVersion Include="Shiny.DocumentDb.Sqlite" Version="14.1.0"/>
-        <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.7"/>
-        <PackageVersion Include="Shiny.Blazor.Controls" Version="1.6.0"/>
-        <PackageVersion Include="Shiny.Maui.Controls" Version="1.6.0"/>
-        <PackageVersion Include="Shiny.Maui.Controls.Desktop" Version="1.6.0"/>
-        <PackageVersion Include="Shiny.Notifications" Version="5.9.0"/>
-        <PackageVersion Include="Shiny.Notifications.Linux" Version="5.9.0"/>
-        <PackageVersion Include="Shiny.Extensions.MauiHosting" Version="5.3.1"/>
-
-        <!-- Virus scanning: a client for a ClamAV daemon, Apache-2.0. clamd itself is GPL and stays a
-             separate process on the other side of a socket. -->
+        
+        <PackageVersion Include="Shiny.Blazor.Controls" Version="1.8.0"/>
+        <PackageVersion Include="Shiny.Maui.Controls" Version="1.8.0"/>
+        <PackageVersion Include="Shiny.Maui.Controls.Desktop" Version="1.8.0"/>
+        <PackageVersion Include="Shiny.Notifications" Version="6.3.0"/>
+        <PackageVersion Include="Shiny.Notifications.Linux" Version="6.3.0"/>
+        
         <PackageVersion Include="nClam" Version="9.0.0"/>
-
-        <!-- Microsoft -->
+        
+        <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.11"/>
         <PackageVersion Include="Microsoft.Maui.Controls" Version="$(MauiVersion)"/>
         <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.1"/>
         <PackageVersion Include="Microsoft.Extensions.Logging.Debug" Version="10.0.1"/>
         <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.11"/>
         <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.11"/>
 
-        <!-- maui-labs heads -->
         <PackageVersion Include="Microsoft.Maui.Platforms.MacOS" Version="0.1.0-preview.12.26421.1"/>
         <PackageVersion Include="Microsoft.Maui.Platforms.MacOS.Essentials" Version="0.1.0-preview.12.26421.1"/>
         <PackageVersion Include="Microsoft.Maui.Platforms.Linux.Gtk4" Version="0.1.0-preview.12.26421.1"/>

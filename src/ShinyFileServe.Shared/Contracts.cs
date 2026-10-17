@@ -494,8 +494,8 @@ public enum ActivitySort
 
 /// <summary>
 /// Whether the machine starts this app at login, and if not, why not. Mirrors Shiny's
-/// <c>StartupServiceState</c> member for member, the same way <see cref="TunnelStatus"/> mirrors the
-/// tunnel's own enum: the contract stays free of the hosting package and the server casts across.
+/// <c>AppStartupState</c> member for member, the same way <see cref="TunnelStatus"/> mirrors the
+/// tunnel's own enum: the contract stays free of Shiny.Core and the server casts across.
 /// </summary>
 /// <remarks>
 /// There is deliberately no copy of this in the settings document. The registry value or the file on

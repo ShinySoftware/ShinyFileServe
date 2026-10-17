@@ -7,10 +7,18 @@ namespace ShinyFileServe.App;
 /// </summary>
 public static class AppPaths
 {
-    public static string DataDirectory { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.Create),
-        "ShinyFileServe"
-    );
+    /// <summary>
+    /// FILESERVE_DATA points a run at a different directory - a demo, a second instance, a test -
+    /// without touching the real one. It has to be an environment variable: on macOS the default
+    /// comes from the OS rather than from HOME, so there is no other way to move it.
+    /// </summary>
+    public static string DataDirectory { get; } =
+        Environment.GetEnvironmentVariable("FILESERVE_DATA") is { Length: > 0 } custom
+            ? Path.GetFullPath(custom)
+            : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.Create),
+                "ShinyFileServe"
+            );
 
     public static string DatabaseFile => Path.Combine(DataDirectory, "fileserve.db");
     public static string TicketKeyFile => Path.Combine(DataDirectory, "cookie.key");
