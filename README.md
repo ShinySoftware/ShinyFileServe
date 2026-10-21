@@ -10,6 +10,16 @@ The desktop app has **no screens of its own** — it is a window onto its own se
 an operator does happens in the portal. Building the same forms twice would have meant two of
 everything to keep in step and one of them quietly falling behind.
 
+> **ShinyFileServe is not open source.** The code is published so you can read it, learn from it and
+> build it for yourself, but you may not copy, repackage, rebrand or redistribute it. See
+> [License](#license). The Shiny libraries it's built on *are* open source (MIT).
+
+## Download
+
+Signed and notarized macOS (Apple silicon) builds are on the
+[Releases](https://github.com/ShinySoftware/ShinyFileServe/releases) page. These are the only
+official builds. If you got FileServe from anywhere else, it isn't ours.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/browse-dark.png">
   <img alt="Browsing a share in the FileServe portal" src="docs/screenshots/browse.png">
@@ -649,6 +659,12 @@ signed. The head sets `RuntimeIdentifier` to `osx-arm64` so every publish agrees
 would AOT every assembly twice for an Intel build nobody runs. Publish without `-o`, which splits the
 bundle. Drop `-p:CreatePackage=false` to get a `.pkg` installer instead.
 
+To ship a release, push a tag like `v1.2.0` (or run the **Release** workflow and give it a version).
+`.github/workflows/release.yml` publishes the app signed with Developer ID and the hardened runtime,
+notarizes and staples it, and attaches `FileServe-<version>-macos-arm64.zip` to a GitHub release. A
+tag with a suffix (`v1.2.0-beta1`) becomes a pre-release. Local Release builds stay ad-hoc signed
+unless you pass `-p:CodesignKey="Developer ID Application: …"`.
+
 Release builds run the IL trimmer, so **test the published app rather than only the Debug one** —
 nothing here depends on runtime reflection (JSON is source-generated end to end, DocumentDb runs
 with `UseReflectionFallback = false`), but that is a property worth re-checking rather than
@@ -701,3 +717,27 @@ database.
   that an administrator account is, by design, an account that can see the server's directory tree.
 - A loopback session is marked as such, and the portal hides Sign out on one — signing out of a
   session that signs itself back in on the next request would be a button that does nothing.
+
+## License
+
+**Copyright © 2026 ShinySoft Technologies. All rights reserved.**
+
+ShinyFileServe is **source-available, not open source**. The full terms are in [LICENSE.md](LICENSE.md). In short:
+
+| You may | You may not |
+|---|---|
+| Read and study the source code | Copy the app, or substantial parts of it, into another product |
+| Build and run it on your own computers for your own personal, non-commercial use | Repackage, rebrand, rename or re-sign it and distribute it |
+| Download and use the official builds from [Releases](https://github.com/ShinySoftware/ShinyFileServe/releases) | Publish it, or anything derived from it, to an app store, package manager or any other channel |
+| Fork on GitHub only to send a pull request back to this repository | Sell it, bundle it, or offer it as a hosted or paid service |
+| Report issues and suggest features | Remove or change the ShinySoft Technologies name, logo, copyright or license notices |
+
+"ShinyFileServe", "FileServe", "ShinySoft Technologies" and the ShinySoft and FileServe logos are trademarks of ShinySoft Technologies and are not licensed for your use.
+
+The **Shiny .NET libraries** ShinyFileServe depends on are separate projects under the [MIT license](https://github.com/shinyorg/shiny/blob/v5/LICENSE.md), and you're free to use them in your own apps. Other third-party components keep their own licenses. This license covers only the ShinyFileServe application.
+
+For commercial licensing, white-labelling or a custom build, contact [allan@shinysoft.biz](mailto:allan@shinysoft.biz).
+
+<p align="center">
+  <sub>Made with ✨ by <a href="https://shinysoft.biz">ShinySoft Technologies</a> · Ontario, Canada</sub>
+</p>

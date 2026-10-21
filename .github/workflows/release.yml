@@ -1,0 +1,142 @@
+name: Release
+
+# Push a tag like v1.2.0 to build, sign, notarize and publish a GitHub release of the macOS app.
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 1.2.0) - creates the v<version> tag'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  # The workload set whose macos SDK (27.0) builds with Xcode 27.
+  WORKLOAD_VERSION: 10.0.402.1
+  PROJECT: heads/ShinyFileServe.MacOS/ShinyFileServe.MacOS.csproj
+  APP_PATH: heads/ShinyFileServe.MacOS/bin/Release/net10.0-macos/osx-arm64/FileServe.app
+
+jobs:
+  release:
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          # CFBundleShortVersionString only allows up to three integers, so a v1.2.0-beta1 tag stamps the app 1.2.0.
+          APP_VERSION="${VERSION%%-*}"
+          if ! [[ "$APP_VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            echo "Tag version '$VERSION' must look like 1.2.3 or 1.2.3-suffix"; exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
+          echo "TAG=v$VERSION" >> "$GITHUB_ENV"
+          if [ "$VERSION" != "$APP_VERSION" ]; then echo "PRERELEASE=--prerelease" >> "$GITHUB_ENV"; fi
+
+      # The workload set's macOS SDK (27.0.10742) needs Xcode 27.1 exactly: the runner defaults to 27.0, and the
+      # newest it has (a 27.2 beta) is refused too. Bump this with WORKLOAD_VERSION.
+      - name: Xcode
+        run: |
+          XCODE=/Applications/Xcode_27.1.app
+          if [ ! -d "$XCODE" ]; then ls -d /Applications/Xcode*.app; echo "No $XCODE on this runner"; exit 1; fi
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.4xx
+
+      - name: Workloads
+        run: dotnet workload install macos maui --version "$WORKLOAD_VERSION"
+
+      - name: Import signing certificate
+        env:
+          CERT_P12_BASE64: ${{ secrets.APPLE_MACOS_DIRECT_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_MACOS_DIRECT_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')"
+          if [ -z "$IDENTITY" ]; then echo "No Developer ID Application identity in the certificate"; exit 1; fi
+          echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      # Publish, not build: Release runs the IL trimmer, which is what ships. Without -o, which splits the bundle,
+      # and with CreatePackage=false so the output is the .app rather than a .pkg installer.
+      - name: Build
+        run: >
+          dotnet publish "$PROJECT" -c Release -f net10.0-macos
+          -p:CreatePackage=false
+          -p:CodesignKey="$SIGNING_IDENTITY"
+          -p:ApplicationDisplayVersion="$APP_VERSION"
+          -p:ApplicationVersion="${{ github.run_number }}"
+
+      - name: Verify signature
+        run: codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+      - name: Notarize
+        env:
+          API_KEY_P8: ${{ secrets.APPLE_MY_IDENTITY_P8_KEY }}
+          API_KEY_ID: ${{ secrets.APPLE_MY_IDENTITY_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_MY_IDENTITY_ISSUER_ID }}
+        run: |
+          KEY="$RUNNER_TEMP/AuthKey.p8"
+          # Accept the .p8 either as its PEM text or base64-encoded.
+          if [[ "$API_KEY_P8" == *"BEGIN PRIVATE KEY"* ]]; then
+            printf '%s\n' "$API_KEY_P8" > "$KEY"
+          else
+            echo "$API_KEY_P8" | base64 --decode > "$KEY"
+          fi
+
+          ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --key "$KEY" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID" \
+            --wait --timeout 30m --output-format json | tee "$RUNNER_TEMP/notary.json"
+
+          STATUS="$(plutil -extract status raw "$RUNNER_TEMP/notary.json")"
+          if [ "$STATUS" != "Accepted" ]; then
+            xcrun notarytool log "$(plutil -extract id raw "$RUNNER_TEMP/notary.json")" \
+              --key "$KEY" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID"
+            exit 1
+          fi
+          rm "$KEY"
+
+          xcrun stapler staple "$APP_PATH"
+          spctl --assess --type execute --verbose=2 "$APP_PATH"
+
+      - name: Package
+        run: |
+          mkdir -p artifacts
+          ditto -c -k --keepParent "$APP_PATH" "artifacts/FileServe-$VERSION-macos-arm64.zip"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$TAG" "artifacts/FileServe-$VERSION-macos-arm64.zip"
+          --title "FileServe $VERSION"
+          --generate-notes
+          --target "$GITHUB_SHA"
+          $PRERELEASE
+
+      - name: Clean up keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
