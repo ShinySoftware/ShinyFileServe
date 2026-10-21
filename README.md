@@ -84,12 +84,6 @@ Versions are pinned centrally in `Directory.Packages.props`.
 | `nClam` | Talking to a ClamAV daemon |
 | `Microsoft.Maui.Platforms.MacOS` / `.Linux.Gtk4` | The AppKit and GTK4 heads, from `dotnet/maui-labs` |
 
-> [!IMPORTANT]
-> `Shiny.Net.HttpServer` 2.1 — the release that adds the NuGet feed and npm registry — is not on
-> nuget.org yet. `nuget.config` reads it from `../httpserver/artifacts/local-feed`, so clone the
-> httpserver repo beside this one and run `dotnet pack -o artifacts/local-feed` in it before the
-> first restore. Remove that source once 2.1 is published.
-
 ## Building and running
 
 ```bash
