@@ -117,6 +117,7 @@ at all, so nothing is seeded either.
 sudo apt install libgtk-4-dev libwebkitgtk-6.0-dev gobject-introspection \
                  libgirepository1.0-dev gir1.2-gtk-4.0 gir1.2-webkit-6.0 pkg-config
 sudo apt install libayatana-appindicator3-1 libgtk-3-0    # tray icon
+dotnet workload install maui-tizen    # the MAUI build targets - the only MAUI workload the SDK offers on Linux
 ```
 
 GNOME 40+ needs the AppIndicator shell extension for the tray icon; KDE works as shipped.

@@ -228,6 +228,11 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
+      # UseMaui needs a MAUI workload to import the MAUI SDK targets, and on Linux the SDK only offers the Tizen one.
+      # Nothing here targets Tizen - it is only how the GTK4 head gets the same build targets every other head has.
+      - name: Workloads
+        run: dotnet workload install maui-tizen --version "$WORKLOAD_VERSION"
+
       # Both architectures from one runner: the app is managed code over GTK, which it loads from the system at run
       # time, so an arm64 publish only needs the arm64 runtime pack.
       - name: Build
