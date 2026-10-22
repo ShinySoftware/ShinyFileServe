@@ -4,10 +4,12 @@
       There is no official -linux TFM, so the GTK4 backend from dotnet/maui-labs is consumed by a
       plain net10.0 head that project-references the shared UI. That is the whole reason
       ShinyFileServe.App targets net10.0 rather than the platform TFMs.
+
+      No UseMaui, as in maui-labs' own template: it would send the SDK looking for a MAUI workload,
+      and the only one Linux has is Tizen. The GTK4 package's build targets handle MauiIcon itself.
     -->
     <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
-    <UseMaui>true</UseMaui>
     <RootNamespace>ShinyFileServe.Linux</RootNamespace>
 
     <ApplicationTitle>FileServe</ApplicationTitle>
