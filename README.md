@@ -16,9 +16,18 @@ everything to keep in step and one of them quietly falling behind.
 
 ## Download
 
-Signed and notarized macOS (Apple silicon) builds are on the
-[Releases](https://github.com/ShinySoftware/ShinyFileServe/releases) page. These are the only
-official builds. If you got FileServe from anywhere else, it isn't ours.
+Every build is on the [Releases](https://github.com/ShinySoftware/ShinyFileServe/releases) page.
+These are the only official builds. If you got FileServe from anywhere else, it isn't ours.
+
+| Platform | Download | Notes |
+| --- | --- | --- |
+| macOS (Apple silicon) | `FileServe-<version>-macos-arm64.zip` | Signed and notarized. Unzip and move to Applications. |
+| Windows (x64, Arm64) | `FileServe-<version>-windows-<arch>-setup.exe` | Installs for the current user, no administrator needed. Not yet code-signed, so SmartScreen warns about an unknown publisher: **More info → Run anyway**. Allow it through Windows Firewall on first launch, or nobody else can reach it. |
+| Debian, Ubuntu (x64, arm64) | `FileServe-<version>-linux-<arch>.deb` | `sudo apt install ./FileServe-*.deb` pulls in GTK and WebKitGTK. Needs WebKitGTK 6 - Ubuntu 24.04, Debian 12 or newer. |
+| Fedora, RHEL (x64, arm64) | `FileServe-<version>-linux-<arch>.rpm` | `sudo dnf install ./FileServe-*.rpm` |
+
+`SHA256SUMS.txt` beside them covers every file. The app checks for a newer release when it starts,
+and on macOS and Windows installs it itself; on Linux, install the new package the same way.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/browse-dark.png">

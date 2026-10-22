@@ -18,14 +18,16 @@ namespace ShinyFileServe.App.Services;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Only macOS installs itself, because macOS is the only build the releases carry. Everywhere else
-/// the release is still found and shown, and the way to it is its page on GitHub.
+/// macOS and Windows install themselves. Linux is shown the release and pointed at it on GitHub: a
+/// .deb or .rpm needs root to install, and the package manager is the thing that should do it.
 /// </para>
 /// <para>
-/// A download is trusted for the same reasons Gatekeeper would trust it, checked before anything is
-/// replaced: the bundle's signature is intact, it is signed by the same team as the copy running
-/// now, and it is notarized. The running app is never touched until all three hold, and the swap
-/// itself happens after the app has quit, by a script that puts the old copy back if it cannot.
+/// Every download must match the release's SHA256SUMS.txt. On macOS it must also be trusted for the
+/// same reasons Gatekeeper would trust it: an intact signature, from the same team as the copy
+/// running now, notarized. The running app is never touched until all of that holds, and the swap
+/// happens after the app has quit, by a script that puts the old copy back if it cannot. Windows
+/// builds are not signed yet, so there the checksum is the whole check, and the installer does the
+/// replacing once the app has quit.
 /// </para>
 /// <para>
 /// FILESERVE_UPDATES=0 turns checking off and =1 turns it on in a debug build, where it is off by
@@ -258,20 +260,20 @@ public class AppUpdater(
                 Text(item, "body") is { Length: > 0 } notes ? Markdown.ToHtml(notes, Notes) : null,
                 Text(item, "html_url"),
                 item.TryGetProperty("published_at", out var published) && published.TryGetDateTimeOffset(out var when) ? when : null,
-                FindAsset(item)
+                FindAsset(item, $"-{PlatformTag}{PlatformExtension}"),
+                FindAsset(item, ChecksumsName)?.Url
             );
         }
 
         return best;
     }
 
-    /// <summary>The download for this machine, by the name the release workflow gives it.</summary>
-    static ReleaseAsset? FindAsset(JsonElement release)
+    /// <summary>A release file by the end of its name, which the release workflow keeps to a pattern.</summary>
+    static ReleaseAsset? FindAsset(JsonElement release, string suffix)
     {
         if (!release.TryGetProperty("assets", out var assets))
             return null;
 
-        var suffix = $"-{PlatformTag}.zip";
         foreach (var asset in assets.EnumerateArray())
         {
             if (Text(asset, "name") is { } name
@@ -284,6 +286,14 @@ public class AppUpdater(
 
         return null;
     }
+
+    const string ChecksumsName = "SHA256SUMS.txt";
+
+    /// <summary>
+    /// FileServe-1.2.0-macos-arm64.zip, FileServe-1.2.0-windows-x64-setup.exe, FileServe-1.2.0-linux-x64.deb.
+    /// Linux could as well be the .rpm: it is only shown for its size, never installed from here.
+    /// </summary>
+    static string PlatformExtension => OperatingSystem.IsMacOS() ? ".zip" : OperatingSystem.IsWindows() ? "-setup.exe" : ".deb";
 
     static string PlatformTag
     {
@@ -298,8 +308,11 @@ public class AppUpdater(
     /// <summary>Null when this copy can replace itself with <paramref name="release"/>, otherwise why not.</summary>
     async Task<string?> WhyCannotInstall(Release release)
     {
+        if (OperatingSystem.IsWindows())
+            return WhyCannotInstallOnWindows(release);
+
         if (!OperatingSystem.IsMacOS())
-            return "This version cannot install updates itself. Download the new one from GitHub.";
+            return "Install it with your package manager, from the .deb or .rpm on GitHub.";
 
         if (release.Asset is null)
             return "That release has no build for this Mac. Download it from GitHub.";
@@ -317,6 +330,25 @@ public class AppUpdater(
         return null;
     }
 
+    static string? WhyCannotInstallOnWindows(Release release)
+    {
+        if (release.Asset is null)
+            return "That release has no installer for this PC. Download it from GitHub.";
+
+        // Unsigned, the checksum is all that vouches for the installer - so no checksum, no install.
+        if (release.ChecksumsUrl is null)
+            return "That release has no checksums to check the installer against. Download it from GitHub.";
+
+        // The installer puts its uninstaller beside the app. Without one this copy came from
+        // somewhere else - a build, a copied folder - and the installer would put the update in a
+        // different place from the copy that is running.
+        var folder = Path.GetDirectoryName(Environment.ProcessPath);
+        if (folder is null || !File.Exists(Path.Combine(folder, "unins000.exe")))
+            return "This copy of FileServe was not installed by its installer, so it cannot update itself. Download the update from GitHub.";
+
+        return null;
+    }
+
     // -- installing ----------------------------------------------------------
 
     async Task Install(Release release)
@@ -329,16 +361,26 @@ public class AppUpdater(
                 Directory.Delete(work, true);
             Directory.CreateDirectory(work);
 
-            var zip = Path.Combine(work, release.Asset!.Name);
-            await this.Download(release.Asset, zip);
+            var download = Path.Combine(work, release.Asset!.Name);
+            await this.Download(release.Asset, download);
 
             this.Move(AppUpdateState.Verifying);
-            var bundle = BundlePath()!;
-            var staged = await Unpack(zip, Path.Combine(work, "unpacked"));
-            await this.Verify(staged, release);
+            await VerifyChecksum(download, release);
 
-            this.Move(AppUpdateState.Restarting);
-            Swap(bundle, staged, Path.Combine(work, "previous"));
+            if (OperatingSystem.IsWindows())
+            {
+                this.Move(AppUpdateState.Restarting);
+                RunInstallerAfterExit(download, Path.Combine(work, "install.log"));
+            }
+            else
+            {
+                var bundle = BundlePath()!;
+                var staged = await Unpack(download, Path.Combine(work, "unpacked"));
+                await this.Verify(staged, release);
+
+                this.Move(AppUpdateState.Restarting);
+                Swap(bundle, staged, Path.Combine(work, "previous"));
+            }
 
             // Long enough for the page that asked to see that it is restarting rather than dropping
             // mid-download, then the listener goes first so the port is free for the new copy.
@@ -395,6 +437,60 @@ public class AppUpdater(
                 this.Raise();
             }
         }
+    }
+
+    /// <summary>
+    /// The download against the line SHA256SUMS.txt has for it. Required where there is no signature
+    /// to fall back on; on macOS a release published before the checksums existed is still installable,
+    /// because the signature checks after this are the stronger ones.
+    /// </summary>
+    static async Task VerifyChecksum(string path, Release release)
+    {
+        if (release.ChecksumsUrl is null)
+        {
+            if (OperatingSystem.IsWindows())
+                throw new InvalidOperationException("That release has no checksums to check the installer against.");
+            return;
+        }
+
+        var sums = await Http.GetStringAsync(release.ChecksumsUrl);
+        var name = Path.GetFileName(path);
+        var expected = sums
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(line => line.Split(' ', 2, StringSplitOptions.TrimEntries))
+            .Where(parts => parts.Length == 2 && parts[1].TrimStart('*') == name)
+            .Select(parts => parts[0])
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException($"SHA256SUMS.txt has no line for {name}.");
+
+        await using var file = File.OpenRead(path);
+        var actual = Convert.ToHexStringLower(await System.Security.Cryptography.SHA256.HashDataAsync(file));
+        if (!String.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The download does not match its checksum. Try again.");
+    }
+
+    /// <summary>
+    /// The installer replaces files the running app holds open, so it has to wait for this process
+    /// to be gone - which only something outside it can do. PowerShell waits, then runs the installer
+    /// silently; the installer starts the new copy when it is done.
+    /// </summary>
+    static void RunInstallerAfterExit(string installer, string log)
+    {
+        static string Quote(string value) => "'" + value.Replace("'", "''") + "'";
+
+        var command =
+            $"Wait-Process -Id {Environment.ProcessId} -ErrorAction SilentlyContinue; " +
+            $"Start-Process -FilePath {Quote(installer)} -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',{Quote("/LOG=" + log)}";
+
+        var start = new ProcessStartInfo("powershell.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", command })
+            start.ArgumentList.Add(argument);
+
+        Process.Start(start)?.Dispose();
     }
 
     /// <summary>
@@ -566,7 +662,7 @@ public class AppUpdater(
 
     void Raise() => this.Changed?.Invoke(this, EventArgs.Empty);
 
-    record Release(ReleaseVersion Version, string Title, string? NotesHtml, string? Url, DateTimeOffset? PublishedUtc, ReleaseAsset? Asset);
+    record Release(ReleaseVersion Version, string Title, string? NotesHtml, string? Url, DateTimeOffset? PublishedUtc, ReleaseAsset? Asset, string? ChecksumsUrl);
 
     record ReleaseAsset(string Name, string Url, long Size);
 }

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=FileServe
+GenericName=File Server
+Comment=Share folders with your team from this machine
+Exec=/usr/bin/fileserve
+Icon=net.shinylib.fileserve
+Terminal=false
+Categories=Network;FileTransfer;
+Keywords=share;files;server;nuget;npm;
