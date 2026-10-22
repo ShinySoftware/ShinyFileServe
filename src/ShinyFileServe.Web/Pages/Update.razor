@@ -1,0 +1,136 @@
+@page "/update"
+@*
+    What the desktop app opens onto when it starts and there is a new release: what it is, what
+    changed, and the choice. A screen rather than a modal because the notes are something somebody
+    reads, and they can be long. Settings carries the same release for as long as it is pending,
+    whatever was chosen here.
+*@
+@inject AdminApi Admin
+@inject NavigationManager Nav
+@inject IToastService Toasts
+
+<AdminScreen Title="@this.Heading" Subtitle="@this.Subheading">
+    @if (this.info is null)
+    {
+        <p class="admin__loading">Asking about new releases…</p>
+    }
+    else if (!this.info.IsAvailable)
+    {
+        <div class="admin">
+            <section class="admin__block">
+                <p>FileServe @this.info.CurrentVersion is the newest version.</p>
+                <div class="admin__actions">
+                    <button type="button" class="action" disabled="@this.busy" @onclick="this.Check">Check again</button>
+                    <a class="action" href="">Back to the files</a>
+                </div>
+            </section>
+        </div>
+    }
+    else
+    {
+        <div class="admin">
+            <section class="admin__block update">
+                <dl class="update__facts">
+                    <div><dt>New</dt><dd class="num">@this.info.LatestVersion</dd></div>
+                    <div><dt>You have</dt><dd class="num">@this.info.CurrentVersion</dd></div>
+                    @if (this.info.PublishedUtc is { } published)
+                    {
+                        <div><dt>Released</dt><dd>@published.ToLocalTime().ToString("d MMMM yyyy")</dd></div>
+                    }
+                    @if (this.info.DownloadBytes is > 0 and var size)
+                    {
+                        <div><dt>Download</dt><dd class="num">@Format.Bytes(size)</dd></div>
+                    }
+                </dl>
+
+                @if (this.info.NotesHtml is { Length: > 0 } notes)
+                {
+                    <article class="update__notes">@((MarkupString)notes)</article>
+                }
+                else
+                {
+                    <p class="admin__hint">This release came without notes.</p>
+                }
+
+                @if (this.info.ReleaseUrl is { Length: > 0 } url)
+                {
+                    <a class="admin__hint" href="@url" target="_blank" rel="noopener">See this release on GitHub</a>
+                }
+
+                <label class="field--check">
+                    <input type="checkbox" checked="@this.info.IsSkipped" disabled="@this.busy"
+                           @onchange="e => this.Skip((bool?)e.Value == true)" />
+                    Don't show again
+                </label>
+                <span class="admin__hint">
+                    Only for @this.info.LatestVersion. A newer release will still ask, and Settings
+                    shows this one until it is installed.
+                </span>
+
+                <UpdateInstall @bind-Info="this.info">
+                    <a class="action" href="">Not now</a>
+                </UpdateInstall>
+            </section>
+        </div>
+    }
+</AdminScreen>
+
+@code {
+    AppUpdateInfo? info;
+    bool busy;
+
+    string Heading => this.info is { IsAvailable: true, LatestVersion: { } version }
+        ? $"FileServe {version} is available"
+        : "Updates";
+
+    // The release's own name, unless it only says what the heading already does.
+    string? Subheading => this.info is { IsAvailable: true, Title: { Length: > 0 } title } && title != $"FileServe {this.info.LatestVersion}"
+        ? title
+        : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            this.info = await this.Admin.GetUpdate();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    async Task Check()
+    {
+        this.busy = true;
+        try
+        {
+            this.info = await this.Admin.CheckForUpdate();
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    async Task Skip(bool skip)
+    {
+        this.busy = true;
+        try
+        {
+            this.info = await this.Admin.SkipUpdate(skip);
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+}

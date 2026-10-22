@@ -2470,3 +2470,38 @@ a.links__title:hover { color: var(--accent-ink); }
     .viewer__stage { padding: 0 0 16px; }
     .viewer__nav { top: auto; bottom: 16px; transform: none; }
 }
+
+/* A new release: the facts in one row, the notes as a document, the choice below them. */
+.update { gap: 14px; }
+
+.update__facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    margin: 0;
+}
+.update__facts div { display: grid; gap: 2px; }
+.update__facts dt { font-size: 11.5px; color: var(--ink-3); }
+.update__facts dd { margin: 0; font-size: 14px; color: var(--ink); }
+
+.update__notes {
+    padding: 14px 16px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--ink-2);
+    max-height: 420px;
+    overflow: auto;
+    overflow-wrap: anywhere;
+}
+.update__notes > :first-child { margin-top: 0; }
+.update__notes > :last-child { margin-bottom: 0; }
+.update__notes h1, .update__notes h2, .update__notes h3 { font-size: 14px; color: var(--ink); margin: 14px 0 6px; }
+.update__notes ul, .update__notes ol { padding-left: 20px; margin: 6px 0; }
+.update__notes li + li { margin-top: 3px; }
+.update__notes p { margin: 6px 0; }
+.update__notes code { font-size: 12px; }
+
+.update__progress { display: grid; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+.update__progress progress { width: 100%; max-width: 420px; height: 6px; accent-color: var(--accent); }

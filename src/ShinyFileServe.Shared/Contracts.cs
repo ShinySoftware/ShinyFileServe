@@ -1159,3 +1159,64 @@ public record SharedItem(
 
 /// <summary>One directory inside a shared folder. Paths are relative to the link, never to the share.</summary>
 public record SharedListing(string Path, List<FileEntryInfo> Entries);
+
+// -- app updates --------------------------------------------------------
+
+/// <summary>Where a check for, or an install of, a new release of the app has got to.</summary>
+public enum AppUpdateState
+{
+    /// <summary>Nobody has asked yet, or checks are turned off for this build.</summary>
+    Idle,
+    Checking,
+
+    /// <summary>The check answered. <see cref="AppUpdateInfo.IsAvailable"/> says whether it found anything.</summary>
+    Checked,
+    Downloading,
+    Verifying,
+
+    /// <summary>The new copy is in place and the app is about to quit so it can be swapped in.</summary>
+    Restarting,
+    Failed
+}
+
+/// <summary>
+/// The running version against the newest release on GitHub, and what can be done about it. Read
+/// by the update screen and the settings screen, which is why everything either of them shows is here.
+/// </summary>
+public record AppUpdateInfo(
+    string CurrentVersion,
+    AppUpdateState State,
+
+    /// <summary>A newer release than the one running exists.</summary>
+    bool IsAvailable,
+    string? LatestVersion,
+    string? Title,
+
+    /// <summary>The release notes, already rendered to HTML with any raw HTML in them escaped.</summary>
+    string? NotesHtml,
+
+    /// <summary>The release's page on GitHub - the way to it when this machine cannot install it itself.</summary>
+    string? ReleaseUrl,
+    DateTimeOffset? PublishedUtc,
+    long? DownloadBytes,
+
+    /// <summary>
+    /// This copy can replace itself with the release: there is a build for this platform, and the
+    /// running app is a signed release that knows where it was installed.
+    /// </summary>
+    bool CanInstall,
+
+    /// <summary>Why <see cref="CanInstall"/> is false, when it is and there is something to install.</summary>
+    string? CannotInstallReason,
+
+    /// <summary>"Don't show again" was ticked for <see cref="LatestVersion"/>. A newer release asks again.</summary>
+    bool IsSkipped,
+
+    /// <summary>0-100 while <see cref="State"/> is <see cref="AppUpdateState.Downloading"/>.</summary>
+    int? Progress,
+    string? Error,
+    DateTimeOffset? CheckedUtc
+);
+
+/// <summary>Ticks or clears "Don't show again" for the release currently on offer.</summary>
+public record SkipAppUpdateRequest(bool Skip);

@@ -17,6 +17,8 @@
     <PackageReference Include="Shiny.Maui.Controls.Desktop" />
     <PackageReference Include="Shiny.Notifications" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" />
+    <!-- Release notes from GitHub, rendered for the update screen. -->
+    <PackageReference Include="Markdig" />
   </ItemGroup>
 
   <ItemGroup>

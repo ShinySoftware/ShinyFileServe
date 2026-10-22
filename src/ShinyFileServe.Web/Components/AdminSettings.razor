@@ -16,6 +16,35 @@ else
 {
     <div class="admin">
 
+        @* First, and for as long as a release is pending: "Don't show again" only quietens the
+           prompt at startup, so this is where somebody who said it finds the release again. *@
+        @if (this.update is { CurrentVersion.Length: > 0 } update)
+        {
+            <section class="admin__block">
+                <div class="admin__head">
+                    <span class="admin__dot @(update.IsAvailable ? "is-on" : "")"></span>
+                    <div>
+                        <h3>@(update.IsAvailable ? $"FileServe {update.LatestVersion} is available" : $"FileServe {update.CurrentVersion}")</h3>
+                        <p class="admin__sub">@this.UpdateText</p>
+                    </div>
+                    @if (!update.IsAvailable)
+                    {
+                        <button type="button" class="action" disabled="@(this.busy || update.State == AppUpdateState.Checking)"
+                                @onclick="this.CheckForUpdate">
+                            Check now
+                        </button>
+                    }
+                </div>
+
+                @if (update.IsAvailable)
+                {
+                    <UpdateInstall @bind-Info="this.update">
+                        <a class="action" href="update">Release notes</a>
+                    </UpdateInstall>
+                }
+            </section>
+        }
+
         <section class="admin__block">
             <div class="admin__head">
                 <span class="admin__dot @(this.status.IsServing ? "is-on" : "")"></span>
@@ -353,6 +382,7 @@ else
 
 @code {
     ServerStatus? status;
+    AppUpdateInfo? update;
     int port = 8080;
     string token = "";
     bool autoStartServer;
@@ -382,7 +412,41 @@ else
     bool nugetPermanentDelete;
     bool busy;
 
-    protected override Task OnInitializedAsync() => this.Refresh();
+    protected override async Task OnInitializedAsync()
+    {
+        await this.Refresh();
+
+        // Its own request, and quiet when it fails: what the server knows about new releases is no
+        // reason for the rest of the settings not to load.
+        try
+        {
+            this.update = await this.Admin.GetUpdate();
+        }
+        catch (ApiException)
+        {
+        }
+    }
+
+    string UpdateText => this.update switch
+    {
+        null => "",
+        { State: AppUpdateState.Checking } => "Checking GitHub…",
+        { IsAvailable: true, IsSkipped: true } u => $"You have {u.CurrentVersion}. It will not ask about this one when the app starts.",
+        { IsAvailable: true } u => u.PublishedUtc is { } published
+            ? $"You have {u.CurrentVersion}. Released {published.ToLocalTime():d MMMM yyyy}."
+            : $"You have {u.CurrentVersion}.",
+        { State: AppUpdateState.Failed, Error: { Length: > 0 } error } => error,
+        { CheckedUtc: { } at } => $"The newest version. Checked {Format.When(at)}.",
+        _ => "Not checked yet."
+    };
+
+    Task CheckForUpdate() => this.Run(async () =>
+    {
+        this.update = await this.Admin.CheckForUpdate();
+
+        if (this.update is { IsAvailable: false, State: AppUpdateState.Checked })
+            await this.Toasts.SuccessAsync("FileServe is up to date.");
+    });
 
     string TunnelText => this.status?.Tunnel switch
     {

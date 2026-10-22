@@ -366,6 +366,12 @@ public class ServerSettings
     /// <summary>The NuGet feed and npm registry. Both off until an administrator turns them on.</summary>
     public PackageFeedSettings PackageFeeds { get; set; } = new();
 
+    /// <summary>
+    /// The release somebody said "Don't show again" to. Only that version: the next release is news
+    /// they have not seen, so it asks again. Settings still shows it either way.
+    /// </summary>
+    public string? SkippedUpdateVersion { get; set; }
+
     public DateTimeOffset? UpdatedUtc { get; set; }
 }
 

@@ -1,0 +1,160 @@
+@*
+    The one way to act on a new release, on the update screen and in Settings alike. Install where
+    this machine can replace itself; the release's page on GitHub where it cannot. While an install
+    runs it follows it to the restart, and reloads once the new copy answers - or, in the desktop
+    window, goes down with the old one, which opens the new one onto a fresh window.
+*@
+@implements IDisposable
+@inject AdminApi Admin
+@inject NavigationManager Nav
+@inject IToastService Toasts
+
+@if (this.Info is { IsAvailable: true } info)
+{
+    @if (this.IsInstalling(info) || this.waitingForRestart)
+    {
+        <div class="update__progress" role="status">
+            @* Without a value a progress bar is indeterminate, which is the truth once the download is done. *@
+            @if (info.State == AppUpdateState.Downloading && !this.waitingForRestart)
+            {
+                <progress max="100" value="@(info.Progress ?? 0)"></progress>
+            }
+            else
+            {
+                <progress></progress>
+            }
+            <span>@this.ProgressText(info)</span>
+        </div>
+    }
+    else
+    {
+        <div class="admin__actions">
+            @if (info.CanInstall)
+            {
+                <button type="button" class="action action--primary" disabled="@this.busy" @onclick="this.Install">
+                    Install and restart
+                </button>
+            }
+            else if (info.ReleaseUrl is { Length: > 0 } url)
+            {
+                <a class="action action--primary" href="@url" target="_blank" rel="noopener">Download from GitHub</a>
+            }
+            @this.ChildContent
+        </div>
+
+        @if (info.State == AppUpdateState.Failed && info.Error is { Length: > 0 } problem)
+        {
+            <p class="form-error" role="alert">@problem</p>
+        }
+        else if (!info.CanInstall && info.CannotInstallReason is { Length: > 0 } reason)
+        {
+            <span class="admin__hint">@reason</span>
+        }
+    }
+}
+
+@code {
+    static readonly TimeSpan Interval = TimeSpan.FromSeconds(1);
+
+    readonly CancellationTokenSource stop = new();
+    bool busy;
+    bool waitingForRestart;
+
+    [Parameter, EditorRequired] public AppUpdateInfo? Info { get; set; }
+    [Parameter] public EventCallback<AppUpdateInfo> InfoChanged { get; set; }
+
+    /// <summary>Anything that belongs beside the install button - "Not now", a link to the notes.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    bool IsInstalling(AppUpdateInfo info)
+        => info.State is AppUpdateState.Downloading or AppUpdateState.Verifying or AppUpdateState.Restarting;
+
+    string ProgressText(AppUpdateInfo info) => info.State switch
+    {
+        _ when this.waitingForRestart => "Restarting FileServe. This page will reload when it is back.",
+        AppUpdateState.Downloading => info.DownloadBytes is > 0 and var size
+            ? $"Downloading… {info.Progress ?? 0}% of {Format.Bytes(size)}"
+            : $"Downloading… {info.Progress ?? 0}%",
+        AppUpdateState.Verifying => "Checking the download is signed and notarized…",
+        _ => "Restarting FileServe. This page will reload when it is back."
+    };
+
+    /// <summary>A page opened mid-install - the other screen, another browser - picks up the progress.</summary>
+    protected override void OnParametersSet()
+    {
+        if (this.Info is { } info && this.IsInstalling(info) && !this.busy)
+            _ = this.Follow();
+    }
+
+    async Task Install()
+    {
+        this.busy = true;
+        try
+        {
+            await this.Publish(await this.Admin.InstallUpdate(this.stop.Token));
+            await this.Follow();
+        }
+        catch (ApiException ex)
+        {
+            this.busy = false;
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    async Task Follow()
+    {
+        this.busy = true;
+        var from = this.Info?.CurrentVersion;
+
+        try
+        {
+            using var timer = new PeriodicTimer(Interval);
+            while (await timer.WaitForNextTickAsync(this.stop.Token))
+            {
+                AppUpdateInfo next;
+                try
+                {
+                    next = await this.Admin.GetUpdate(this.stop.Token);
+                }
+                catch (Exception) when (!this.stop.IsCancellationRequested)
+                {
+                    // The old copy has gone. Keep asking until the new one answers.
+                    this.waitingForRestart = true;
+                    this.StateHasChanged();
+                    continue;
+                }
+
+                if (this.waitingForRestart || next.CurrentVersion != from)
+                {
+                    this.Nav.NavigateTo(this.Nav.BaseUri, forceLoad: true);
+                    return;
+                }
+
+                await this.Publish(next);
+                if (!this.IsInstalling(next))
+                    return;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The page went away first.
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    async Task Publish(AppUpdateInfo info)
+    {
+        this.Info = info;
+        await this.InfoChanged.InvokeAsync(info);
+        this.StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        this.stop.Cancel();
+        this.stop.Dispose();
+    }
+}

@@ -21,6 +21,7 @@ namespace ShinyFileServe.App;
 public class ConsoleWindowPage : ContentPage
 {
     readonly ServerController server;
+    readonly AppUpdater updates;
     readonly WebView web = new();
     // The portal's paper, ink-2 and accent in both themes (see app.css). This window shows before the
     // portal has painted and whenever the server is down, so a fixed light grey here is a light flash
@@ -41,9 +42,10 @@ public class ConsoleWindowPage : ContentPage
 
     string? loaded;
 
-    public ConsoleWindowPage(ServerController server)
+    public ConsoleWindowPage(ServerController server, AppUpdater updates)
     {
         this.server = server;
+        this.updates = updates;
         this.web.Navigating += this.OnNavigating;
         this.Title = "FileServe";
         this.SetAppThemeColor(BackgroundColorProperty, PaperLight, PaperDark);
@@ -87,6 +89,7 @@ public class ConsoleWindowPage : ContentPage
     {
         base.OnAppearing();
         this.server.Changed += this.OnServerChanged;
+        this.updates.Changed += this.OnServerChanged;
         this.Refresh();
 
         // Idempotent, and the tray already called it - this is only here for the case where a
@@ -97,6 +100,7 @@ public class ConsoleWindowPage : ContentPage
     protected override void OnDisappearing()
     {
         this.server.Changed -= this.OnServerChanged;
+        this.updates.Changed -= this.OnServerChanged;
         base.OnDisappearing();
     }
 
@@ -130,6 +134,16 @@ public class ConsoleWindowPage : ContentPage
         this.placeholder.IsVisible = false;
         this.web.IsVisible = true;
 
+        // A new release asks once per launch, as a screen in the portal like everything else. The
+        // check usually lands before the first page does; if it lands after, it is still seconds
+        // into the launch, before there is much in the middle of to throw away.
+        if (this.updates.TakePrompt())
+        {
+            this.loaded = url;
+            this.web.Source = url + "update";
+            return;
+        }
+
         // Only navigate when the address actually changed - a reload on every state change would
         // throw away whatever the operator was in the middle of.
         if (this.loaded != url)
@@ -154,7 +168,7 @@ public class ConsoleWindowPage : ContentPage
     /// </remarks>
     void OnNavigating(object? sender, WebNavigatingEventArgs e)
     {
-        if (!IsFileTransfer(e.Url))
+        if (!IsFileTransfer(e.Url) && !this.IsElsewhere(e.Url))
             return;
 
         e.Cancel = true;
@@ -164,4 +178,15 @@ public class ConsoleWindowPage : ContentPage
     static bool IsFileTransfer(string? url)
         => Uri.TryCreate(url, UriKind.Absolute, out var uri)
            && uri.AbsolutePath.StartsWith("/api/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A link off this server - a release on GitHub, a link in its notes - would otherwise replace
+    /// the portal the same way a PDF does, with the same lack of a way back.
+    /// </summary>
+    bool IsElsewhere(string? url)
+        => this.loaded is { } home
+           && Uri.TryCreate(url, UriKind.Absolute, out var uri)
+           && uri.Scheme is "http" or "https"
+           && Uri.TryCreate(home, UriKind.Absolute, out var portal)
+           && !String.Equals(uri.Authority, portal.Authority, StringComparison.OrdinalIgnoreCase);
 }

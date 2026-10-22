@@ -14,6 +14,7 @@ using ShinyFileServe.Server.Endpoints;
 using ShinyFileServe.Server.PackageFeeds;
 using ShinyFileServe.Server.Security;
 using ShinyFileServe.Server.Transfers;
+using ShinyFileServe.Server.Updates;
 
 namespace ShinyFileServe.Server;
 
@@ -55,6 +56,10 @@ public static class ServerRegistration
         services.TryAddSingleton<BandwidthMeteringMiddleware>();
         services.TryAddSingleton(sp => new PackageFeedHost(options.PackagesDirectory, sp));
         services.TryAddSingleton<PackageGateMiddleware>();
+
+        // The desktop app registers the real one first; anything else hosting the server gets an
+        // updater that never finds anything, so the update endpoints still answer.
+        services.TryAddSingleton<IAppUpdater, NoAppUpdater>();
 
         // A singleton because the cache is the whole point of it - one per request would ask the
         // network the same question on every page of the log.
@@ -139,6 +144,7 @@ public static class ServerRegistration
                     server.MapAdminLiveEndpoints();
                     server.MapAdminBandwidthEndpoints();
                     server.MapAdminPackagesEndpoints();
+                    server.MapAdminUpdateEndpoints();
                     server.MapFolderEndpoints();
                     server.MapFileEndpoints();
                     server.MapShareLinkEndpoints();

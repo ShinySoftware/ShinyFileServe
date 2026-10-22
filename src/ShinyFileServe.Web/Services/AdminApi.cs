@@ -249,6 +249,44 @@ public class AdminApi(FileServeApi api)
         await Ensure(response);
     }
 
+    // -- app updates --------------------------------------------------------
+
+    public async Task<AppUpdateInfo> GetUpdate(CancellationToken ct = default)
+    {
+        using var response = await this.Http.GetAsync("api/admin/update", ct);
+        await Ensure(response);
+        return await ReadUpdate(response, ct);
+    }
+
+    /// <summary>Asks GitHub again rather than reading back what the server last heard.</summary>
+    public async Task<AppUpdateInfo> CheckForUpdate(CancellationToken ct = default)
+    {
+        using var response = await this.Http.PostAsync("api/admin/update/check", null, ct);
+        await Ensure(response);
+        return await ReadUpdate(response, ct);
+    }
+
+    public async Task<AppUpdateInfo> SkipUpdate(bool skip, CancellationToken ct = default)
+    {
+        using var response = await this.Http.PutAsJsonAsync(
+            "api/admin/update/skip", new SkipAppUpdateRequest(skip), ClientJsonContext.Default.SkipAppUpdateRequest, ct
+        );
+        await Ensure(response);
+        return await ReadUpdate(response, ct);
+    }
+
+    /// <summary>Starts the download. Progress is <see cref="GetUpdate"/>, until the server goes away to restart.</summary>
+    public async Task<AppUpdateInfo> InstallUpdate(CancellationToken ct = default)
+    {
+        using var response = await this.Http.PostAsync("api/admin/update/install", null, ct);
+        await Ensure(response);
+        return await ReadUpdate(response, ct);
+    }
+
+    static async Task<AppUpdateInfo> ReadUpdate(HttpResponseMessage response, CancellationToken ct)
+        => await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.AppUpdateInfo, ct)
+            ?? throw new ApiException(HttpStatusCode.InternalServerError, "The server sent nothing back about updates.");
+
     static async Task Ensure(HttpResponseMessage response)
     {
         if (response.IsSuccessStatusCode)

@@ -85,4 +85,6 @@ namespace ShinyFileServe.Web.Services;
 [JsonSerializable(typeof(List<ShareLinkInfo>))]
 [JsonSerializable(typeof(SharedItem))]
 [JsonSerializable(typeof(SharedListing))]
+[JsonSerializable(typeof(AppUpdateInfo))]
+[JsonSerializable(typeof(SkipAppUpdateRequest))]
 public partial class ClientJsonContext : JsonSerializerContext;

@@ -80,12 +80,14 @@ jobs:
           echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
 
       # Publish, not build: Release runs the IL trimmer, which is what ships. Without -o, which splits the bundle,
-      # and with CreatePackage=false so the output is the .app rather than a .pkg installer.
+      # and with CreatePackage=false so the output is the .app rather than a .pkg installer. Version is the whole tag,
+      # suffix and all: it is what the app compares against GitHub releases to know whether it is out of date.
       - name: Build
         run: >
           dotnet publish "$PROJECT" -c Release -f net10.0-macos
           -p:CreatePackage=false
           -p:CodesignKey="$SIGNING_IDENTITY"
+          -p:Version="$VERSION"
           -p:ApplicationDisplayVersion="$APP_VERSION"
           -p:ApplicationVersion="${{ github.run_number }}"
 
@@ -122,6 +124,7 @@ jobs:
           xcrun stapler staple "$APP_PATH"
           spctl --assess --type execute --verbose=2 "$APP_PATH"
 
+      # The app finds its own update by this name: FileServe-<version>-<os>-<arch>.zip.
       - name: Package
         run: |
           mkdir -p artifacts

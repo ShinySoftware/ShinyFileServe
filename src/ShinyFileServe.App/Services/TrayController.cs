@@ -182,7 +182,8 @@ public class TrayController(
         SystemBrowser.Open(url, logger);
     }
 
-    void Quit()
+    /// <summary>Takes the tray icon down and ends the process. The updater quits through here too.</summary>
+    public void Quit()
     {
         this.Dispose();
         windows.Quit();

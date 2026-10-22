@@ -7,6 +7,7 @@ using ShinyFileServe.App.Services;
 using ShinyFileServe.Core;
 using ShinyFileServe.Core.Services;
 using ShinyFileServe.Server;
+using ShinyFileServe.Server.Updates;
 
 namespace ShinyFileServe.App;
 
@@ -71,6 +72,11 @@ public static class MauiProgram
         builder.Services.AddSingleton<TrayController>();
         builder.Services.AddSingleton<ActivityNotifier>();
 
+        // Added rather than tried: the server registered a do-nothing updater for hosts without one,
+        // and the last registration is the one that resolves.
+        builder.Services.AddSingleton<AppUpdater>();
+        builder.Services.AddSingleton<IAppUpdater>(sp => sp.GetRequiredService<AppUpdater>());
+
         builder.Services.AddTransient<ConsoleWindowPage>();
 
 #if DEBUG
@@ -131,6 +137,7 @@ public static class MauiProgram
     {
         app.Services.GetRequiredService<TrayController>().Start();
         app.Services.GetRequiredService<ActivityNotifier>().Start();
+        app.Services.GetRequiredService<AppUpdater>().Start();
         return app;
     }
 }
