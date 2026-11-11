@@ -24,6 +24,12 @@ public static class MauiProgram
             .AddMacOSEssentials()
             .ConfigureFileServe();
 
+        // The handler leaves the web view without a UI delegate, so file inputs would do nothing.
+        Microsoft.Maui.Platforms.MacOS.Handlers.WebViewHandler.Mapper.AppendToMapping(
+            nameof(FilePickerUIDelegate),
+            (handler, _) => handler.PlatformView.UIDelegate = new FilePickerUIDelegate()
+        );
+
         // Started here rather than from App.CreateWindow: the tray icon has to outlive every
         // window, so it is created before the first one exists.
         return builder.Build().StartFileServe();

@@ -12,7 +12,8 @@ public class AuthEndpoints(
     IActivityLogger activity,
     ISettingsManager settings,
     IPasswordPolicy passwords,
-    ICurrentUserResolver current
+    ICurrentUserResolver current,
+    BackupStaging staging
 )
 {
     /// <summary>
@@ -96,6 +97,96 @@ public class AuthEndpoints(
             );
             return new ConflictObjectResult(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Stages a backup in place of creating the first administrator - a server being moved or rebuilt
+    /// brings its accounts with it. Hedged exactly as setup is: nobody exists to authenticate yet, so
+    /// it answers only the machine running the server, and only while there are no accounts at all.
+    /// </summary>
+    [Post("/setup/restore/stage")]
+    [AllowAnonymous]
+    [Produces(200, typeof(BackupSummary))]
+    [Produces(400)]
+    [Produces(403)]
+    [Produces(409)]
+    public async Task<IActionResult> StageSetupRestore(HttpContext ctx, CancellationToken ct)
+    {
+        if (await this.RefuseSetupRestore(ctx, ct) is { } refused)
+            return refused;
+
+        if (!BackupStaging.IsMultipart(ctx))
+            return new BadRequestObjectResult("Expected a multipart/form-data body.");
+
+        if (await staging.Stage(ctx, ct) is not { } info)
+            return new BadRequestObjectResult("No file was present in the request.");
+
+        return new OkObjectResult(BackupStaging.ToSummary(info));
+    }
+
+    /// <summary>
+    /// Applies the staged backup. 202 and the work afterwards, for the same reason as the
+    /// administrator's restore: the swap stops the listener this response travels over.
+    /// </summary>
+    [Post("/setup/restore")]
+    [AllowAnonymous]
+    [Produces(202)]
+    [Produces(403)]
+    [Produces(409)]
+    public async Task<IActionResult> SetupRestore(HttpContext ctx, CancellationToken ct)
+    {
+        if (await this.RefuseSetupRestore(ctx, ct) is { } refused)
+            return refused;
+
+        if (await staging.InspectStaged(ct) is not { } info)
+            return new ConflictObjectResult("Upload a backup first.");
+
+        if (!info.IsValid)
+            return new ConflictObjectResult(info.Problem ?? "That backup cannot be restored.");
+
+        // Written before the swap, so it lands in the database being replaced - the .previous copy
+        // keeps it. The restored log carries on from wherever the backup left off.
+        await activity.Log(
+            ActivityAction.Login, null, "(setup)", success: true,
+            detail: $"Restored the database from a backup at setup ({info.Users} accounts, {info.Shares} shares)",
+            context: current.GetActivityContext(ctx), ct: ct
+        );
+
+        staging.ApplyInBackground();
+        return new StatusCodeResult(StatusCodes.Status202Accepted);
+    }
+
+    /// <summary>Throws away a backup staged at setup without applying it.</summary>
+    [Delete("/setup/restore/stage")]
+    [AllowAnonymous]
+    [Produces(204)]
+    [Produces(403)]
+    [Produces(409)]
+    public async Task<IActionResult> DiscardSetupRestore(HttpContext ctx, CancellationToken ct)
+    {
+        if (await this.RefuseSetupRestore(ctx, ct) is { } refused)
+            return refused;
+
+        staging.Discard();
+        return new NoContentResult();
+    }
+
+    async Task<IActionResult?> RefuseSetupRestore(HttpContext ctx, CancellationToken ct)
+    {
+        if (!LoopbackSignInMiddleware.IsLocal(ctx))
+        {
+            await activity.Log(
+                ActivityAction.Denied, null, "(setup)", success: false,
+                detail: "Restore at setup attempted from off this machine", context: current.GetActivityContext(ctx), ct: ct
+            );
+            return new ForbidResult();
+        }
+
+        // Once anyone exists this is the administrator's restore or nothing.
+        if (!await users.NeedsSetup(ct))
+            return new ConflictObjectResult("This server has already been set up.");
+
+        return null;
     }
 
     /// <summary>Exchanges credentials for a session cookie.</summary>

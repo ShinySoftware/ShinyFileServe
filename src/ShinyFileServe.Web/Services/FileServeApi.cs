@@ -43,6 +43,33 @@ public class FileServeApi(HttpClient http)
             ?? throw new ApiException(HttpStatusCode.InternalServerError, "The account was created but the server sent nothing back.");
     }
 
+    /// <summary>Uploads a backup to restore instead of creating the first administrator, and reports what is in it.</summary>
+    public async Task<BackupSummary> StageSetupRestore(string fileName, Stream content, long length, CancellationToken ct = default)
+    {
+        using var form = new MultipartFormDataContent();
+        var part = new StreamContent(content);
+        part.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        part.Headers.ContentLength = length;
+        form.Add(part, "backup", fileName);
+
+        using var response = await http.PostAsync("api/auth/setup/restore/stage", form, ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.BackupSummary, ct)
+            ?? throw new ApiException(HttpStatusCode.InternalServerError, "The server read the backup but sent nothing back.");
+    }
+
+    public async Task RestoreAtSetup(CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync("api/auth/setup/restore", null, ct);
+        await Ensure(response);
+    }
+
+    public async Task DiscardSetupRestore(CancellationToken ct = default)
+    {
+        using var response = await http.DeleteAsync("api/auth/setup/restore/stage", ct);
+        await Ensure(response);
+    }
+
     public async Task<CurrentUser?> GetCurrentUser(CancellationToken ct = default)
     {
         using var response = await http.GetAsync("api/auth/me", ct);

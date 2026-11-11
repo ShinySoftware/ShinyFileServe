@@ -15,15 +15,11 @@ namespace ShinyFileServe.Server.Endpoints;
 [Authorize(Roles = ClaimTypesEx.AdminRole)]
 public class AdminBackupEndpoints(
     IBackupService backups,
-    IFileServeServer server,
+    BackupStaging staging,
     ICurrentUserResolver current,
-    IActivityLogger activity,
-    FileServeServerOptions options
+    IActivityLogger activity
 )
 {
-    /// <summary>Where an upload waits between being checked and being applied.</summary>
-    string StagedPath => Path.Combine(Path.GetDirectoryName(Path.GetFullPath(options.TicketKeyPath))!, "restore-staged.db");
-
     [Get]
     [Produces(200)]
     public async Task<IActionResult> Download(HttpContext ctx, CancellationToken ct)
@@ -59,36 +55,16 @@ public class AdminBackupEndpoints(
     [Produces(400)]
     public async Task<IActionResult> Stage(HttpContext ctx, CancellationToken ct)
     {
-        if (!(ctx.Request.ContentType?.StartsWith("multipart/form-data", StringComparison.OrdinalIgnoreCase) ?? false))
+        if (!BackupStaging.IsMultipart(ctx))
             return new BadRequestObjectResult("Expected a multipart/form-data body.");
 
-        var staged = this.StagedPath;
-        var received = false;
-
-        await foreach (var part in ctx.Request.ReadMultipartAsync(ct))
-        {
-            if (!part.IsFile)
-                continue;
-
-            await using (var file = new FileStream(staged, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
-                await part.Body.CopyToAsync(file, ct);
-
-            received = true;
-            break;
-        }
-
-        if (!received)
+        if (await staging.Stage(ctx, ct) is not { } info)
             return new BadRequestObjectResult("No file was present in the request.");
 
-        var info = await backups.Inspect(staged, ct);
         if (!info.IsValid)
-        {
-            // A file that cannot be restored has no business sitting around looking like it can be.
-            File.Delete(staged);
             await this.Log(ctx, $"Rejected a backup: {info.Problem}", ct);
-        }
 
-        return new OkObjectResult(ToSummary(info));
+        return new OkObjectResult(BackupStaging.ToSummary(info));
     }
 
     /// <summary>
@@ -100,36 +76,15 @@ public class AdminBackupEndpoints(
     [Produces(409)]
     public async Task<IActionResult> Restore(HttpContext ctx, CancellationToken ct)
     {
-        var staged = this.StagedPath;
-        if (!File.Exists(staged))
+        if (await staging.InspectStaged(ct) is not { } info)
             return new ConflictObjectResult("Upload a backup first.");
 
-        var info = await backups.Inspect(staged, ct);
         if (!info.IsValid)
             return new ConflictObjectResult(info.Problem ?? "That backup cannot be restored.");
 
         await this.Log(ctx, $"Restored the database from a backup ({info.Users} accounts, {info.Shares} shares)", ct);
 
-        _ = Task.Run(async () =>
-        {
-            // Long enough for the 202 to reach the browser before the socket goes away.
-            await Task.Delay(400);
-
-            var wasRunning = server.IsRunning;
-            await server.Stop();
-
-            try
-            {
-                await backups.Apply(staged);
-                File.Delete(staged);
-            }
-            finally
-            {
-                if (wasRunning)
-                    await server.Start();
-            }
-        }, CancellationToken.None);
-
+        staging.ApplyInBackground();
         return new StatusCodeResult(StatusCodes.Status202Accepted);
     }
 
@@ -138,16 +93,9 @@ public class AdminBackupEndpoints(
     [Produces(204)]
     public IActionResult Discard()
     {
-        if (File.Exists(this.StagedPath))
-            File.Delete(this.StagedPath);
-
+        staging.Discard();
         return new NoContentResult();
     }
-
-    static BackupSummary ToSummary(BackupInfo info) => new(
-        info.IsValid, info.Problem, info.Users, info.Administrators,
-        info.Shares, info.ActivityEntries, info.SizeBytes, info.TakenUtc
-    );
 
     async Task Log(HttpContext ctx, string detail, CancellationToken ct)
     {

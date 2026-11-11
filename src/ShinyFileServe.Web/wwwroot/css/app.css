@@ -664,6 +664,16 @@ button.cell-name__link:hover { color: var(--accent); text-decoration: underline;
     gap: 16px;
 }
 
+/* The second way through setup: set apart from the form above it, so it reads as an alternative
+   rather than another step. */
+.signin__restore {
+    margin-top: 28px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+}
+
+.signin__restore h2 { font-size: 15px; font-weight: 600; }
+
 .field { display: grid; gap: 6px; }
 
 .field__label { font-size: 12.5px; color: var(--ink-2); }

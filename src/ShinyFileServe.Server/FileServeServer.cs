@@ -56,6 +56,7 @@ public static class ServerRegistration
         services.TryAddSingleton<BandwidthMeteringMiddleware>();
         services.TryAddSingleton(sp => new PackageFeedHost(options.PackagesDirectory, sp));
         services.TryAddSingleton<PackageGateMiddleware>();
+        services.TryAddSingleton<BackupStaging>();
 
         // The desktop app registers the real one first; anything else hosting the server gets an
         // updater that never finds anything, so the update endpoints still answer.

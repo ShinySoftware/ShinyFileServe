@@ -79,6 +79,58 @@
                 @(this.busy ? "Creating…" : "Create account")
             </button>
         </form>
+
+        @* Moving or rebuilding a server should bring its accounts with it, not start them over. *@
+        <div class="signin__card signin__restore">
+            <div>
+                <h2>Or restore a backup</h2>
+                <p style="color:var(--ink-2); margin-top:4px;">
+                    Bring back the accounts, shares and settings from a FileServe backup instead of
+                    starting fresh. The files themselves are not in it — point the shares back at them.
+                </p>
+            </div>
+
+            @if (this.restoreError is { Length: > 0 })
+            {
+                <p class="form-error" role="alert">@this.restoreError</p>
+            }
+
+            @if (this.staged is { IsValid: true } staged)
+            {
+                <div class="restore">
+                    <p class="restore__title">Ready to restore</p>
+                    <p class="restore__body">
+                        @staged.Users @(staged.Users == 1 ? "account" : "accounts")
+                        (@staged.Administrators @(staged.Administrators == 1 ? "administrator" : "administrators")),
+                        @staged.Shares @(staged.Shares == 1 ? "share" : "shares"),
+                        @staged.ActivityEntries log @(staged.ActivityEntries == 1 ? "entry" : "entries")
+                        · @Format.Bytes(staged.SizeBytes)
+                        @if (staged.TakenUtc is { } taken)
+                        {
+                            <span> · settings last changed @Format.When(taken)</span>
+                        }
+                    </p>
+                    <div class="admin__actions">
+                        <button type="button" class="action action--primary" disabled="@this.busy"
+                                @onclick="this.Restore">@(this.restoring ? "Restoring…" : "Restore and restart")</button>
+                        <button type="button" class="action" disabled="@this.busy"
+                                @onclick="this.DiscardBackup">Cancel</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                @if (this.staged is { IsValid: false, Problem: { Length: > 0 } problem })
+                {
+                    <p class="form-error" role="alert">@problem</p>
+                }
+
+                <label class="action" style="justify-content:center; padding:9px;">
+                    @(this.busy ? "Reading…" : "Choose a backup…")
+                    <InputFile OnChange="this.OnBackupPicked" accept=".db" style="display:none" disabled="@this.busy" />
+                </label>
+            }
+        </div>
         }
     </div>
 </div>
@@ -91,7 +143,10 @@
     bool busy;
     bool passwordOk;
     bool canSetUpHere = true;
+    bool restoring;
     string? error;
+    string? restoreError;
+    BackupSummary? staged;
     SessionPolicy policy = new(true, true, true, 30, 0, PasswordPolicyInfo.Off, []);
 
     bool CanSubmit => !String.IsNullOrWhiteSpace(this.username) && this.passwordOk;
@@ -114,6 +169,94 @@
         {
             // The server will refuse the submit too, with a message worth showing.
         }
+    }
+
+    async Task OnBackupPicked(InputFileChangeEventArgs args)
+    {
+        if (args.FileCount == 0 || this.busy)
+            return;
+
+        this.busy = true;
+        this.staged = null;
+        this.restoreError = null;
+
+        try
+        {
+            // Same cap as the administrator's restore: a guard against picking a disk image by mistake.
+            await using var content = args.File.OpenReadStream(512L * 1024 * 1024);
+            this.staged = await this.Api.StageSetupRestore(args.File.Name, content, args.File.Size);
+        }
+        catch (Exception ex) when (ex is ApiException or IOException)
+        {
+            this.restoreError = ex.Message;
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    async Task DiscardBackup()
+    {
+        this.busy = true;
+
+        try
+        {
+            await this.Api.DiscardSetupRestore();
+            this.staged = null;
+        }
+        catch (ApiException ex)
+        {
+            this.restoreError = ex.Message;
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    async Task Restore()
+    {
+        this.busy = true;
+        this.restoring = true;
+        this.restoreError = null;
+
+        try
+        {
+            await this.Api.RestoreAtSetup();
+        }
+        catch (ApiException ex)
+        {
+            this.restoreError = ex.Message;
+            this.busy = false;
+            this.restoring = false;
+            return;
+        }
+
+        // The listener goes away for the swap. Once it answers again the restored accounts exist,
+        // and this machine's own window signs straight in as their administrator.
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            await Task.Delay(500);
+
+            try
+            {
+                var policy = await this.Api.GetSessionPolicy();
+                if (!policy.NeedsSetup)
+                {
+                    this.Nav.NavigateTo(this.Nav.BaseUri, forceLoad: true);
+                    return;
+                }
+            }
+            catch (Exception)
+            {
+                // Still down. The restart is a second or two; keep asking.
+            }
+        }
+
+        this.restoreError = "The server has not come back. Close FileServe and open it again.";
+        this.busy = false;
+        this.restoring = false;
     }
 
     async Task Submit()
