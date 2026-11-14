@@ -1,3 +1,4 @@
+using System.Linq;
 using AppKit;
 using Foundation;
 using ShinyFileServe.App.Services;
@@ -20,6 +21,18 @@ public class MacPlatformShell : IPlatformShell
         // Regular first: AppKit will not front an Accessory app's window.
         NSApplication.SharedApplication.ActivationPolicy = NSApplicationActivationPolicy.Regular;
         NSApplication.SharedApplication.Activate();
+
+        // Application.ActivateWindow is a no-op on the current macOS backend (nothing maps it), so a
+        // console window sitting minimized in the Dock would stay there - raise it here instead.
+        // CanBecomeMainWindow leaves out the status item's own window.
+        var consoles = NSApplication.SharedApplication.DangerousWindows.ToArray().Where(x => x.CanBecomeMainWindow);
+        foreach (var window in consoles)
+        {
+            if (window.IsMiniaturized)
+                window.Deminiaturize(null);
+
+            window.MakeKeyAndOrderFront(null);
+        }
     }
 
     /// <summary>
