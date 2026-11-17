@@ -1,5 +1,7 @@
 # ShinyFileServe
 
+**Website: [shinysoftware.github.io/ShinyFileServe](https://shinysoftware.github.io/ShinyFileServe/)**
+
 A self-hosted file server for a team. It runs as a desktop app on **macOS (AppKit)**, **Linux
 (GTK4)** and **Windows**, keeps to the system tray, and serves a browser UI so nobody has to
 install a client. Folders are published to groups with explicit permissions and metered quotas,
@@ -650,6 +652,13 @@ runtime surprise on a trimmed head.
 
 Password rules travel on `GET /api/auth/policy` so the setup and account screens can render the
 meter before anyone has signed in.
+
+## Website
+
+The product site at [shinysoftware.github.io/ShinyFileServe](https://shinysoftware.github.io/ShinyFileServe/) is
+plain HTML and CSS in `site/`. `.github/workflows/pages.yml` publishes it to GitHub Pages on every push to `main`
+that touches it, copying in `docs/screenshots` and the app icon on the way, so a new screenshot here is a new
+screenshot there.
 
 ## Building a release
 

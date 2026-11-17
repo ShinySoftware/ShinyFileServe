@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FileServe — a file server for your team, on your own machine</title>
+  <meta name="description" content="FileServe is a self-hosted file server for macOS, Windows and Linux. Publish folders to groups with permissions and quotas, share links, watch transfers live, and host a private NuGet feed and npm registry — all from a browser, with no client to install.">
+  <meta name="theme-color" content="#101619">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="FileServe — a file server for your team">
+  <meta property="og:description" content="Self-hosted file sharing for macOS, Windows and Linux. Permissions, quotas, share links, live transfers, audit log, and private NuGet and npm feeds.">
+  <meta property="og:url" content="https://shinysoftware.github.io/ShinyFileServe/">
+  <meta property="og:image" content="https://shinysoftware.github.io/ShinyFileServe/screenshots/browse.png">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="nav" id="top">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top" aria-label="FileServe home">
+      <svg class="brand-mark" viewBox="100 100 824 824" aria-hidden="true"><defs><linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12817F"/><stop offset="1" stop-color="#0A5455"/></linearGradient></defs><rect x="100" y="100" width="824" height="824" rx="184" fill="url(#t)"/><path d="M278 655 L278 369 L434 369 L486 421 L746 421 L746 655 Z" fill="none" stroke="#fff" stroke-width="52" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      <span>FileServe</span>
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#tour">Tour</a>
+      <a href="#packages">Packages</a>
+      <a href="#security">Security</a>
+      <a href="#stack">Technology</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="icon-link" href="https://github.com/ShinySoftware/ShinyFileServe" aria-label="Source on GitHub">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.19c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      </a>
+      <a class="btn btn-sm btn-accent" href="#download">Download</a>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="wrap hero-inner">
+      <p class="eyebrow"><span class="dot"></span> macOS · Windows · Linux</p>
+      <h1>Your team's files,<br><span class="grad">served from your own machine.</span></h1>
+      <p class="lede">
+        FileServe turns a computer you already own into a file server. Publish folders to groups,
+        set exactly who can do what, and hand people a browser address — there's no client to install,
+        no cloud account and no monthly bill.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-accent btn-lg" href="#download">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Download free
+        </a>
+        <a class="btn btn-ghost btn-lg" href="#tour">Take the tour</a>
+      </div>
+      <ul class="hero-facts" aria-label="Highlights">
+        <li>No client to install</li>
+        <li>Lives in the system tray</li>
+        <li>One SQLite file holds everything</li>
+      </ul>
+
+      <figure class="window hero-shot">
+        <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span>http://fileserve.local:8080</span></div>
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="screenshots/browse-dark.png">
+          <img src="screenshots/browse.png" width="1920" height="1200" alt="The FileServe portal browsing a share: a folder tree on the left and a file list with share, download and delete actions on the right">
+        </picture>
+      </figure>
+    </div>
+  </section>
+
+  <!-- Strip -->
+  <section class="strip" aria-label="At a glance">
+    <div class="wrap strip-inner">
+      <div><strong>3</strong><span>desktop platforms, native heads</span></div>
+      <div><strong>5</strong><span>permissions per group, per folder</span></div>
+      <div><strong>2</strong><span>package registries built in</span></div>
+      <div><strong>0</strong><span>clients to install</span></div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="section" id="features">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Features</p>
+        <h2>Everything a team file server should do. Nothing it shouldn't.</h2>
+        <p>Built for a studio, an office or a house full of people: real permissions, real limits, and a record of everything that happened.</p>
+      </div>
+
+      <div class="grid features">
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M16 19v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 17.5V19M10 10.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM20 19v-1.5a3.5 3.5 0 0 0-2.5-3.35M15.5 4.6a3 3 0 0 1 0 5.8"/></svg></div>
+          <h3>Groups and permissions</h3>
+          <p>Grant <em>List</em>, <em>Download</em>, <em>Upload</em>, <em>Delete</em> and <em>New Folder</em> per group, per share. Someone in two groups gets the union — adding a person never takes access away.</p>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9M12 3v9h9M12 3a9 9 0 0 1 9 9"/></svg></div>
+          <h3>Quotas that hold</h3>
+          <p>Cap downloads and uploads by day, ISO week, month or in total — per folder grant and per account across the whole server. Limit how many transfers someone runs at once.</p>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg></div>
+          <h3>Share links and galleries</h3>
+          <p>Hand out a file or folder as an address — for anyone, or for particular accounts — with optional expiry. Folders open as a photo and video gallery with a full-screen viewer.</p>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7M17 15l2 2 3-4"/></svg></div>
+          <h3>A complete audit log</h3>
+          <p>Every sign-in, transfer, deletion and refusal is recorded and filterable by person, action and date. Refusals are logged, not just successes.</p>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></div>
+          <h3>Live transfers and bandwidth</h3>
+          <p>See who's signed in and what's moving right now — speed, progress and time left. Report bandwidth by day or hour, by account, over any window.</p>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg></div>
+          <h3>Virus scanning before publish</h3>
+          <p>Uploads are scanned once whole and only moved into place if clean — by Windows Defender through AMSI, or a ClamAV daemon on macOS and Linux.</p>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3Z"/></svg></div>
+          <h3>A public address, on demand</h3>
+          <p>Open a tunnel from the tray to get a public HTTPS address for people outside your network. Close it and the server is back to LAN-only.</p>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5"/></svg></div>
+          <h3>Backup and restore</h3>
+          <p>Download the whole configuration — accounts, shares, quotas, history and log — as one consistent file while serving. Restore checks the backup before touching anything.</p>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+          <h3>Lives in the tray</h3>
+          <p>Start and stop the server, open the tunnel and copy the address from the menu bar. The icon turns green while somebody is connected. Starts at login if you want it to.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tour -->
+  <section class="section section-alt" id="tour">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Tour</p>
+        <h2>One portal, in any browser.</h2>
+        <p>The desktop app has no screens of its own — it's a window onto its own server. Whatever an operator does from the machine, they can do from anywhere on the network.</p>
+      </div>
+
+      <div class="tour">
+        <div class="tour-tabs" role="tablist" aria-label="Screens">
+          <button role="tab" aria-selected="true" data-shot="shares" data-title="Shares" data-text="Folders on this machine, published to groups with the permissions and quotas each one gets.">Shares</button>
+          <button role="tab" aria-selected="false" data-shot="people" data-title="People" data-text="Accounts and groups, parallel-transfer caps, expiry dates and per-account quotas.">People</button>
+          <button role="tab" aria-selected="false" data-shot="activity" data-title="Activity" data-text="Every sign-in, transfer and refusal, filterable by who, what and when.">Activity</button>
+          <button role="tab" aria-selected="false" data-shot="bandwidth" data-title="Bandwidth" data-text="In and out over any window, by day or by hour, with a table of who moved what.">Bandwidth</button>
+          <button role="tab" aria-selected="false" data-shot="live" data-title="Right now" data-text="Who is signed in and what is moving — speed, progress and time left for every transfer.">Right now</button>
+          <button role="tab" aria-selected="false" data-shot="links" data-title="Links" data-text="Files and folders shared by address: copy, open or revoke what you made and what was shared with you.">Links</button>
+          <button role="tab" aria-selected="false" data-shot="settings" data-title="Settings" data-text="Serving, the public tunnel, password policy, sessions, package feeds and start at login.">Settings</button>
+          <button role="tab" aria-selected="false" data-shot="signin" data-title="Sign in" data-text="What anyone not on this machine sees first — with a live password-strength meter on setup.">Sign in</button>
+        </div>
+
+        <figure class="window tour-shot">
+          <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span id="tour-url">fileserve.local:8080 / shares</span></div>
+          <button class="tour-zoom" type="button" aria-label="View screenshot full size">
+            <img id="tour-img" src="screenshots/shares.png" width="1920" height="1200" alt="Shares: folders on this machine, published to groups">
+          </button>
+        </figure>
+        <p class="tour-caption"><strong id="tour-title">Shares</strong> <span id="tour-text">Folders on this machine, published to groups with the permissions and quotas each one gets.</span></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Split: links -->
+  <section class="section">
+    <div class="wrap split">
+      <div>
+        <p class="kicker">Sharing</p>
+        <h2>Send a link, not an attachment.</h2>
+        <p>Click 🔗 beside any file, or <strong>Share</strong> on a folder. Pick who it's for — anyone with the link, or particular accounts — and when it should stop working.</p>
+        <ul class="ticks">
+          <li><strong>Links borrow, they don't grant.</strong> A link lends its creator's rights, re-checked on every click. Remove the creator's access and every link they made closes.</li>
+          <li><strong>Quotas still apply.</strong> Downloads through a link count against the creator, so an "anyone" link is never a way around a limit.</li>
+          <li><strong>The right address, automatically.</strong> Links use the public tunnel when it's open, otherwise the LAN address — never <code>127.0.0.1</code>.</li>
+        </ul>
+      </div>
+      <figure class="window">
+        <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span>fileserve.local:8080 / links</span></div>
+        <img src="screenshots/links.png" width="1920" height="1200" loading="lazy" alt="The Links screen listing shared files and folders with copy, open and revoke actions">
+      </figure>
+    </div>
+  </section>
+
+  <!-- Packages -->
+  <section class="section section-dark" id="packages">
+    <div class="wrap split split-rev">
+      <div>
+        <p class="kicker">Package feeds</p>
+        <h2>A private NuGet feed and npm registry, too.</h2>
+        <p>Switch them on in Settings and the same server hosts <code>/nuget</code> and <code>/npm</code>. Personal access tokens authenticate them; the same groups govern them.</p>
+        <ul class="ticks">
+          <li>Restore, push and unlist for NuGet; install and publish for npm — granted per group, overridable per account.</li>
+          <li>Tokens are shown once and stored only as a SHA-256 hash. Lock an account and its tokens stop on the next request.</li>
+          <li>Anonymous access can be reads at most — never a write nobody can be held to account for.</li>
+          <li>Every feed request is logged: who, which token, which package, status, bytes and duration.</li>
+        </ul>
+      </div>
+      <div class="terminal" role="img" aria-label="Terminal commands adding FileServe as a NuGet source and npm registry">
+        <div class="terminal-bar" aria-hidden="true"><i></i><i></i><i></i><span>zsh</span></div>
+<pre><code><span class="c"># NuGet</span>
+<span class="p">$</span> dotnet nuget add source \
+    http://server:8080/nuget/v3/index.json \
+    -n fileserve -u me -p sfs_…
+<span class="p">$</span> dotnet nuget push My.Package.1.0.0.nupkg \
+    -s fileserve -k sfs_…
+<span class="ok">Your package was pushed.</span>
+
+<span class="c"># npm</span>
+<span class="p">$</span> npm config set registry http://server:8080/npm/
+<span class="p">$</span> npm login --auth-type=legacy
+<span class="p">$</span> npm publish
+<span class="ok">+ @team/ui@2.4.0</span></code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Security -->
+  <section class="section" id="security">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Security</p>
+        <h2>Careful by default.</h2>
+        <p>Nothing is seeded on first run. The administrator is created by whoever opens the app — and only from the machine running it.</p>
+      </div>
+      <div class="grid security">
+        <div class="sec"><h3>No default password</h3><p>An account the whole internet knows the password to is worse than none, so there isn't one. The first admin is created locally.</p></div>
+        <div class="sec"><h3>Invisible by default</h3><p>A share you have no grant on answers 404, not 403. You don't learn it exists.</p></div>
+        <div class="sec"><h3>Strong hashing</h3><p>Passwords are PBKDF2-SHA256 at 210,000 iterations. Access tokens are 256 random bits, stored only as a hash.</p></div>
+        <div class="sec"><h3>Path traversal refused</h3><p>Every file operation goes through one check that rejects <code>..</code> and verifies the canonical path against the share root, symlinks included.</p></div>
+        <div class="sec"><h3>DNS rebinding blocked</h3><p>Requests must name the server by IP, its own host name or the open tunnel. Anything else gets a 421.</p></div>
+        <div class="sec"><h3>Lockout without leaks</h3><p>Accounts lock after repeated failures, and a wrong password on a locked account reads exactly like any other wrong password.</p></div>
+        <div class="sec"><h3>Password policy</h3><p>Length, character classes, common-password checks and maximum age — validated by the server on every path, not just in the browser.</p></div>
+        <div class="sec"><h3>Tunnel-aware trust</h3><p>Loopback sign-in only applies to connections that didn't arrive through the tunnel. No header can claim it.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stack -->
+  <section class="section section-alt" id="stack">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Technology</p>
+        <h2>Built on .NET 10, top to bottom.</h2>
+        <p>One C# codebase drives three native desktop heads, an embedded HTTP server and a WebAssembly portal. JSON is source-generated end to end — no reflection, trim-safe on every platform.</p>
+      </div>
+
+      <div class="arch" aria-label="Architecture">
+        <div class="arch-col">
+          <p class="arch-label">Desktop</p>
+          <div class="arch-box"><strong>.NET MAUI</strong><span>tray icon · console window · WebView</span></div>
+          <div class="arch-heads">
+            <span>AppKit<small>macOS</small></span>
+            <span>WinUI<small>Windows</small></span>
+            <span>GTK4<small>Linux</small></span>
+          </div>
+        </div>
+        <div class="arch-arrow" aria-hidden="true"><svg viewBox="0 0 40 12"><path d="M0 6h36m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></div>
+        <div class="arch-col">
+          <p class="arch-label">Server · :8080</p>
+          <div class="arch-box"><strong>Shiny.Net.HttpServer</strong><span>routing · cookie auth · middleware</span></div>
+          <div class="arch-row">
+            <div class="arch-box sm"><strong>/nuget</strong><span>NuGet v3</span></div>
+            <div class="arch-box sm"><strong>/npm</strong><span>registry</span></div>
+          </div>
+          <div class="arch-box sm"><strong>Shiny.DocumentDb</strong><span>one SQLite file</span></div>
+        </div>
+        <div class="arch-arrow" aria-hidden="true"><svg viewBox="0 0 40 12"><path d="M0 6h36m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></div>
+        <div class="arch-col">
+          <p class="arch-label">Browser</p>
+          <div class="arch-box"><strong>Blazor WebAssembly</strong><span>served by AppDeviceBridge</span></div>
+          <div class="arch-box sm"><strong>Shiny.Blazor.Controls</strong><span>data grids · strength meter</span></div>
+        </div>
+      </div>
+
+      <div class="grid stack">
+        <a class="tech" href="https://dotnet.microsoft.com/" target="_blank" rel="noopener"><span class="tech-badge b-net">.NET</span><div><h3>.NET 10</h3><p>The runtime, C# and source-generated JSON throughout.</p></div></a>
+        <a class="tech" href="https://dotnet.microsoft.com/apps/maui" target="_blank" rel="noopener"><span class="tech-badge b-maui">MAUI</span><div><h3>.NET MAUI</h3><p>The desktop shell — WinUI on Windows, plus AppKit and GTK4 heads from <code>dotnet/maui-labs</code>.</p></div></a>
+        <a class="tech" href="https://dotnet.microsoft.com/apps/aspnet/web-apps/blazor" target="_blank" rel="noopener"><span class="tech-badge b-blazor">WASM</span><div><h3>Blazor WebAssembly</h3><p>The whole portal, in C#, running in the browser.</p></div></a>
+        <a class="tech" href="https://github.com/shinyorg" target="_blank" rel="noopener"><span class="tech-badge b-shiny">HTTP</span><div><h3>Shiny.Net.HttpServer</h3><p>The embedded HTTP server, plus its NuGet feed and npm registry packages.</p></div></a>
+        <a class="tech" href="https://github.com/shinyorg" target="_blank" rel="noopener"><span class="tech-badge b-shiny">DB</span><div><h3>Shiny.DocumentDb</h3><p>A JSON document store over a single SQLite file: users, shares, quotas, the log.</p></div></a>
+        <a class="tech" href="https://github.com/shinyorg/appdevicebridge" target="_blank" rel="noopener"><span class="tech-badge b-shiny">ADB</span><div><h3>Shiny.AppDeviceBridge</h3><p>Hosts the embedded portal, installs signed updates, and opens the public tunnel.</p></div></a>
+        <a class="tech" href="https://github.com/shinyorg" target="_blank" rel="noopener"><span class="tech-badge b-shiny">UI</span><div><h3>Shiny Controls</h3><p><code>Shiny.Blazor.Controls</code> for the portal, <code>Shiny.Maui.Controls</code> for the desktop shell.</p></div></a>
+        <a class="tech" href="https://github.com/shinyorg/shiny" target="_blank" rel="noopener"><span class="tech-badge b-shiny">OS</span><div><h3>Shiny.Core &amp; Notifications</h3><p>Start at login and native desktop notifications on every platform.</p></div></a>
+        <a class="tech" href="https://www.sqlite.org/" target="_blank" rel="noopener"><span class="tech-badge b-sqlite">SQL</span><div><h3>SQLite</h3><p>Everything in one file, backed up live through the online backup API.</p></div></a>
+        <a class="tech" href="https://www.clamav.net/" target="_blank" rel="noopener"><span class="tech-badge b-av">AV</span><div><h3>ClamAV &amp; AMSI</h3><p>Upload scanning via <code>nClam</code> to a clamd daemon, or Windows Defender through AMSI.</p></div></a>
+        <a class="tech" href="https://pinggy.io/" target="_blank" rel="noopener"><span class="tech-badge b-tun">TUN</span><div><h3>pinggy</h3><p>Public HTTPS tunnels, opened and closed from the tray.</p></div></a>
+        <a class="tech" href="https://github.com/features/actions" target="_blank" rel="noopener"><span class="tech-badge b-gh">CI</span><div><h3>GitHub Actions</h3><p>Signed, notarized macOS builds, Windows installers and .deb/.rpm packages on every tag.</p></div></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Download -->
+  <section class="section" id="download">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Download</p>
+        <h2>Free for personal use.</h2>
+        <p>Official builds live only on the GitHub Releases page. The app checks for new versions when it starts and updates itself on macOS and Windows.</p>
+      </div>
+      <div class="grid downloads">
+        <a class="dl" href="https://github.com/ShinySoftware/ShinyFileServe/releases/latest">
+          <svg class="dl-os" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.77-3.32-1.8-1.41-.14-2.76.83-3.47.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.27-1.6 2.78-.41 6.9 1.15 9.16.77 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.77.74 2.98.72 1.24-.02 2.02-1.12 2.77-2.23.88-1.28 1.24-2.52 1.26-2.59-.03-.01-2.4-.92-2.4-3.67ZM14.1 5.86c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg>
+          <h3>macOS</h3>
+          <p>Apple silicon · signed &amp; notarized</p>
+          <span class="dl-file">FileServe-&lt;version&gt;-macos-arm64.zip</span>
+        </a>
+        <a class="dl" href="https://github.com/ShinySoftware/ShinyFileServe/releases/latest">
+          <svg class="dl-os" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 5.1 10.4 4v7.2H3V5.1Zm8.3-1.2L21 2.5v8.7h-9.7V3.9ZM3 12.6h7.4v7.3L3 18.9v-6.3Zm8.3 0H21v8.8l-9.7-1.4v-7.4Z"/></svg>
+          <h3>Windows</h3>
+          <p>x64 &amp; Arm64 · per-user installer</p>
+          <span class="dl-file">FileServe-&lt;version&gt;-windows-&lt;arch&gt;-setup.exe</span>
+        </a>
+        <a class="dl" href="https://github.com/ShinySoftware/ShinyFileServe/releases/latest">
+          <svg class="dl-os" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2c-2 0-3.3 1.7-3.3 4.2 0 1.3.3 2.3-.3 3.4-.9 1.6-2.9 3.6-2.9 6.6 0 .7.1 1.3.3 1.8-.7.3-1.7.6-1.7 1.5 0 1.1 2.1 1.1 3.2 1.6 1 .5 1.8.9 2.6.6.6-.2.9-.7 1.1-1.1h2c.2.4.5.9 1.1 1.1.8.3 1.6-.1 2.6-.6 1.1-.5 3.2-.5 3.2-1.6 0-.9-1-1.2-1.7-1.5.2-.5.3-1.1.3-1.8 0-3-2-5-2.9-6.6-.6-1.1-.3-2.1-.3-3.4C15.3 3.7 14 2 12 2Zm-1.4 4c.4 0 .7.5.7 1.1 0 .6-.3 1.1-.7 1.1s-.7-.5-.7-1.1c0-.6.3-1.1.7-1.1Zm2.8 0c.4 0 .7.5.7 1.1 0 .6-.3 1.1-.7 1.1s-.7-.5-.7-1.1c0-.6.3-1.1.7-1.1ZM12 9.2c.9 0 2 .6 2 1 0 .5-1.1 1.1-2 1.1s-2-.6-2-1.1c0-.4 1.1-1 2-1Z"/></svg>
+          <h3>Linux</h3>
+          <p>x64 &amp; arm64 · .deb and .rpm</p>
+          <span class="dl-file">FileServe-&lt;version&gt;-linux-&lt;arch&gt;.deb / .rpm</span>
+        </a>
+      </div>
+      <p class="dl-note">Every release includes <code>SHA256SUMS.txt</code>. On Linux, WebKitGTK 6 is required — Ubuntu 24.04, Debian 12 or newer.</p>
+    </div>
+  </section>
+
+  <!-- Final CTA -->
+  <section class="cta">
+    <div class="wrap cta-inner">
+      <h2>Your machine is already a file server.<br>FileServe just lets it act like one.</h2>
+      <div class="hero-actions">
+        <a class="btn btn-light btn-lg" href="https://github.com/ShinySoftware/ShinyFileServe/releases/latest">Get the latest release</a>
+        <a class="btn btn-ghost-light btn-lg" href="https://github.com/ShinySoftware/ShinyFileServe">Read the source</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div>
+      <a class="brand" href="#top">
+        <svg class="brand-mark" viewBox="100 100 824 824" aria-hidden="true"><rect x="100" y="100" width="824" height="824" rx="184" fill="#0E6F70"/><path d="M278 655 L278 369 L434 369 L486 421 L746 421 L746 655 Z" fill="none" stroke="#fff" stroke-width="52" stroke-linejoin="round" stroke-linecap="round"/></svg>
+        <span>FileServe</span>
+      </a>
+      <p class="footer-note">Source-available, not open source. Free to build and run for personal, non-commercial use — see the <a href="https://github.com/ShinySoftware/ShinyFileServe/blob/main/LICENSE.md">license</a>. The Shiny .NET libraries it's built on are MIT.</p>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/ShinySoftware/ShinyFileServe">GitHub</a>
+      <a href="https://github.com/ShinySoftware/ShinyFileServe/releases">Releases</a>
+      <a href="https://github.com/ShinySoftware/ShinyFileServe/issues">Issues</a>
+      <a href="mailto:allan@shinysoft.biz">Commercial licensing</a>
+    </div>
+  </div>
+  <div class="wrap footer-base">
+    <span>© 2026 ShinySoft Technologies · Ontario, Canada</span>
+    <a href="https://shinysoft.biz">shinysoft.biz</a>
+  </div>
+</footer>
+
+<dialog class="lightbox" id="lightbox" aria-label="Screenshot">
+  <form method="dialog"><button class="lightbox-close" aria-label="Close">×</button></form>
+  <img id="lightbox-img" src="" alt="">
+</dialog>
+
+<script>
+  (function () {
+    var tabs = document.querySelectorAll('.tour-tabs [role="tab"]');
+    var img = document.getElementById('tour-img');
+    var url = document.getElementById('tour-url');
+    var title = document.getElementById('tour-title');
+    var text = document.getElementById('tour-text');
+
+    // Warm the cache so switching tabs doesn't flash.
+    tabs.forEach(function (t) { new Image().src = 'screenshots/' + t.dataset.shot + '.png'; });
+
+    function select(tab) {
+      tabs.forEach(function (t) { t.setAttribute('aria-selected', t === tab ? 'true' : 'false'); });
+      img.classList.add('swap');
+      setTimeout(function () {
+        img.src = 'screenshots/' + tab.dataset.shot + '.png';
+        img.alt = tab.dataset.title + ': ' + tab.dataset.text;
+        url.textContent = 'fileserve.local:8080 / ' + tab.dataset.shot;
+        title.textContent = tab.dataset.title;
+        text.textContent = tab.dataset.text;
+        img.classList.remove('swap');
+      }, 140);
+    }
+
+    tabs.forEach(function (t, i) {
+      t.addEventListener('click', function () { select(t); });
+      t.addEventListener('keydown', function (e) {
+        var next = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : null;
+        if (next === null) return;
+        var target = tabs[(next + tabs.length) % tabs.length];
+        target.focus();
+        select(target);
+      });
+    });
+
+    var box = document.getElementById('lightbox');
+    var boxImg = document.getElementById('lightbox-img');
+    document.querySelector('.tour-zoom').addEventListener('click', function () {
+      boxImg.src = img.src;
+      boxImg.alt = img.alt;
+      box.showModal();
+    });
+    box.addEventListener('click', function (e) { if (e.target === box) box.close(); });
+
+    // Fade sections in as they scroll into view.
+    var io = 'IntersectionObserver' in window && new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { rootMargin: '0px 0px -10% 0px' });
+    document.querySelectorAll('.card, .sec, .tech, .dl, .split > *, .arch').forEach(function (el) {
+      if (io) { el.classList.add('reveal'); io.observe(el); }
+    });
+  })();
+</script>
+</body>
+</html>
