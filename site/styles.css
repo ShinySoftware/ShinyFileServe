@@ -319,13 +319,22 @@ h3 { font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
 .cta-inner { text-align: center; padding-top: 96px; padding-bottom: 96px; }
 .cta h2 { font-size: clamp(26px, 3.6vw, 40px); }
 
-/* Footer */
-.footer { background: var(--chrome); color: var(--on-chrome-soft); padding: 56px 0 28px; font-size: 14.5px; }
-.footer-inner { display: flex; justify-content: space-between; gap: 40px; flex-wrap: wrap; }
-.footer-note { max-width: 520px; margin: 14px 0 0; }
-.footer a { color: var(--on-chrome); }
-.footer-links { display: grid; gap: 10px; align-content: start; }
-.footer-base { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 40px; padding-top: 22px; border-top: 1px solid rgba(255,255,255,.08); font-size: 13px; }
+/* Footer — the same ShinySoft footer as the Shiny Notch site */
+.footer { background: var(--chrome); color: var(--on-chrome); border-top: 1px solid rgba(255,255,255,.08); padding: 60px 0 30px; font-size: 14px; }
+.foot-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 40px; }
+.foot-brand p { color: var(--on-chrome-soft); max-width: 420px; }
+.foot-mail { font-family: var(--mono); font-size: 13px; user-select: all; }
+.footer h4 { font: 500 12px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: #6B7A82; margin: 8px 0 14px; }
+.footer .foot-grid > div:not(.foot-brand) { display: flex; flex-direction: column; gap: 10px; }
+.footer .foot-grid a { color: var(--on-chrome-soft); text-decoration: none; }
+.footer .foot-grid a:hover { color: var(--on-chrome); }
+.foot-legal { margin-top: 40px; color: #6B7A82; font-size: 12px; }
+.foot-legal p { max-width: 900px; }
+.foot-legal a { color: var(--on-chrome-soft); }
+@media (max-width: 760px) {
+  .foot-grid { grid-template-columns: 1fr 1fr; }
+  .foot-brand { grid-column: span 2; }
+}
 
 /* Scroll reveal */
 .reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
