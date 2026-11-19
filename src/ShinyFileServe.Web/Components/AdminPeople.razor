@@ -7,6 +7,7 @@
 @inject FileServeApi Api
 @inject IToastService Toasts
 @inject IDialogService Dialogs
+@inject Clipboard Clipboard
 
     <div class="people">
         <section class="admin__block">
@@ -211,6 +212,9 @@
                                Password="@draft.Password"
                                PasswordChanged="v => draft.Password = v"
                                AcceptableChanged="v => this.passwordOk = v"
+                               CanGenerate="true"
+                               Generated="v => draft.Generated = v"
+                               GeneratedHint="Copied to the clipboard when you save, ready to pass on."
                                UserInputs="@(new[] { draft.Username, draft.DisplayName })"
                                Hint="@(draft.Id is null ? null : "Leave blank to keep the current password.")" />
             }
@@ -464,6 +468,10 @@
         public string DisplayName = "";
         public string? Email;
         public string Password = "";
+
+        /// <summary>The last password generated in this editor. Only copied if the box still holds it.</summary>
+        public string? Generated;
+
         public bool IsAdmin;
         public DateTime? ExpiresOn;
         public bool IsAnonymous;
@@ -755,7 +763,11 @@
 
             this.editorOpen = false;
             await this.Reload();
-            await this.Toasts.SuccessAsync("Saved.");
+
+            if (draft.Generated is { } generated && generated == draft.Password)
+                await this.CopyPassword(draft, generated);
+            else
+                await this.Toasts.SuccessAsync("Saved.");
         }
         catch (ApiException ex)
         {
@@ -765,6 +777,26 @@
         {
             this.busy = false;
         }
+    }
+
+    /// <summary>
+    /// A generated password exists nowhere but this page once the editor closes, so a browser that
+    /// will not copy it gets it shown instead - otherwise the account just saved has a password
+    /// nobody knows.
+    /// </summary>
+    async Task CopyPassword(Draft draft, string password)
+    {
+        if (await this.Clipboard.Copy(password))
+        {
+            await this.Toasts.SuccessAsync("Saved. The password is on the clipboard.");
+            return;
+        }
+
+        var name = String.IsNullOrWhiteSpace(draft.DisplayName) ? draft.Username : draft.DisplayName;
+        await this.Dialogs.Alert(
+            "Saved - copy the password",
+            $"This browser would not copy it. The password for {name} is: {password}"
+        );
     }
 
     async Task Unlock(UserDetail user)

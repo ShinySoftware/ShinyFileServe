@@ -105,6 +105,17 @@ else
             </label>
 
             <label class="field">
+                <span class="field__label">Other names for this server</span>
+                <textarea rows="3" spellcheck="false" placeholder="files.example.com"
+                          @bind="this.allowedHosts" @bind:event="oninput"></textarea>
+                <span class="admin__hint">
+                    One per line: a domain pointed at this machine, or one a reverse proxy forwards here.
+                    Requests naming anything else are refused, which keeps other sites from borrowing
+                    this server. Its addresses and this machine's own name always work.
+                </span>
+            </label>
+
+            <label class="field">
                 <span class="field__label">Pinggy access token</span>
                 <input type="password" placeholder="@this.TokenPlaceholder" @bind="this.token" @bind:event="oninput" />
                 <span class="admin__hint">@this.TokenHint</span>
@@ -384,6 +395,7 @@ else
     ServerStatus? status;
     AppUpdateInfo? update;
     int port = 8080;
+    string allowedHosts = "";
     string token = "";
     bool autoStartServer;
     bool autoStartTunnel;
@@ -471,6 +483,7 @@ else
         {
             this.status = await this.Api.GetServerStatus();
             this.port = this.status.Config.Port;
+            this.allowedHosts = String.Join('\n', this.status.Config.AllowedHosts ?? []);
             this.autoStartServer = this.status.Config.AutoStartServer;
             this.autoStartTunnel = this.status.Config.AutoStartTunnel;
             this.runAtStartup = this.status.Config.RunAtStartup is RunAtStartupState.Enabled;
@@ -651,7 +664,8 @@ else
             this.npmUseUpstream,
             this.npmAllowUnpublish,
             this.nugetPermanentDelete
-        )
+        ),
+        this.allowedHosts.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     );
 
     Task Save() => this.Run(async () =>
@@ -659,6 +673,9 @@ else
         // Null leaves the stored token alone; the box is blank unless the admin typed a new one.
         this.status = await this.Api.SaveServerConfig(this.Build(this.token.Length == 0 ? null : this.token));
         this.token = "";
+
+        // Back as the server stored them: a pasted https://name/ comes back as just the name.
+        this.allowedHosts = String.Join('\n', this.status.Config.AllowedHosts ?? []);
 
         // Starting at login is the one switch on this form the machine can refuse - or half-grant,
         // as macOS does when it registers the app and then waits to be told it may run it. The box

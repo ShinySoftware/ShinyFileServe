@@ -73,6 +73,10 @@ public static class ServerRegistration
         var sessionPolicy = new SessionPolicyHolder();
         services.AddSingleton(sessionPolicy);
 
+        // The same arrangement for the host names the bridge server answers to.
+        var allowedHosts = new AllowedHostsHolder();
+        services.AddSingleton(allowedHosts);
+
         services.AddShinyHttpServer(
             http =>
             {
@@ -177,11 +181,8 @@ public static class ServerRegistration
 
                         // People reach a LAN server by the machine's name as often as by its address. Anything else is
                         // refused with a 421, which is what keeps a hostile site from rebinding its own name onto it.
-                        foreach (var name in HostNames.ForThisMachine())
-                            o.AllowedHosts.Add(name);
-
-                        foreach (var name in options.AllowedHosts)
-                            o.AllowedHosts.Add(name);
+                        // The names an administrator adds in settings join these through the holder, live.
+                        allowedHosts.Attach(o, HostNames.ForThisMachine().Concat(options.AllowedHosts));
                     })
                     .AddTunnel());
 

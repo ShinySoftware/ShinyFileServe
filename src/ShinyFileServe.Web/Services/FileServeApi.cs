@@ -412,7 +412,7 @@ public class FileServeApi(HttpClient http)
 
     // -- plumbing -----------------------------------------------------------
 
-    static string Query(string folderId, string? path)
+    internal static string Query(string folderId, string? path)
     {
         var query = $"folderId={Uri.EscapeDataString(folderId)}";
         return String.IsNullOrEmpty(path) ? query : $"{query}&path={Uri.EscapeDataString(path)}";
@@ -430,7 +430,7 @@ public class FileServeApi(HttpClient http)
     /// <summary>
     /// Server messages are terse and status-shaped; turn them into something a person can act on.
     /// </summary>
-    static string Describe(HttpStatusCode status, string body)
+    internal static string Describe(HttpStatusCode status, string body)
     {
         var trimmed = body.Trim().Trim('"');
         if (!String.IsNullOrWhiteSpace(trimmed) && trimmed.Length < 200 && !trimmed.StartsWith('{') && !trimmed.StartsWith('<'))

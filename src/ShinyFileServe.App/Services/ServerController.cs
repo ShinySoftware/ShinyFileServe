@@ -20,6 +20,7 @@ public class ServerController
     readonly AppDeviceBridgeTunnel tunnel;
     readonly ISettingsManager settings;
     readonly SessionPolicyHolder sessionPolicy;
+    readonly AllowedHostsHolder allowedHosts;
     readonly FileServeInitializer initializer;
     readonly ILogger<ServerController> logger;
     readonly SemaphoreSlim gate = new(1, 1);
@@ -31,6 +32,7 @@ public class ServerController
         AppDeviceBridgeTunnel tunnel,
         ISettingsManager settings,
         SessionPolicyHolder sessionPolicy,
+        AllowedHostsHolder allowedHosts,
         FileServeInitializer initializer,
         ILogger<ServerController> logger)
     {
@@ -38,6 +40,7 @@ public class ServerController
         this.tunnel = tunnel;
         this.settings = settings;
         this.sessionPolicy = sessionPolicy;
+        this.allowedHosts = allowedHosts;
         this.initializer = initializer;
         this.logger = logger;
 
@@ -47,6 +50,7 @@ public class ServerController
         this.settings.Changed += (_, s) =>
         {
             this.sessionPolicy.ApplyRememberWindow(s.RememberMeDays);
+            this.allowedHosts.Apply(s.AllowedHosts);
             this.Raise();
         };
     }
@@ -111,6 +115,7 @@ public class ServerController
             this.initialized = true;
             await this.initializer.Initialize(ct);
             this.sessionPolicy.ApplyRememberWindow(this.settings.Current.RememberMeDays);
+            this.allowedHosts.Apply(this.settings.Current.AllowedHosts);
 
             // The listener was registered with a placeholder port; move it onto the stored one
             // before anything binds.

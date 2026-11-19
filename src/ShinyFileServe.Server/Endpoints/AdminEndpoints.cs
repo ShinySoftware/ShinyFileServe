@@ -51,6 +51,18 @@ public class AdminEndpoints(
         if (request.MaxFailedSignIns is < 0 or > 100)
             return new BadRequestObjectResult("Lock an account after between 1 and 100 failed sign-ins. 0 never locks one.");
 
+        List<string>? hosts = null;
+        if (request.AllowedHosts is not null)
+        {
+            var named = request.AllowedHosts.Where(x => !String.IsNullOrWhiteSpace(x)).ToList();
+            var refused = named.Where(x => AllowedHostsHolder.Normalize(x) is null).ToList();
+
+            if (refused.Count > 0)
+                return new BadRequestObjectResult($"Not a host name: {String.Join(", ", refused)}. IP addresses always work and need no entry.");
+
+            hosts = named.Select(x => AllowedHostsHolder.Normalize(x)!).Distinct().ToList();
+        }
+
         var stored = await settings.Load(ct);
         var portChanged = stored.Port != request.Port;
 
@@ -62,6 +74,10 @@ public class AdminEndpoints(
         // echo one back. An empty string is an explicit clear.
         if (request.PinggyToken is not null)
             stored.PinggyToken = request.PinggyToken.Length == 0 ? null : request.PinggyToken.Trim();
+
+        // Null leaves the stored names alone, so a caller that predates the setting cannot wipe them.
+        if (hosts is not null)
+            stored.AllowedHosts = hosts;
 
         stored.AllowRememberMe = request.AllowRememberMe;
         stored.RememberMeDays = request.RememberMeDays;
@@ -274,7 +290,8 @@ public class AdminEndpoints(
                     config.PackageFeeds.NpmUseUpstream,
                     config.PackageFeeds.NpmAllowUnpublish,
                     config.PackageFeeds.NuGetPermanentDelete
-                )
+                ),
+                config.AllowedHosts
             )
         );
     }

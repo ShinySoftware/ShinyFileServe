@@ -329,6 +329,13 @@ public class ServerSettings
     public bool AutoStartTunnel { get; set; }
 
     /// <summary>
+    /// Host names, besides this machine's own, that a request may name the server by: a domain a
+    /// reverse proxy forwards here, say. Anything else is refused with a 421 - the guard that stops
+    /// a hostile site rebinding its own name onto this machine. Stored lower-case, host part only.
+    /// </summary>
+    public List<string> AllowedHosts { get; set; } = [];
+
+    /// <summary>
     /// Whether the sign-in page offers "keep me signed in". With it off, every session is a browser
     /// session and closing the tab ends it.
     /// </summary>

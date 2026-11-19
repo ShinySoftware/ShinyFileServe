@@ -5,6 +5,7 @@
 @inject IDialogService Dialogs
 @inject IFileDropService FileDrop
 @inject NavigationManager Nav
+@inject Uploader Uploader
 
 <div class="pane">
     <div class="pane__head">
@@ -32,13 +33,30 @@
 
             @if (this.Can(FolderPermissions.CreateFile))
             {
-                <label class="action action--primary" title="Add files to this folder">
+                <label class="action action--primary @(this.upload is null ? "" : "is-disabled")" title="Add files to this folder">
                     <span aria-hidden="true">↑</span> Upload
-                    <InputFile OnChange="this.OnFilesPicked" multiple style="display:none" />
+                    <InputFile @ref="this.picker" OnChange="this.OnFilesPicked" multiple style="display:none"
+                               disabled="@(this.upload is not null)" />
                 </label>
             }
         </div>
     </div>
+
+    @if (this.upload is { } run)
+    {
+        <div class="upload" role="status">
+            <div class="upload__head">
+                <span class="upload__title">@run.Title</span>
+                <span class="upload__value num">@run.Detail</span>
+                <button type="button" class="action" disabled="@run.IsFinishing" @onclick="this.CancelUpload">Cancel</button>
+            </div>
+            <div class="meter__track" role="progressbar" aria-label="Upload progress"
+                 aria-valuemin="0" aria-valuemax="100" aria-valuenow="@run.Percent">
+                <div class="meter__fill upload__fill @(run.IsFinishing ? "upload__fill--busy" : "")"
+                     style="width:@(run.Percent)%"></div>
+            </div>
+        </div>
+    }
 
     <div class="pane__body">
         @if (this.dragging)
@@ -164,14 +182,61 @@
 }
 
 @code {
-    const long MaxBrowserReadBytes = 4L * 1024 * 1024 * 1024;
-
     bool dragging;
+    InputFile? picker;
+    UploadRun? upload;
+
+    /// <summary>
+    /// The one upload in flight. Its progress counts the whole request, so the bytes shown are the
+    /// files' own total scaled by how far the request has got - the multipart framing is nobody's business.
+    /// </summary>
+    sealed class UploadRun(string title, long bytes)
+    {
+        readonly DateTimeOffset started = DateTimeOffset.UtcNow;
+
+        public string Title { get; } = title;
+        public CancellationTokenSource Cancel { get; } = new();
+        public UploadProgress Progress { get; set; }
+
+        /// <summary>Every byte is sent and the server is writing, and possibly scanning, before it answers.</summary>
+        public bool IsFinishing => this.Progress.Total > 0 && this.Progress.Sent >= this.Progress.Total;
+
+        public int Percent => (int)Math.Floor(this.Progress.Fraction * 100);
+
+        public string Detail
+        {
+            get
+            {
+                if (this.IsFinishing)
+                    return "Finishing…";
+
+                var sent = (long)(bytes * this.Progress.Fraction);
+                var text = $"{this.Percent}% · {Format.Bytes(sent)} of {Format.Bytes(bytes)}";
+
+                // Not before a second has passed: a rate worked out over a few milliseconds is noise.
+                var elapsed = (DateTimeOffset.UtcNow - this.started).TotalSeconds;
+                return elapsed >= 1 && sent > 0
+                    ? $"{text} · {Format.Bytes((long)(sent / elapsed))}/s"
+                    : text;
+            }
+        }
+    }
+
+    sealed class ProgressSink(Action<UploadProgress> report) : IProgress<UploadProgress>
+    {
+        public void Report(UploadProgress value) => report(value);
+    }
 
     bool sharing;
     string sharePath = "";
     string shareName = "";
     bool shareIsDirectory;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await this.Uploader.WatchDrops();
+    }
 
     protected override void OnInitialized()
     {
@@ -198,6 +263,7 @@
     /// quota left. Checked while dragging so the cue can say no before the files are let go.
     /// </summary>
     bool CanDrop => this.State.Folder is { } folder
+        && this.upload is null
         && folder.Permissions.Has(FolderPermissions.CreateFile)
         && (folder.Upload.IsUnlimited || folder.Upload.RemainingBytes > 0);
 
@@ -214,6 +280,9 @@
 
             if (!folder.Permissions.Has(FolderPermissions.CreateFile))
                 return "You do not have permission to upload to this folder.";
+
+            if (this.upload is not null)
+                return "Wait for the upload that is running to finish.";
 
             if (!folder.Upload.IsUnlimited && folder.Upload.RemainingBytes <= 0)
                 return "Your upload quota for this folder is used up.";
@@ -251,6 +320,13 @@
             return;
         }
 
+        if (this.upload is not null)
+        {
+            await this.Toasts.WarningAsync("Wait for the upload that is running to finish.");
+            await this.FileDrop.ReleaseAsync(args.Files);
+            return;
+        }
+
         if (args.Files.Count == 0)
         {
             if (args.RejectedCount > 0)
@@ -258,27 +334,14 @@
             return;
         }
 
-        var streams = new List<Stream>();
-        try
-        {
-            var payload = new List<(string, Stream, long)>();
-            foreach (var file in args.Files)
-            {
-                var stream = await file.OpenReadAsync(MaxBrowserReadBytes);
-                streams.Add(stream);
-                payload.Add((file.FileName, stream, file.Length));
-            }
+        // The bytes go from the browser's own copy of the drop (see Uploader), so the service's
+        // handles are handed back straight away rather than held for the length of the transfer.
+        var sizes = args.Files.Select(f => (f.FileName, f.Length)).ToList();
+        await this.FileDrop.ReleaseAsync(args.Files);
 
-            await this.UploadAll(folder, payload, args.Files.Select(f => (f.FileName, f.Length)).ToList());
-        }
-        finally
-        {
-            foreach (var stream in streams)
-                await stream.DisposeAsync();
-
-            // Hand the browser its file handles back - the service holds them until told otherwise.
-            await this.FileDrop.ReleaseAsync(args.Files);
-        }
+        await this.UploadAll(folder, sizes, (progress, ct) => this.Uploader.FromDrop(
+            [.. sizes.Select(f => f.FileName)], folder.Id, this.State.Path, progress, ct
+        ));
     }
 
     void OnStateChanged() => this.InvokeAsync(this.StateHasChanged);
@@ -421,28 +484,13 @@
     async Task OnFilesPicked(InputFileChangeEventArgs args)
     {
         var folder = this.State.Folder;
-        if (folder is null || args.FileCount == 0)
+        if (folder is null || args.FileCount == 0 || this.picker?.Element is not { } input)
             return;
 
-        var picked = args.GetMultipleFiles(50);
-        var streams = new List<Stream>();
-        try
-        {
-            var payload = new List<(string, Stream, long)>();
-            foreach (var file in picked)
-            {
-                var stream = file.OpenReadStream(MaxBrowserReadBytes);
-                streams.Add(stream);
-                payload.Add((file.Name, stream, file.Size));
-            }
-
-            await this.UploadAll(folder, payload, picked.Select(f => (f.Name, f.Size)).ToList());
-        }
-        finally
-        {
-            foreach (var stream in streams)
-                await stream.DisposeAsync();
-        }
+        var sizes = args.GetMultipleFiles(args.FileCount).Select(f => (f.Name, f.Size)).ToList();
+        await this.UploadAll(folder, sizes, (progress, ct) => this.Uploader.FromInput(
+            input, folder.Id, this.State.Path, progress, ct
+        ));
     }
 
     /// <summary>
@@ -451,8 +499,8 @@
     /// </summary>
     async Task UploadAll(
         FolderInfo folder,
-        List<(string Name, Stream Content, long Length)> payload,
-        IReadOnlyList<(string Name, long Size)> sizes)
+        IReadOnlyList<(string Name, long Size)> sizes,
+        Func<IProgress<UploadProgress>, CancellationToken, Task<List<FileEntryInfo>>> send)
     {
         if (folder.MaxUploadFileSizeBytes is { } cap && sizes.FirstOrDefault(f => f.Size > cap) is { Name: not null } tooBig)
         {
@@ -471,17 +519,45 @@
             return;
         }
 
+        var run = new UploadRun(sizes.Count == 1 ? $"Uploading {sizes[0].Name}" : $"Uploading {sizes.Count} files", total);
+        this.upload = run;
+
+        // Asked for rather than left to the event: a drop arrives from the file drop service, not
+        // from a Blazor event handler, so nothing re-renders on its own when it starts.
+        await this.InvokeAsync(this.StateHasChanged);
+
+        var progress = new ProgressSink(p =>
+        {
+            run.Progress = p;
+            this.InvokeAsync(this.StateHasChanged);
+        });
+
         try
         {
-            var uploaded = await this.Api.Upload(folder.Id, this.State.Path, payload, overwrite: true);
+            var uploaded = await send(progress, run.Cancel.Token);
             await this.Toasts.SuccessAsync(
                 uploaded.Count == 1 ? $"Uploaded {uploaded[0].Name}" : $"Uploaded {uploaded.Count} files"
             );
-            await this.State.Reload();
+        }
+        catch (OperationCanceledException)
+        {
+            await this.Toasts.WarningAsync("Upload cancelled.");
         }
         catch (ApiException ex)
         {
             await this.Toasts.DangerAsync(ex.Message);
         }
+        finally
+        {
+            this.upload = null;
+            run.Cancel.Dispose();
+        }
+
+        // Either way: a cancelled or refused multi-file upload may still have landed the files
+        // ahead of the one it stopped on.
+        await this.State.Reload();
+        await this.InvokeAsync(this.StateHasChanged);
     }
+
+    void CancelUpload() => this.upload?.Cancel.Cancel();
 }

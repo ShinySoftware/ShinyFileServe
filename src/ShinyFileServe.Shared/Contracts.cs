@@ -603,7 +603,13 @@ public record ServerConfig(
     /// </summary>
     RunAtStartupState RunAtStartup = RunAtStartupState.NotSupported,
 
-    PackageFeedConfig? Packages = null
+    PackageFeedConfig? Packages = null,
+
+    /// <summary>
+    /// Names besides this machine's own that people may reach the server by - a domain a reverse
+    /// proxy forwards here, say. Null from a server that predates the setting.
+    /// </summary>
+    IReadOnlyList<string>? AllowedHosts = null
 );
 
 /// <summary>
@@ -641,7 +647,13 @@ public record UpdateServerConfig(
     bool? RunAtStartup = null,
 
     /// <summary>Null leaves the feed settings alone.</summary>
-    PackageFeedConfig? Packages = null
+    PackageFeedConfig? Packages = null,
+
+    /// <summary>
+    /// The whole list of extra host names, replacing the stored one, or null to leave it alone.
+    /// Each may be a bare name or a pasted address; the server keeps only the host part.
+    /// </summary>
+    IReadOnlyList<string>? AllowedHosts = null
 );
 
 public static class ActivityActions
