@@ -33,28 +33,82 @@
 
             @if (this.Can(FolderPermissions.CreateFile))
             {
-                <label class="action action--primary @(this.upload is null ? "" : "is-disabled")" title="Add files to this folder">
+                <label class="action action--primary" title="Add files to this folder">
                     <span aria-hidden="true">↑</span> Upload
-                    <InputFile @ref="this.picker" OnChange="this.OnFilesPicked" multiple style="display:none"
-                               disabled="@(this.upload is not null)" />
+                    <InputFile @ref="this.picker" OnChange="this.OnFilesPicked" multiple style="display:none" />
                 </label>
             }
         </div>
     </div>
 
-    @if (this.upload is { } run)
+    @if (this.uploads.Count > 0)
     {
         <div class="upload" role="status">
             <div class="upload__head">
-                <span class="upload__title">@run.Title</span>
-                <span class="upload__value num">@run.Detail</span>
-                <button type="button" class="action" disabled="@run.IsFinishing" @onclick="this.CancelUpload">Cancel</button>
+                <span class="upload__glyph" aria-hidden="true">↑</span>
+                <span class="upload__title">@this.UploadTitle</span>
+                <span class="upload__value num">@this.UploadDetail</span>
+                @if (this.UploadFileCount > 1)
+                {
+                    <button type="button" class="action upload__toggle" @onclick="this.ToggleUploadFiles"
+                            aria-expanded="@(this.uploadExpanded ? "true" : "false")"
+                            title="@(this.uploadExpanded ? "Hide the files" : "Show each file")">
+                        <span class="upload__chevron" aria-hidden="true">▸</span> Files
+                    </button>
+                }
+                <button type="button" class="action" disabled="@this.UploadsFinishing" @onclick="this.CancelUploads">
+                    @(this.uploads.Count > 1 ? "Cancel all" : "Cancel")
+                </button>
             </div>
-            <div class="meter__track" role="progressbar" aria-label="Upload progress"
-                 aria-valuemin="0" aria-valuemax="100" aria-valuenow="@run.Percent">
-                <div class="meter__fill upload__fill @(run.IsFinishing ? "upload__fill--busy" : "")"
-                     style="width:@(run.Percent)%"></div>
+            <div class="meter__track upload__track" role="progressbar" aria-label="Upload progress"
+                 aria-valuemin="0" aria-valuemax="100" aria-valuenow="@this.UploadPercent">
+                <div class="meter__fill upload__fill @(this.UploadsFinishing ? "upload__fill--busy" : "")"
+                     style="width:@(this.UploadPercent)%"></div>
             </div>
+
+            @if (this.uploadExpanded && this.UploadFileCount > 1)
+            {
+                <div class="upload__runs">
+                    @foreach (var run in this.uploads)
+                    {
+                        <section class="upload-run @(run.IsQueued ? "upload-run--queued" : "")">
+                            @* One heading per upload once there is more than one, so each can be told
+                               apart and cancelled on its own. *@
+                            @if (this.uploads.Count > 1)
+                            {
+                                <div class="upload-run__head">
+                                    <span class="upload-run__title" title="@run.Name">@run.Name</span>
+                                    <span class="upload-run__value num">@run.Detail</span>
+                                    <button type="button" class="upload-run__cancel" aria-label="Cancel @run.Name"
+                                            title="Cancel this upload" disabled="@run.IsFinishing"
+                                            @onclick="() => run.Cancel.Cancel()">✕</button>
+                                </div>
+                            }
+                            @if (run.Files.Count > 1 || this.uploads.Count == 1)
+                            {
+                                <ul class="upload__files">
+                                    @foreach (var line in run.Lines)
+                                    {
+                                        <li class="upload-file @(line.IsDone ? "upload-file--done" : "") @(line.IsWaiting ? "upload-file--waiting" : "")">
+                                            <span class="upload-file__name" title="@line.Name">@line.Name</span>
+                                            <span class="upload-file__value num">@line.Status</span>
+                                            <div class="meter__track upload-file__track">
+                                                <div class="meter__fill upload__fill" style="width:@(line.Percent)%"></div>
+                                            </div>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                            else
+                            {
+                                <div class="meter__track upload-file__track">
+                                    <div class="meter__fill upload__fill" style="width:@(run.Percent)%"></div>
+                                </div>
+                            }
+                        </section>
+                    }
+                </div>
+            }
         </div>
     }
 
@@ -184,42 +238,127 @@
 @code {
     bool dragging;
     InputFile? picker;
-    UploadRun? upload;
+    readonly List<UploadRun> uploads = [];
+    bool uploadExpanded;
+
+    // Completed and replaced each time an upload ends, waking whatever is queued for a turn.
+    TaskCompletionSource slotFreed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
-    /// The one upload in flight. Its progress counts the whole request, so the bytes shown are the
-    /// files' own total scaled by how far the request has got - the multipart framing is nobody's business.
+    /// One upload: a pick or a drop, sent as one request. Its progress counts the whole request, so the
+    /// bytes shown are the files' own total scaled by how far the request has got - the multipart
+    /// framing is nobody's business. The files ride in that request in order, so how far each has got
+    /// falls out of the same number.
     /// </summary>
-    sealed class UploadRun(string title, long bytes)
+    sealed class UploadRun(string name, string folderId, IReadOnlyList<(string Name, long Size)> files)
     {
-        readonly DateTimeOffset started = DateTimeOffset.UtcNow;
+        DateTimeOffset? started;
 
-        public string Title { get; } = title;
+        public string Name { get; } = name;
+        public string FolderId { get; } = folderId;
+        public IReadOnlyList<(string Name, long Size)> Files { get; } = files;
+        public long Bytes { get; } = files.Sum(f => f.Size);
         public CancellationTokenSource Cancel { get; } = new();
         public UploadProgress Progress { get; set; }
+
+        /// <summary>Waiting behind the account's limit on uploads running at once.</summary>
+        public bool IsQueued => this.started is null;
+
+        public void Start() => this.started = DateTimeOffset.UtcNow;
 
         /// <summary>Every byte is sent and the server is writing, and possibly scanning, before it answers.</summary>
         public bool IsFinishing => this.Progress.Total > 0 && this.Progress.Sent >= this.Progress.Total;
 
         public int Percent => (int)Math.Floor(this.Progress.Fraction * 100);
 
-        public string Detail
+        public long Sent => (long)(this.Bytes * this.Progress.Fraction);
+
+        public int Completed => this.Lines.Count(l => l.IsDone);
+
+        /// <summary>Bytes a second, or 0 before a second has passed: a rate over a few milliseconds is noise.</summary>
+        public double Rate
         {
             get
             {
-                if (this.IsFinishing)
-                    return "Finishing…";
-
-                var sent = (long)(bytes * this.Progress.Fraction);
-                var text = $"{this.Percent}% · {Format.Bytes(sent)} of {Format.Bytes(bytes)}";
-
-                // Not before a second has passed: a rate worked out over a few milliseconds is noise.
-                var elapsed = (DateTimeOffset.UtcNow - this.started).TotalSeconds;
-                return elapsed >= 1 && sent > 0
-                    ? $"{text} · {Format.Bytes((long)(sent / elapsed))}/s"
-                    : text;
+                var elapsed = this.started is { } at ? (DateTimeOffset.UtcNow - at).TotalSeconds : 0;
+                return elapsed >= 1 ? this.Sent / elapsed : 0;
             }
         }
+
+        public IEnumerable<UploadLine> Lines
+        {
+            get
+            {
+                long start = 0;
+                foreach (var file in this.Files)
+                {
+                    yield return new UploadLine(
+                        file.Name, file.Size, Math.Clamp(this.Sent - start, 0, file.Size), !this.IsQueued && this.Sent >= start
+                    );
+                    start += file.Size;
+                }
+            }
+        }
+
+        public string Detail => this.IsQueued
+            ? $"Queued · {Format.Bytes(this.Bytes)}"
+            : this.IsFinishing
+                ? "Finishing…"
+                : DescribeProgress(this.Completed, this.Files.Count, this.Sent, this.Bytes, this.Percent, this.Rate);
+    }
+
+    static string DescribeProgress(int completed, int files, long sent, long bytes, int percent, double rate)
+    {
+        var text = files > 1
+            ? $"{completed} of {files} files · {Format.Bytes(sent)} of {Format.Bytes(bytes)} · {percent}%"
+            : $"{percent}% · {Format.Bytes(sent)} of {Format.Bytes(bytes)}";
+
+        return rate > 0 ? $"{text} · {Format.Bytes((long)rate)}/s" : text;
+    }
+
+    // Every upload at once, for the strip: one bar and one line however many are running.
+    int UploadFileCount => this.uploads.Sum(u => u.Files.Count);
+    long UploadBytes => this.uploads.Sum(u => u.Bytes);
+    long UploadSent => this.uploads.Sum(u => u.Sent);
+    bool UploadsFinishing => this.uploads.All(u => u.IsFinishing);
+
+    int UploadPercent => this.UploadBytes > 0
+        ? (int)Math.Floor(100d * this.UploadSent / this.UploadBytes)
+        : 0;
+
+    string UploadTitle
+    {
+        get
+        {
+            if (this.uploads.Count == 1)
+                return $"Uploading {this.uploads[0].Name}";
+
+            var queued = this.uploads.Count(u => u.IsQueued);
+            return queued > 0
+                ? $"{this.uploads.Count} uploads · {queued} queued"
+                : $"{this.uploads.Count} uploads";
+        }
+    }
+
+    string UploadDetail => this.UploadsFinishing
+        ? "Finishing…"
+        : DescribeProgress(
+            this.uploads.Sum(u => u.Completed), this.UploadFileCount, this.UploadSent, this.UploadBytes,
+            this.UploadPercent, this.uploads.Sum(u => u.Rate)
+        );
+
+    /// <summary>One file of a multi-file upload. "Sent" rather than "done": the server has yet to say so.</summary>
+    readonly record struct UploadLine(string Name, long Size, long Sent, bool IsStarted)
+    {
+        public bool IsDone => this.IsStarted && this.Sent >= this.Size;
+        public bool IsWaiting => !this.IsStarted;
+        public int Percent => this.Size > 0 ? (int)Math.Floor(100d * this.Sent / this.Size) : (this.IsDone ? 100 : 0);
+
+        public string Status => this.IsDone
+            ? $"✓ Sent · {Format.Bytes(this.Size)}"
+            : this.IsWaiting
+                ? $"Waiting · {Format.Bytes(this.Size)}"
+                : $"{this.Percent}% · {Format.Bytes(this.Sent)} of {Format.Bytes(this.Size)}";
     }
 
     sealed class ProgressSink(Action<UploadProgress> report) : IProgress<UploadProgress>
@@ -263,7 +402,6 @@
     /// quota left. Checked while dragging so the cue can say no before the files are let go.
     /// </summary>
     bool CanDrop => this.State.Folder is { } folder
-        && this.upload is null
         && folder.Permissions.Has(FolderPermissions.CreateFile)
         && (folder.Upload.IsUnlimited || folder.Upload.RemainingBytes > 0);
 
@@ -280,9 +418,6 @@
 
             if (!folder.Permissions.Has(FolderPermissions.CreateFile))
                 return "You do not have permission to upload to this folder.";
-
-            if (this.upload is not null)
-                return "Wait for the upload that is running to finish.";
 
             if (!folder.Upload.IsUnlimited && folder.Upload.RemainingBytes <= 0)
                 return "Your upload quota for this folder is used up.";
@@ -314,16 +449,12 @@
         if (this.State.Folder is not { } folder)
             return;
 
+        // Where the drop was aimed, kept now: it may wait its turn while the person browses on.
+        var path = this.State.Path;
+
         if (!folder.Permissions.Has(FolderPermissions.CreateFile))
         {
             await this.Toasts.WarningAsync($"You cannot upload to {folder.Name}.");
-            return;
-        }
-
-        if (this.upload is not null)
-        {
-            await this.Toasts.WarningAsync("Wait for the upload that is running to finish.");
-            await this.FileDrop.ReleaseAsync(args.Files);
             return;
         }
 
@@ -339,9 +470,15 @@
         var sizes = args.Files.Select(f => (f.FileName, f.Length)).ToList();
         await this.FileDrop.ReleaseAsync(args.Files);
 
-        await this.UploadAll(folder, sizes, (progress, ct) => this.Uploader.FromDrop(
-            [.. sizes.Select(f => f.FileName)], folder.Id, this.State.Path, progress, ct
-        ));
+        var claim = await this.Uploader.ClaimDrop([.. sizes.Select(f => f.FileName)]);
+        try
+        {
+            await this.UploadAll(folder, path, sizes, claim);
+        }
+        finally
+        {
+            await this.Uploader.Release(claim);
+        }
     }
 
     void OnStateChanged() => this.InvokeAsync(this.StateHasChanged);
@@ -484,23 +621,28 @@
     async Task OnFilesPicked(InputFileChangeEventArgs args)
     {
         var folder = this.State.Folder;
+        var path = this.State.Path;
         if (folder is null || args.FileCount == 0 || this.picker?.Element is not { } input)
             return;
 
         var sizes = args.GetMultipleFiles(args.FileCount).Select(f => (f.Name, f.Size)).ToList();
-        await this.UploadAll(folder, sizes, (progress, ct) => this.Uploader.FromInput(
-            input, folder.Id, this.State.Path, progress, ct
-        ));
+        var claim = await this.Uploader.ClaimInput(input);
+        try
+        {
+            await this.UploadAll(folder, path, sizes, claim);
+        }
+        finally
+        {
+            await this.Uploader.Release(claim);
+        }
     }
 
     /// <summary>
     /// The one upload path, shared by the button and by drag and drop. Everything refusable is
-    /// refused here rather than after a long transfer the server was always going to reject.
+    /// refused here rather than after a long transfer the server was always going to reject. Several
+    /// can run at once, up to the account's limit; past it they queue rather than draw a refusal.
     /// </summary>
-    async Task UploadAll(
-        FolderInfo folder,
-        IReadOnlyList<(string Name, long Size)> sizes,
-        Func<IProgress<UploadProgress>, CancellationToken, Task<List<FileEntryInfo>>> send)
+    async Task UploadAll(FolderInfo folder, string path, IReadOnlyList<(string Name, long Size)> sizes, string claim)
     {
         if (folder.MaxUploadFileSizeBytes is { } cap && sizes.FirstOrDefault(f => f.Size > cap) is { Name: not null } tooBig)
         {
@@ -510,17 +652,20 @@
             return;
         }
 
+        // Uploads already on their way to this folder have spoken for their share of the quota.
         var total = sizes.Sum(f => f.Size);
-        if (!folder.Upload.IsUnlimited && total > folder.Upload.RemainingBytes)
+        var pending = this.uploads.Where(u => u.FolderId == folder.Id).Sum(u => u.Bytes);
+        var remaining = Math.Max(0, folder.Upload.RemainingBytes - pending);
+        if (!folder.Upload.IsUnlimited && total > remaining)
         {
             await this.Toasts.WarningAsync(
-                $"That is {Format.Bytes(total)}, and you have {Format.Bytes(folder.Upload.RemainingBytes)} of upload quota left."
+                $"That is {Format.Bytes(total)}, and you have {Format.Bytes(remaining)} of upload quota left."
             );
             return;
         }
 
-        var run = new UploadRun(sizes.Count == 1 ? $"Uploading {sizes[0].Name}" : $"Uploading {sizes.Count} files", total);
-        this.upload = run;
+        var run = new UploadRun(sizes.Count == 1 ? sizes[0].Name : $"{sizes.Count} files", folder.Id, sizes);
+        this.uploads.Add(run);
 
         // Asked for rather than left to the event: a drop arrives from the file drop service, not
         // from a Blazor event handler, so nothing re-renders on its own when it starts.
@@ -534,14 +679,17 @@
 
         try
         {
-            var uploaded = await send(progress, run.Cancel.Token);
+            await this.WaitForTurn(run);
+            await this.InvokeAsync(this.StateHasChanged);
+
+            var uploaded = await this.Uploader.Send(claim, folder.Id, path, progress, run.Cancel.Token);
             await this.Toasts.SuccessAsync(
                 uploaded.Count == 1 ? $"Uploaded {uploaded[0].Name}" : $"Uploaded {uploaded.Count} files"
             );
         }
         catch (OperationCanceledException)
         {
-            await this.Toasts.WarningAsync("Upload cancelled.");
+            await this.Toasts.WarningAsync(run.IsQueued ? $"{run.Name} taken out of the queue." : "Upload cancelled.");
         }
         catch (ApiException ex)
         {
@@ -549,8 +697,9 @@
         }
         finally
         {
-            this.upload = null;
+            this.uploads.Remove(run);
             run.Cancel.Dispose();
+            this.FreeSlot();
         }
 
         // Either way: a cancelled or refused multi-file upload may still have landed the files
@@ -559,5 +708,31 @@
         await this.InvokeAsync(this.StateHasChanged);
     }
 
-    void CancelUpload() => this.upload?.Cancel.Cancel();
+    /// <summary>
+    /// Holds an upload back while the account already has as many running as it may. The server
+    /// would refuse the extra one; it also counts other tabs and devices, which this cannot see, so
+    /// its 429 can still turn up and is shown like any other refusal.
+    /// </summary>
+    async Task WaitForTurn(UploadRun run)
+    {
+        while (this.State.User?.MaxParallelUploads is { } max && this.uploads.Count(u => !u.IsQueued) >= max)
+            await this.slotFreed.Task.WaitAsync(run.Cancel.Token);
+
+        run.Start();
+    }
+
+    void FreeSlot()
+    {
+        var freed = this.slotFreed;
+        this.slotFreed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        freed.TrySetResult();
+    }
+
+    void CancelUploads()
+    {
+        foreach (var run in this.uploads.ToList())
+            run.Cancel.Cancel();
+    }
+
+    void ToggleUploadFiles() => this.uploadExpanded = !this.uploadExpanded;
 }

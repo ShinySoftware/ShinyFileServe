@@ -98,7 +98,13 @@ public record CurrentUser(
     bool MustChangePassword = false,
 
     /// <summary>Signed in as an account with no password. Such an account cannot make share links.</summary>
-    bool IsAnonymous = false
+    bool IsAnonymous = false,
+
+    /// <summary>
+    /// How many uploads this account may have running at once, or null for no limit. The server
+    /// enforces it; the frontend queues anything past it rather than starting what would be refused.
+    /// </summary>
+    int? MaxParallelUploads = null
 );
 
 /// <summary>

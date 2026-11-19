@@ -450,13 +450,15 @@ button { font: inherit; }
 
 .pane__spacer { flex: 1; }
 
-/* The upload in flight, between the toolbar and the listing it is about to change. */
+/* The upload in flight, between the toolbar and the listing it is about to change. Tinted in the
+   accent with a solid edge, so it reads as something happening rather than one more toolbar row. */
 .upload {
     display: grid;
-    gap: 6px;
-    padding: 8px 12px 10px;
-    border-bottom: 1px solid var(--rule-soft);
-    background: var(--surface-2);
+    gap: 7px;
+    padding: 9px 12px 11px 15px;
+    border-bottom: 1px solid var(--accent-line);
+    background: var(--accent-soft);
+    box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .upload__head {
@@ -466,9 +468,29 @@ button { font: inherit; }
     min-width: 0;
 }
 
+.upload__glyph {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 100px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--on-accent);
+    background: var(--accent);
+    animation: upload-lift 1.4s var(--ease) infinite;
+}
+
+@keyframes upload-lift {
+    0%, 100% { transform: translateY(1px); }
+    50%      { transform: translateY(-2px); }
+}
+
 .upload__title {
     font-size: 12.5px;
-    color: var(--ink);
+    font-weight: 600;
+    color: var(--accent-ink);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -483,8 +505,34 @@ button { font: inherit; }
 
 .upload__head .action { padding: 3px 9px; }
 
-/* Progress arrives every tenth of a second; the meter's leisurely ease would always be behind it. */
-.upload__fill { transition: width 120ms linear; }
+.upload__chevron {
+    display: inline-block;
+    transition: transform var(--speed) var(--ease);
+}
+
+.upload__toggle[aria-expanded="true"] .upload__chevron { transform: rotate(90deg); }
+
+.upload__track {
+    height: 8px;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+/* Progress arrives every tenth of a second; the meter's leisurely ease would always be behind it.
+   The stripes travel while bytes are moving, so a slow upload still visibly works. */
+.upload__fill {
+    transition: width 120ms linear;
+    background-image: linear-gradient(-45deg,
+        rgba(255, 255, 255, .22) 25%, transparent 25%, transparent 50%,
+        rgba(255, 255, 255, .22) 50%, rgba(255, 255, 255, .22) 75%, transparent 75%);
+    background-size: 16px 16px;
+    animation: upload-stripes .8s linear infinite;
+}
+
+@keyframes upload-stripes {
+    from { background-position: 0 0; }
+    to   { background-position: 16px 0; }
+}
 
 /* Everything sent and the server still working: a full bar that breathes, rather than one that
    looks finished while the toast is still to come. */
@@ -495,8 +543,116 @@ button { font: inherit; }
     to   { opacity: .45; }
 }
 
+/* Every upload and its files, under the overall bar. Capped, so fifty files scroll rather than
+   push the listing off the pane. */
+.upload__runs {
+    display: grid;
+    gap: 12px;
+    margin-top: 2px;
+    max-height: 240px;
+    overflow: auto;
+}
+
+.upload-run { display: grid; gap: 6px; }
+
+.upload-run + .upload-run {
+    padding-top: 10px;
+    border-top: 1px solid var(--accent-line);
+}
+
+.upload-run__head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.upload-run__title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.upload-run__value {
+    margin-left: auto;
+    font-size: 11.5px;
+    color: var(--ink-2);
+    white-space: nowrap;
+}
+
+.upload-run__cancel {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    font: inherit;
+    font-size: 11px;
+    color: var(--ink-2);
+    background: transparent;
+    cursor: pointer;
+}
+
+.upload-run__cancel:hover:not(:disabled) {
+    color: var(--danger);
+    border-color: var(--accent-line);
+    background: var(--surface);
+}
+
+.upload-run__cancel:disabled { opacity: .4; cursor: default; }
+
+.upload-run--queued .upload-run__title,
+.upload-run--queued .upload-run__value { color: var(--ink-3); }
+
+.upload__files {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+}
+
+.upload-file {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3px 10px;
+    align-items: baseline;
+}
+
+.upload-file__name {
+    font-size: 12px;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.upload-file__value {
+    font-size: 11.5px;
+    color: var(--ink-2);
+    white-space: nowrap;
+}
+
+.upload-file__track {
+    grid-column: 1 / -1;
+    height: 4px;
+    background: var(--surface);
+}
+
+.upload-file--done .upload-file__value { color: var(--accent-ink); }
+.upload-file--done .upload__fill { animation: none; background-image: none; }
+.upload-file--waiting .upload-file__name,
+.upload-file--waiting .upload-file__value { color: var(--ink-3); }
+
 @media (prefers-reduced-motion: reduce) {
+    .upload__glyph,
+    .upload__fill,
     .upload__fill--busy { animation: none; }
+    .upload__chevron { transition: none; }
 }
 
 @media (max-width: 600px) {

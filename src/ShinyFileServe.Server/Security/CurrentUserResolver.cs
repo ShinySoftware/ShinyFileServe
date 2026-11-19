@@ -82,6 +82,7 @@ public static class PrincipalFactory
             roles.Select(r => r.Name).ToList(),
             isLocalSession,
             mustChangePassword,
-            user.IsAnonymous
+            user.IsAnonymous,
+            user.MaxParallelUploads
         );
 }

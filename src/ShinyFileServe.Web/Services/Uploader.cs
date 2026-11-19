@@ -24,31 +24,31 @@ public class Uploader(IJSRuntime js) : IAsyncDisposable
     /// <summary>Starts remembering dropped files. Call before the first drop it should handle.</summary>
     public async Task WatchDrops() => await (await this.Module()).InvokeVoidAsync("watchDrops");
 
-    /// <summary>Uploads whatever is selected in an <c>&lt;input type="file"&gt;</c>, then clears it.</summary>
-    public Task<List<FileEntryInfo>> FromInput(
-        ElementReference input,
+    /// <summary>
+    /// Sets aside whatever is selected in an <c>&lt;input type="file"&gt;</c>, then clears it. The
+    /// returned claim is what <see cref="Send"/> uploads, however long it waits for its turn.
+    /// </summary>
+    public async Task<string> ClaimInput(ElementReference input)
+        => await (await this.Module()).InvokeAsync<string>("claim", input, Array.Empty<string>());
+
+    /// <summary>Sets aside the files of the last drop whose names are in <paramref name="names"/>.</summary>
+    public async Task<string> ClaimDrop(IReadOnlyList<string> names)
+        => await (await this.Module()).InvokeAsync<string>("claim", "drop", names);
+
+    /// <summary>Lets go of a claim that was never sent. Harmless on one that was.</summary>
+    public async Task Release(string claim)
+    {
+        try { await (await this.Module()).InvokeVoidAsync("release", claim); }
+        catch (JSDisconnectedException) { }
+    }
+
+    /// <summary>Uploads a claim's files to a folder.</summary>
+    public async Task<List<FileEntryInfo>> Send(
+        string claim,
         string folderId,
         string? path,
         IProgress<UploadProgress> progress,
         CancellationToken ct = default)
-        => this.Send(input, [], folderId, path, progress, ct);
-
-    /// <summary>Uploads the files of the last drop whose names are in <paramref name="names"/>.</summary>
-    public Task<List<FileEntryInfo>> FromDrop(
-        IReadOnlyList<string> names,
-        string folderId,
-        string? path,
-        IProgress<UploadProgress> progress,
-        CancellationToken ct = default)
-        => this.Send("drop", names, folderId, path, progress, ct);
-
-    async Task<List<FileEntryInfo>> Send(
-        object source,
-        IReadOnlyList<string> names,
-        string folderId,
-        string? path,
-        IProgress<UploadProgress> progress,
-        CancellationToken ct)
     {
         var module = await this.Module();
         var id = Guid.NewGuid().ToString("N");
@@ -62,7 +62,7 @@ public class Uploader(IJSRuntime js) : IAsyncDisposable
         //
         // Read as a JsonElement rather than a record: the interop serializer works by reflection,
         // and a trimmed publish would be free to strip a record it could not see being built.
-        var result = await module.InvokeAsync<JsonElement>("start", CancellationToken.None, id, source, names, url, callback);
+        var result = await module.InvokeAsync<JsonElement>("start", CancellationToken.None, id, claim, url, callback);
         var code = result.GetProperty("status").GetInt32();
         var body = result.GetProperty("body").GetString() ?? "";
 
