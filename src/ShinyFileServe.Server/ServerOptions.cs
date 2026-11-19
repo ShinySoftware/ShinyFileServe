@@ -16,7 +16,10 @@ public class FileServeServerOptions
     /// </summary>
     public string TicketKeyPath { get; set; } = "fileserve.key";
 
-    /// <summary>Largest request body the server will accept, which is the ceiling on any upload.</summary>
+    /// <summary>
+    /// Largest request body the server will accept. File uploads are exempt - they stream to disk and
+    /// are bounded by each share's per-file limit and quotas instead - so this guards everything else.
+    /// </summary>
     public long MaxUploadBytes { get; set; } = 2L * 1024 * 1024 * 1024;
 
     public TimeSpan SessionLifetime { get; set; } = TimeSpan.FromHours(8);

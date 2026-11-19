@@ -32,14 +32,10 @@ builder.Services.AddShinyControls(cfg => cfg
     .ConfigureDialogs(o => o.DefaultAnimation = DialogAnimation.Zoom)
 );
 
-// Whole-window drag and drop for uploads. The caps here are a coarse first filter; the real
-// decision - may this person write to this folder, and is there quota left - is made per drop
-// against the folder they are actually looking at.
-builder.Services.AddShinyFileDrop(o =>
-{
-    o.MaxFiles = 50;
-    o.MaxFileSize = 4L * 1024 * 1024 * 1024;
-});
+// Whole-window drag and drop for uploads. No size cap here: the real decision - may this person
+// write to this folder, is the file under the share's per-file limit, and is there quota left - is
+// made per drop against the folder they are actually looking at.
+builder.Services.AddShinyFileDrop(o => o.MaxFiles = 50);
 
 // Both panels are load-bearing: without the tree the file pane is a listing of nowhere, and
 // without the file pane the tree selects into nothing. Neither gets a close button.

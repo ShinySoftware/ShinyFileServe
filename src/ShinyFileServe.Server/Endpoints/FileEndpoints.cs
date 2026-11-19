@@ -194,8 +194,11 @@ public class FileEndpoints(
     /// <summary>
     /// Streaming multipart upload. <c>path</c> is the directory the file lands in; the filename comes
     /// from the part itself, sanitised. Several files may ride in one request.
+    /// No body limit: the parts stream straight to disk, and the share's per-file cap and the
+    /// quotas below are what decide how much is too much.
     /// </summary>
     [Post("/upload")]
+    [DisableRequestSizeLimit]
     [Produces(200, typeof(IReadOnlyList<FileEntryInfo>))]
     [Produces(403)]
     [Produces(413)]
