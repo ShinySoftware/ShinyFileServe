@@ -245,13 +245,16 @@
     TaskCompletionSource slotFreed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
-    /// One upload: a pick or a drop, sent as one request. Its progress counts the whole request, so the
-    /// bytes shown are the files' own total scaled by how far the request has got - the multipart
-    /// framing is nobody's business. The files ride in that request in order, so how far each has got
-    /// falls out of the same number.
+    /// One upload: a pick or a drop. Small files go together in one request and large ones each go
+    /// resumably (see <see cref="Uploader.ResumableThreshold"/>), so progress is kept per file. A
+    /// multipart request's progress counts the whole request, so the bytes shown are its files' own
+    /// total scaled by how far it has got - the framing is nobody's business - and since the files
+    /// ride in it in order, how far each has got falls out of the same number.
     /// </summary>
     sealed class UploadRun(string name, string folderId, IReadOnlyList<(string Name, long Size)> files)
     {
+        readonly long[] sent = new long[files.Count];
+        readonly bool[] begun = new bool[files.Count];
         DateTimeOffset? started;
 
         public string Name { get; } = name;
@@ -259,7 +262,12 @@
         public IReadOnlyList<(string Name, long Size)> Files { get; } = files;
         public long Bytes { get; } = files.Sum(f => f.Size);
         public CancellationTokenSource Cancel { get; } = new();
-        public UploadProgress Progress { get; set; }
+
+        /// <summary>Something to say in place of the progress, such as waiting out a dropped connection.</summary>
+        public string? Status { get; set; }
+
+        /// <summary>Bytes a resumed upload found already on the server - progress, but not sent at this speed.</summary>
+        public long Resumed { get; set; }
 
         /// <summary>Waiting behind the account's limit on uploads running at once.</summary>
         public bool IsQueued => this.started is null;
@@ -267,13 +275,26 @@
         public void Start() => this.started = DateTimeOffset.UtcNow;
 
         /// <summary>Every byte is sent and the server is writing, and possibly scanning, before it answers.</summary>
-        public bool IsFinishing => this.Progress.Total > 0 && this.Progress.Sent >= this.Progress.Total;
+        public bool IsFinishing => !this.IsQueued && this.Sent >= this.Bytes;
 
-        public int Percent => (int)Math.Floor(this.Progress.Fraction * 100);
+        public long Sent => this.sent.Sum();
 
-        public long Sent => (long)(this.Bytes * this.Progress.Fraction);
+        public int Percent => this.Bytes > 0 ? (int)Math.Floor(100d * this.Sent / this.Bytes) : 0;
 
         public int Completed => this.Lines.Count(l => l.IsDone);
+
+        /// <summary>Records how far a request carrying the files at <paramref name="indexes"/> has got.</summary>
+        public void Report(IReadOnlyList<int> indexes, UploadProgress progress)
+        {
+            var share = (long)(indexes.Sum(i => this.Files[i].Size) * progress.Fraction);
+            long start = 0;
+            foreach (var i in indexes)
+            {
+                this.sent[i] = Math.Clamp(share - start, 0, this.Files[i].Size);
+                this.begun[i] |= share >= start;
+                start += this.Files[i].Size;
+            }
+        }
 
         /// <summary>Bytes a second, or 0 before a second has passed: a rate over a few milliseconds is noise.</summary>
         public double Rate
@@ -281,30 +302,20 @@
             get
             {
                 var elapsed = this.started is { } at ? (DateTimeOffset.UtcNow - at).TotalSeconds : 0;
-                return elapsed >= 1 ? this.Sent / elapsed : 0;
+                return elapsed >= 1 ? Math.Max(0, this.Sent - this.Resumed) / elapsed : 0;
             }
         }
 
         public IEnumerable<UploadLine> Lines
-        {
-            get
-            {
-                long start = 0;
-                foreach (var file in this.Files)
-                {
-                    yield return new UploadLine(
-                        file.Name, file.Size, Math.Clamp(this.Sent - start, 0, file.Size), !this.IsQueued && this.Sent >= start
-                    );
-                    start += file.Size;
-                }
-            }
-        }
+            => this.Files.Select((file, i) => new UploadLine(file.Name, file.Size, this.sent[i], this.begun[i]));
 
         public string Detail => this.IsQueued
             ? $"Queued · {Format.Bytes(this.Bytes)}"
-            : this.IsFinishing
-                ? "Finishing…"
-                : DescribeProgress(this.Completed, this.Files.Count, this.Sent, this.Bytes, this.Percent, this.Rate);
+            : this.Status is { } status
+                ? $"{status} · {this.Percent}%"
+                : this.IsFinishing
+                    ? "Finishing…"
+                    : DescribeProgress(this.Completed, this.Files.Count, this.Sent, this.Bytes, this.Percent, this.Rate);
     }
 
     static string DescribeProgress(int completed, int files, long sent, long bytes, int percent, double rate)
@@ -340,9 +351,11 @@
         }
     }
 
-    string UploadDetail => this.UploadsFinishing
-        ? "Finishing…"
-        : DescribeProgress(
+    string UploadDetail => this.uploads.FirstOrDefault(u => u.Status is not null) is { Status: { } status }
+        ? $"{status} · {this.UploadPercent}%"
+        : this.UploadsFinishing
+            ? "Finishing…"
+            : DescribeProgress(
             this.uploads.Sum(u => u.Completed), this.UploadFileCount, this.UploadSent, this.UploadBytes,
             this.UploadPercent, this.uploads.Sum(u => u.Rate)
         );
@@ -671,29 +684,74 @@
         // from a Blazor event handler, so nothing re-renders on its own when it starts.
         await this.InvokeAsync(this.StateHasChanged);
 
-        var progress = new ProgressSink(p =>
+        void Refresh() => this.InvokeAsync(this.StateHasChanged);
+
+        ProgressSink Sink(IReadOnlyList<int> indexes)
         {
-            run.Progress = p;
-            this.InvokeAsync(this.StateHasChanged);
-        });
+            run.Report(indexes, default);
+            return new ProgressSink(p =>
+            {
+                run.Report(indexes, p);
+                Refresh();
+            });
+        }
+
+        // The small files first, together: they are quick, and they are done before the big ones
+        // start rather than waiting behind them.
+        var small = Enumerable.Range(0, sizes.Count).Where(i => sizes[i].Size < Uploader.ResumableThreshold).ToList();
+        var large = Enumerable.Range(0, sizes.Count).Where(i => sizes[i].Size >= Uploader.ResumableThreshold).ToList();
+        var uploaded = new List<FileEntryInfo>();
+        var failures = new List<string>();
 
         try
         {
             await this.WaitForTurn(run);
-            await this.InvokeAsync(this.StateHasChanged);
+            Refresh();
 
-            var uploaded = await this.Uploader.Send(claim, folder.Id, path, progress, run.Cancel.Token);
-            await this.Toasts.SuccessAsync(
-                uploaded.Count == 1 ? $"Uploaded {uploaded[0].Name}" : $"Uploaded {uploaded.Count} files"
-            );
+            if (small.Count > 0)
+            {
+                try
+                {
+                    uploaded.AddRange(await this.Uploader.Send(claim, small, folder.Id, path, Sink(small), run.Cancel.Token));
+                }
+                catch (ApiException ex)
+                {
+                    failures.Add(small.Count == 1 ? $"{sizes[small[0]].Name}: {ex.Message}" : ex.Message);
+                }
+            }
+
+            // One at a time, each in its own resumable upload. A refusal of one is reported, not a
+            // reason to abandon the rest.
+            foreach (var index in large)
+            {
+                try
+                {
+                    uploaded.Add(await this.Uploader.SendResumable(
+                        claim, index, sizes[index].Name, sizes[index].Size, folder.Id, path, Sink([index]),
+                        status =>
+                        {
+                            run.Status = status;
+                            Refresh();
+                        },
+                        offset => run.Resumed += offset,
+                        run.Cancel.Token
+                    ));
+                }
+                catch (ApiException ex)
+                {
+                    failures.Add($"{sizes[index].Name}: {ex.Message}");
+                }
+                finally
+                {
+                    run.Status = null;
+                }
+            }
+
+            await this.ReportUploads(sizes, uploaded, failures);
         }
         catch (OperationCanceledException)
         {
             await this.Toasts.WarningAsync(run.IsQueued ? $"{run.Name} taken out of the queue." : "Upload cancelled.");
-        }
-        catch (ApiException ex)
-        {
-            await this.Toasts.DangerAsync(ex.Message);
         }
         finally
         {
@@ -706,6 +764,35 @@
         // ahead of the one it stopped on.
         await this.State.Reload();
         await this.InvokeAsync(this.StateHasChanged);
+    }
+
+    /// <summary>
+    /// Says how an upload went. A file whose name was taken lands under a new one when the account
+    /// may not replace what is there, and that is worth saying - it is not where the person will look.
+    /// </summary>
+    async Task ReportUploads(IReadOnlyList<(string Name, long Size)> sizes, List<FileEntryInfo> uploaded, List<string> failures)
+    {
+        if (uploaded.Count > 0)
+        {
+            var names = sizes.Select(f => f.Name).ToHashSet();
+            var renamed = uploaded.Where(u => !names.Contains(u.Name)).ToList();
+            var text = uploaded.Count == 1 ? $"Uploaded {uploaded[0].Name}" : $"Uploaded {uploaded.Count} files";
+
+            text += renamed.Count switch
+            {
+                0 => "",
+                1 when uploaded.Count == 1 => ". A file with its original name is already there, and replacing it needs delete permission.",
+                1 => $". {renamed[0].Name} was saved under a new name: a file with the original name is already there, and replacing it needs delete permission.",
+                _ => $". {renamed.Count} were saved under new names: files with those names are already there, and replacing them needs delete permission."
+            };
+
+            await this.Toasts.SuccessAsync(text);
+        }
+
+        if (failures.Count == 1)
+            await this.Toasts.DangerAsync(failures[0]);
+        else if (failures.Count > 1)
+            await this.Toasts.DangerAsync($"{failures.Count} files were not uploaded. {failures[0]}");
     }
 
     /// <summary>

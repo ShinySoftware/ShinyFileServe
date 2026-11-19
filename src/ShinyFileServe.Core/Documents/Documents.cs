@@ -552,3 +552,27 @@ public class ShareLink
 
     public bool IsExpired(DateTimeOffset now) => this.ExpiresAtUtc is { } expiry && expiry <= now;
 }
+
+/// <summary>
+/// A resumable upload that has started and not yet finished. Its id is the tus upload's own, so the
+/// two are one thing seen from either side: the bytes in the upload store, and here who they belong
+/// to, where they are going, and how much quota they have spoken for.
+/// </summary>
+public class ResumableUpload
+{
+    public string Id { get; set; } = "";
+    public string UserId { get; set; } = "";
+    public string FolderId { get; set; } = "";
+
+    /// <summary>Where the file is aimed, inside the share. Where it lands can differ when the name is taken.</summary>
+    public string Path { get; set; } = "";
+
+    /// <summary>The whole file. Reserved against the quotas from the moment the upload is created.</summary>
+    public long Length { get; set; }
+
+    /// <summary>The client asked to replace a file already at <see cref="Path"/>. Whether it may is decided at the end.</summary>
+    public bool Overwrite { get; set; }
+
+    public DateTimeOffset CreatedUtc { get; set; }
+}
+

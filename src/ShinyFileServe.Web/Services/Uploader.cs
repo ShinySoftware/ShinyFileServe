@@ -6,7 +6,10 @@ using ShinyFileServe.Shared;
 
 namespace ShinyFileServe.Web.Services;
 
-/// <summary>How far an upload has got. <see cref="Total"/> is the whole request, multipart framing included.</summary>
+/// <summary>
+/// How far an upload has got. <see cref="Total"/> is the whole request, multipart framing included,
+/// or for a resumable upload the file itself.
+/// </summary>
 public readonly record struct UploadProgress(long Sent, long Total)
 {
     public double Fraction => this.Total > 0 ? Math.Clamp((double)this.Sent / this.Total, 0, 1) : 0;
@@ -42,9 +45,24 @@ public class Uploader(IJSRuntime js) : IAsyncDisposable
         catch (JSDisconnectedException) { }
     }
 
-    /// <summary>Uploads a claim's files to a folder.</summary>
+    /// <summary>
+    /// Files from this size up go over the resumable upload, one at a time; anything smaller rides
+    /// in one ordinary request with the rest. A dropped connection costs a small file almost nothing
+    /// to send again, and a resumable upload is two or three requests per file - a folder of photos
+    /// would pay for that many times over.
+    /// </summary>
+    public const long ResumableThreshold = 16L * 1024 * 1024;
+
+    /// <summary>
+    /// How much each resumable request carries. Small enough to pass the request-size caps tunnels
+    /// and proxies put in front of a server, large enough that the gap between requests is noise.
+    /// </summary>
+    const long ChunkSize = 16L * 1024 * 1024;
+
+    /// <summary>Uploads some of a claim's files - <paramref name="indexes"/> into it - to a folder, in one request.</summary>
     public async Task<List<FileEntryInfo>> Send(
         string claim,
+        IReadOnlyList<int> indexes,
         string folderId,
         string? path,
         IProgress<UploadProgress> progress,
@@ -54,7 +72,7 @@ public class Uploader(IJSRuntime js) : IAsyncDisposable
         var id = Guid.NewGuid().ToString("N");
         var url = $"api/files/upload?{FileServeApi.Query(folderId, path)}&overwrite=true";
 
-        using var callback = DotNetObjectReference.Create(new ProgressCallback(progress));
+        using var callback = DotNetObjectReference.Create(new ProgressCallback(progress, null, null));
         await using var cancel = ct.Register(() => _ = module.InvokeVoidAsync("abort", id).AsTask());
 
         // CancellationToken.None on purpose: a cancel is the abort above, which the script answers
@@ -62,7 +80,58 @@ public class Uploader(IJSRuntime js) : IAsyncDisposable
         //
         // Read as a JsonElement rather than a record: the interop serializer works by reflection,
         // and a trimmed publish would be free to strip a record it could not see being built.
-        var result = await module.InvokeAsync<JsonElement>("start", CancellationToken.None, id, claim, url, callback);
+        var result = await module.InvokeAsync<JsonElement>("start", CancellationToken.None, id, claim, indexes, url, callback);
+        var body = Check(result, ct);
+
+        return JsonSerializer.Deserialize(body.Length == 0 ? "[]" : body, ClientJsonContext.Default.ListFileEntryInfo) ?? [];
+    }
+
+    /// <summary>
+    /// Uploads one of a claim's files resumably. Picks up where the server left off if this browser
+    /// has sent part of the same file to the same place before. <paramref name="onStatus"/> hears
+    /// "Reconnecting…" while it waits out a dropped connection, and null once it is moving again;
+    /// <paramref name="onResumed"/> hears how many bytes were already on the server.
+    /// </summary>
+    public async Task<FileEntryInfo> SendResumable(
+        string claim,
+        int index,
+        string name,
+        long size,
+        string folderId,
+        string? path,
+        IProgress<UploadProgress> progress,
+        Action<string?> onStatus,
+        Action<long> onResumed,
+        CancellationToken ct = default)
+    {
+        var module = await this.Module();
+        var id = Guid.NewGuid().ToString("N");
+        var metadata = new Dictionary<string, string>
+        {
+            ["folderId"] = folderId,
+            ["path"] = path ?? "",
+            ["filename"] = name,
+            ["overwrite"] = "true"
+        };
+
+        using var callback = DotNetObjectReference.Create(new ProgressCallback(progress, onStatus, onResumed));
+        await using var cancel = ct.Register(() => _ = module.InvokeVoidAsync("abort", id).AsTask());
+
+        var result = await module.InvokeAsync<JsonElement>(
+            "startResumable", CancellationToken.None, id, claim, index, "api/uploads", metadata, ChunkSize, callback
+        );
+        Check(result, ct);
+
+        var savedAs = result.TryGetProperty("savedAs", out var saved) && saved.ValueKind == JsonValueKind.String
+            ? saved.GetString()!
+            : Join(path, name);
+
+        return new FileEntryInfo(savedAs.Split('/').Last(), savedAs, false, size, DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>The body of a finished request, or the exception its status calls for.</summary>
+    static string Check(JsonElement result, CancellationToken ct)
+    {
         var code = result.GetProperty("status").GetInt32();
         var body = result.GetProperty("body").GetString() ?? "";
 
@@ -70,14 +139,17 @@ public class Uploader(IJSRuntime js) : IAsyncDisposable
             throw new OperationCanceledException(ct);
 
         if (code == 0)
-            throw new ApiException(0, "The connection dropped before the upload finished.");
+            throw new ApiException(0, body.Length > 0 ? body : "The connection dropped before the upload finished.");
 
         var status = (HttpStatusCode)code;
         if (code is < 200 or > 299)
             throw new ApiException(status, FileServeApi.Describe(status, body));
 
-        return JsonSerializer.Deserialize(body.Length == 0 ? "[]" : body, ClientJsonContext.Default.ListFileEntryInfo) ?? [];
+        return body;
     }
+
+    static string Join(string? parent, string name)
+        => String.IsNullOrEmpty(parent) ? name : $"{parent.Trim('/')}/{name}";
 
     async Task<IJSObjectReference> Module()
         => this.module ??= await js.InvokeAsync<IJSObjectReference>("import", "./js/upload.js");
@@ -91,9 +163,15 @@ public class Uploader(IJSRuntime js) : IAsyncDisposable
         }
     }
 
-    class ProgressCallback(IProgress<UploadProgress> progress)
+    class ProgressCallback(IProgress<UploadProgress> progress, Action<string?>? status, Action<long>? resumed)
     {
         [JSInvokable]
         public void OnProgress(long loaded, long total) => progress.Report(new UploadProgress(loaded, total));
+
+        [JSInvokable]
+        public void OnStatus(string? text) => status?.Invoke(text);
+
+        [JSInvokable]
+        public void OnResumed(long offset) => resumed?.Invoke(offset);
     }
 }

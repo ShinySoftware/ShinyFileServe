@@ -216,6 +216,7 @@ public class FileEndpoints(
 
         var uploaded = new List<FileEntryInfo>();
         var activityContext = current.GetActivityContext(ctx);
+        var conflict = UploadRules.Conflict(folder!, overwrite);
 
         try
         {
@@ -297,15 +298,15 @@ public class FileEndpoints(
                     folderId, folder!.Folder.Name, target, PartLength(part)
                 );
 
-                long written;
+                SavedFile saved;
                 try
                 {
                     // The scan runs inside Save, on the finished temp file and before it is moved
                     // into place, so an infected upload is never a file anyone could have listed or
                     // downloaded - not even for the moment it would take to delete it again.
                     await using var counted = new CountingStream(part.Body, transfer, leaveInnerOpen: true, ownsHandle: false);
-                    written = await files.Save(
-                        folder, target, counted, overwrite,
+                    saved = await files.Save(
+                        folder, target, counted, conflict,
                         inspect: (temp, token) => this.Inspect(temp, name, token),
                         ct: ct
                     );
@@ -329,13 +330,14 @@ public class FileEndpoints(
                     };
                 }
 
+                var written = saved.Bytes;
                 transfer.SetTotal(written);
 
                 if (written > remaining || (folder.MaxUploadFileSizeBytes is { } cap && written > cap))
                 {
                     // the real size only became knowable once the stream ran out; undo rather than
                     // let an over-quota file sit on disk
-                    try { files.Delete(folder, target); } catch (FileAccessException) { }
+                    try { files.Delete(folder, saved.VirtualPath); } catch (FileAccessException) { }
 
                     transfer.Fail("Exceeded the quota or the per-file limit");
 
@@ -352,11 +354,11 @@ public class FileEndpoints(
                 await quotas.RecordAccountUpload(user.Id, user.UploadQuotaWindow, written, ct);
                 await activity.Log(
                     ActivityAction.Upload, user.Id, user.Username, true, folderId, folder.Folder.Name,
-                    target, written, context: activityContext, ct: ct
+                    saved.VirtualPath, written, UploadRules.RenamedDetail(target, saved), activityContext, ct
                 );
 
-                var info = files.GetFile(folder, target);
-                uploaded.Add(new FileEntryInfo(info.Name, target, false, info.Length, info.LastWriteTimeUtc));
+                var info = files.GetFile(folder, saved.VirtualPath);
+                uploaded.Add(new FileEntryInfo(info.Name, saved.VirtualPath, false, info.Length, info.LastWriteTimeUtc));
             }
         }
         catch (FileAccessException ex)

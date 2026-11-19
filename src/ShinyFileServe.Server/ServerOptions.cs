@@ -60,6 +60,15 @@ public class FileServeServerOptions
     /// </summary>
     public string PackagesDirectory { get; set; } = "packages";
 
+    /// <summary>
+    /// Where resumable uploads are kept until their last byte arrives and they are moved into their
+    /// share. Unfinished ones are swept away after <see cref="ResumableUploadExpiry"/>.
+    /// </summary>
+    public string UploadsDirectory { get; set; } = "uploads";
+
+    /// <summary>How long an unfinished resumable upload waits for its next byte before it is thrown away.</summary>
+    public TimeSpan ResumableUploadExpiry { get; set; } = TimeSpan.FromHours(24);
+
     /// <summary>Development only. Leaves stack traces in 500 responses.</summary>
     public bool ShowExceptionDetails { get; set; }
 }

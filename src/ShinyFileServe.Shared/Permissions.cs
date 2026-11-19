@@ -15,7 +15,10 @@ public enum FolderPermissions
     /// <summary>Read/download a file's bytes.</summary>
     DownloadFile = 2,
 
-    /// <summary>Upload a new file, or overwrite an existing one.</summary>
+    /// <summary>
+    /// Upload a file. Replacing one that is already there also takes <see cref="DeleteFile"/> - it
+    /// destroys the old file just as surely - so without it a clash is saved under a new name.
+    /// </summary>
     CreateFile = 4,
 
     /// <summary>Delete a file.</summary>

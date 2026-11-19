@@ -26,4 +26,7 @@ public static class AppPaths
 
     /// <summary>The NuGet feed's and npm registry's packages. Not in the database backup - they are files.</summary>
     public static string PackagesDirectory => Path.Combine(DataDirectory, "packages");
+
+    /// <summary>Resumable uploads still arriving. Moved into their share when the last byte lands.</summary>
+    public static string UploadsDirectory => Path.Combine(DataDirectory, "uploads");
 }

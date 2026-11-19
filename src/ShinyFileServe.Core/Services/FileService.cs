@@ -4,6 +4,22 @@ namespace ShinyFileServe.Core.Services;
 
 public class FileAccessException(string message) : Exception(message);
 
+/// <summary>What <see cref="IFileService.Save"/> does when the name it was given is taken.</summary>
+public enum SaveConflict
+{
+    /// <summary>Refuse the upload.</summary>
+    Fail,
+
+    /// <summary>Replace what is there.</summary>
+    Overwrite,
+
+    /// <summary>Keep both: the upload lands as <c>name (2).ext</c>, or the first number that is free.</summary>
+    Rename
+}
+
+/// <summary>Where an upload landed, which differs from where it was aimed when it had to be renamed.</summary>
+public record SavedFile(string VirtualPath, long Bytes);
+
 public interface IFileService
 {
     /// <summary>
@@ -20,13 +36,14 @@ public interface IFileService
     /// place once it is whole. <paramref name="inspect"/> is handed the temporary path after the
     /// last byte is written and before the move: throw from it and nothing is ever published - which
     /// is how a virus scan gets its look at a finished file without the file existing at a path
-    /// anyone could list or download first.
+    /// anyone could list or download first. The name is settled at the move, not before the copy,
+    /// so a file that appears there in the meantime is still treated as <paramref name="conflict"/> says.
     /// </summary>
-    Task<long> Save(
+    Task<SavedFile> Save(
         FolderAccess access,
         string virtualPath,
         Stream content,
-        bool overwrite,
+        SaveConflict conflict,
         Func<string, CancellationToken, Task>? inspect = null,
         CancellationToken ct = default
     );
@@ -109,19 +126,21 @@ public class FileService : IFileService
         return info;
     }
 
-    public async Task<long> Save(
+    public async Task<SavedFile> Save(
         FolderAccess access,
         string virtualPath,
         Stream content,
-        bool overwrite,
+        SaveConflict conflict,
         Func<string, CancellationToken, Task>? inspect = null,
         CancellationToken ct = default)
     {
         var full = this.ResolvePath(access, virtualPath);
-        if (Directory.Exists(full))
+
+        // Checked up front as well as at the move, so a refusal costs nothing rather than a whole copy.
+        if (conflict != SaveConflict.Rename && Directory.Exists(full))
             throw new FileAccessException("A directory already exists at that path");
 
-        if (File.Exists(full) && !overwrite)
+        if (conflict == SaveConflict.Fail && File.Exists(full))
             throw new FileAccessException("File already exists");
 
         var parent = Path.GetDirectoryName(full);
@@ -131,6 +150,7 @@ public class FileService : IFileService
         // write to a sibling temp file first so an aborted upload never leaves a truncated file behind
         var temp = full + ".uploading-" + Guid.NewGuid().ToString("N")[..8];
         long written;
+        string published;
         try
         {
             await using (var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
@@ -144,7 +164,7 @@ public class FileService : IFileService
             if (inspect is not null)
                 await inspect(temp, ct);
 
-            File.Move(temp, full, overwrite: true);
+            published = Publish(temp, full, Normalize(virtualPath), conflict);
         }
         catch
         {
@@ -152,7 +172,63 @@ public class FileService : IFileService
                 File.Delete(temp);
             throw;
         }
-        return written;
+        return new SavedFile(published, written);
+    }
+
+    /// <summary>Moves the finished temp file to its name and returns the virtual path it ended up at.</summary>
+    static string Publish(string temp, string full, string virtualPath, SaveConflict conflict)
+    {
+        if (conflict == SaveConflict.Overwrite)
+        {
+            File.Move(temp, full, overwrite: true);
+            return virtualPath;
+        }
+
+        if (conflict == SaveConflict.Fail)
+        {
+            try
+            {
+                File.Move(temp, full, overwrite: false);
+            }
+            catch (IOException) when (File.Exists(full) || Directory.Exists(full))
+            {
+                throw new FileAccessException("File already exists");
+            }
+            return virtualPath;
+        }
+
+        var free = Candidates(full, virtualPath).Where(c => !File.Exists(c.Full) && !Directory.Exists(c.Full));
+        foreach (var candidate in free)
+        {
+            try
+            {
+                File.Move(temp, candidate.Full, overwrite: false);
+                return candidate.Virtual;
+            }
+            catch (IOException) when (File.Exists(candidate.Full) || Directory.Exists(candidate.Full))
+            {
+                // Taken between the check and the move; the next number will do.
+            }
+        }
+        throw new FileAccessException("There is no free name left for this file");
+    }
+
+    /// <summary>The name itself, then <c>name (2).ext</c>, <c>name (3).ext</c> and so on.</summary>
+    static IEnumerable<(string Full, string Virtual)> Candidates(string full, string virtualPath)
+    {
+        yield return (full, virtualPath);
+
+        var directory = Path.GetDirectoryName(full)!;
+        var stem = Path.GetFileNameWithoutExtension(full);
+        var extension = Path.GetExtension(full);
+        var slash = virtualPath.LastIndexOf('/');
+        var parent = slash < 0 ? "" : virtualPath[..(slash + 1)];
+
+        for (var n = 2; n <= 9999; n++)
+        {
+            var name = $"{stem} ({n}){extension}";
+            yield return (Path.Combine(directory, name), parent + name);
+        }
     }
 
     public void Delete(FolderAccess access, string virtualPath)

@@ -10,6 +10,7 @@ using Shiny.AppDeviceBridge.Tunnel;
 using Shiny.AppDeviceBridge.WebView;
 using Shiny.Net.HttpServer;
 using Shiny.Net.HttpServer.Security;
+using Shiny.Net.HttpServer.Tus;
 using ShinyFileServe.Server.Endpoints;
 using ShinyFileServe.Server.PackageFeeds;
 using ShinyFileServe.Server.Security;
@@ -57,6 +58,8 @@ public static class ServerRegistration
         services.TryAddSingleton(sp => new PackageFeedHost(options.PackagesDirectory, sp));
         services.TryAddSingleton<PackageGateMiddleware>();
         services.TryAddSingleton<BackupStaging>();
+        services.TryAddSingleton<ResumableUploads>();
+        services.TryAddSingleton<ResumableUploadGateMiddleware>();
 
         // The desktop app registers the real one first; anything else hosting the server gets an
         // updater that never finds anything, so the update endpoints still answer.
@@ -132,6 +135,10 @@ public static class ServerRegistration
                     // endpoint remembering to ask.
                     server.Use<PasswordChangeGateMiddleware>();
 
+                    // Resumable uploads: who owns each one, and whether they may still write where
+                    // it is going. After the password gate so an expired password stops these too.
+                    server.Use<ResumableUploadGateMiddleware>();
+
                     // The feeds' own authentication: a token, or anonymous. After the loopback and
                     // session middleware so whatever identity they settled on is replaced rather than
                     // inherited, and before authorization so the account it names is the one checked.
@@ -156,6 +163,8 @@ public static class ServerRegistration
                     server.MapSharedEndpoints();
                     server.MapActivityEndpoints();
                     server.MapPackageFeeds();
+                    server.MapTus(ResumableUploads.Prefix, server.Services!.GetRequiredService<ResumableUploads>().Options)
+                        .RequireAuthorization();
                 });
 
                 // After Configure, so the bridge server's guard and the web app's files come after the

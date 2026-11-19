@@ -8,6 +8,7 @@
         <PackageVersion Include="Shiny.Net.HttpServer" Version="2.2.0"/>
         <PackageVersion Include="Shiny.Net.HttpServer.NuGet" Version="2.2.0"/>
         <PackageVersion Include="Shiny.Net.HttpServer.Npm" Version="2.2.0"/>
+        <PackageVersion Include="Shiny.Net.HttpServer.Tus" Version="2.2.0"/>
         <PackageVersion Include="Shiny.AppDeviceBridge" Version="2.1.0"/>
         <PackageVersion Include="Shiny.AppDeviceBridge.WebView" Version="2.1.0"/>
         <PackageVersion Include="Shiny.AppDeviceBridge.Tunnel" Version="2.1.0"/>

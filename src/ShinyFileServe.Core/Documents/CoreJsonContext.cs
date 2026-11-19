@@ -22,6 +22,7 @@ namespace ShinyFileServe.Core.Documents;
 [JsonSerializable(typeof(PackageFeedSettings))]
 [JsonSerializable(typeof(PackageRequestLogEntry))]
 [JsonSerializable(typeof(ShareLink))]
+[JsonSerializable(typeof(ResumableUpload))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(List<ShinyFileServe.Shared.ActivityAction>))]
 public partial class CoreJsonContext : JsonSerializerContext;

@@ -8,6 +8,7 @@
         <PackageReference Include="Shiny.Net.HttpServer"/>
         <PackageReference Include="Shiny.Net.HttpServer.NuGet"/>
         <PackageReference Include="Shiny.Net.HttpServer.Npm"/>
+        <PackageReference Include="Shiny.Net.HttpServer.Tus"/>
         <PackageReference Include="Shiny.AppDeviceBridge"/>
         <PackageReference Include="Shiny.AppDeviceBridge.WebView"/>
         <PackageReference Include="Shiny.AppDeviceBridge.Tunnel"/>
