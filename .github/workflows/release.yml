@@ -72,8 +72,14 @@ jobs:
           xcodebuild -version
 
       - uses: actions/setup-dotnet@v6
+        id: dotnet
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # Runner images can carry a newer SDK than the one installed above, and with no global.json dotnet picks the
+      # newest - which refuses this workload set. Pin the job to the SDK just set up.
+      - name: Pin SDK
+        run: dotnet new globaljson --sdk-version "${{ steps.dotnet.outputs.dotnet-version }}" --force
 
       - name: Workloads
         run: dotnet workload install macos maui --version "$WORKLOAD_VERSION"
@@ -174,8 +180,14 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-dotnet@v6
+        id: dotnet
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # Runner images can carry a newer SDK than the one installed above, and with no global.json dotnet picks the
+      # newest - which refuses this workload set. Pin the job to the SDK just set up.
+      - name: Pin SDK
+        run: dotnet new globaljson --sdk-version "${{ steps.dotnet.outputs.dotnet-version }}" --force
 
       - name: Workloads
         run: dotnet workload install maui-windows --version "$env:WORKLOAD_VERSION"
@@ -225,8 +237,14 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-dotnet@v6
+        id: dotnet
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # Runner images can carry a newer SDK than the one installed above, and with no global.json dotnet picks the
+      # newest - which refuses this workload set. Pin the job to the SDK just set up.
+      - name: Pin SDK
+        run: dotnet new globaljson --sdk-version "${{ steps.dotnet.outputs.dotnet-version }}" --force
 
       # No workload: the Linux head and the shared UI are plain net10.0 projects on NuGet packages, as maui-labs'
       # template is. Both architectures from one runner - the app is managed code over GTK, which it loads from the
