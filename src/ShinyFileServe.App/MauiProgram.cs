@@ -4,9 +4,11 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Shiny;
 using ShinyFileServe.App.Services;
+using ShinyFileServe.App.Services.Power;
 using ShinyFileServe.Core;
 using ShinyFileServe.Core.Services;
 using ShinyFileServe.Server;
+using ShinyFileServe.Server.Power;
 using ShinyFileServe.Server.Updates;
 
 namespace ShinyFileServe.App;
@@ -78,6 +80,10 @@ public static class MauiProgram
         builder.Services.AddSingleton<AppUpdater>();
         builder.Services.AddSingleton<IAppUpdater>(sp => sp.GetRequiredService<AppUpdater>());
 
+        // Added rather than tried, for the same reason: the server registered one that does nothing.
+        builder.Services.AddSingleton<KeepAwakeService>();
+        builder.Services.AddSingleton<IKeepAwake>(sp => sp.GetRequiredService<KeepAwakeService>());
+
         builder.Services.AddTransient<ConsoleWindowPage>();
 
 #if DEBUG
@@ -139,6 +145,7 @@ public static class MauiProgram
         app.Services.GetRequiredService<TrayController>().Start();
         app.Services.GetRequiredService<ActivityNotifier>().Start();
         app.Services.GetRequiredService<AppUpdater>().Start();
+        app.Services.GetRequiredService<KeepAwakeService>().Start();
         return app;
     }
 }

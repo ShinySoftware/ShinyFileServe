@@ -13,6 +13,7 @@ using Shiny.Net.HttpServer.Security;
 using Shiny.Net.HttpServer.Tus;
 using ShinyFileServe.Server.Endpoints;
 using ShinyFileServe.Server.PackageFeeds;
+using ShinyFileServe.Server.Power;
 using ShinyFileServe.Server.Security;
 using ShinyFileServe.Server.Transfers;
 using ShinyFileServe.Server.Updates;
@@ -64,6 +65,7 @@ public static class ServerRegistration
         // The desktop app registers the real one first; anything else hosting the server gets an
         // updater that never finds anything, so the update endpoints still answer.
         services.TryAddSingleton<IAppUpdater, NoAppUpdater>();
+        services.TryAddSingleton<IKeepAwake, NoKeepAwake>();
 
         // A singleton because the cache is the whole point of it - one per request would ask the
         // network the same question on every page of the log.

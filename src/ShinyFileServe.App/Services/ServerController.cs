@@ -6,6 +6,7 @@ using ShinyFileServe.Core;
 using ShinyFileServe.Core.Documents;
 using ShinyFileServe.Core.Services;
 using ShinyFileServe.Server;
+using ShinyFileServe.Server.Power;
 
 namespace ShinyFileServe.App.Services;
 
@@ -22,6 +23,7 @@ public class ServerController
     readonly SessionPolicyHolder sessionPolicy;
     readonly AllowedHostsHolder allowedHosts;
     readonly FileServeInitializer initializer;
+    readonly IKeepAwake keepAwake;
     readonly ILogger<ServerController> logger;
     readonly SemaphoreSlim gate = new(1, 1);
 
@@ -34,6 +36,7 @@ public class ServerController
         SessionPolicyHolder sessionPolicy,
         AllowedHostsHolder allowedHosts,
         FileServeInitializer initializer,
+        IKeepAwake keepAwake,
         ILogger<ServerController> logger)
     {
         this.server = server;
@@ -42,6 +45,7 @@ public class ServerController
         this.sessionPolicy = sessionPolicy;
         this.allowedHosts = allowedHosts;
         this.initializer = initializer;
+        this.keepAwake = keepAwake;
         this.logger = logger;
 
         this.server.StateChanged += (_, _) => this.Raise();
@@ -114,6 +118,9 @@ public class ServerController
 
             this.initialized = true;
             await this.initializer.Initialize(ct);
+
+            // The stored settings were only just read, and loading them raises nothing.
+            this.keepAwake.Refresh();
             this.sessionPolicy.ApplyRememberWindow(this.settings.Current.RememberMeDays);
             this.allowedHosts.Apply(this.settings.Current.AllowedHosts);
 

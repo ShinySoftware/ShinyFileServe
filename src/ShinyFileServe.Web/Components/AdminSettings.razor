@@ -140,6 +140,20 @@ else
             </label>
             <span class="admin__hint">@RunAtStartupText.Explain(this.status.Config.RunAtStartup)</span>
 
+            @* Disabled rather than hidden where the machine cannot do it, as with starting at login. *@
+            <label class="field">
+                <span class="field__label">Sleep</span>
+                <select @bind="this.keepAwake" disabled="@(this.status.Config.KeepAwake is not { IsSupported: true })">
+                    <option value="@KeepAwakeMode.OsDefault">OS Default</option>
+                    <option value="@KeepAwakeMode.WhenPluggedIn">Keep Awake When Plugged In</option>
+                    @if (this.status.Config.KeepAwake is { HasBattery: true })
+                    {
+                        <option value="@KeepAwakeMode.Always">Keep Awake Even On Battery</option>
+                    }
+                </select>
+                <span class="admin__hint">@this.KeepAwakeHint</span>
+            </label>
+
         </section>
 
         <section class="admin__block">
@@ -400,6 +414,7 @@ else
     bool autoStartServer;
     bool autoStartTunnel;
     bool runAtStartup;
+    KeepAwakeMode keepAwake = KeepAwakeMode.WhenPluggedIn;
     BackupSummary? staged;
     bool passwordsEnabled = true;
     int passwordMinimum = 8;
@@ -487,6 +502,7 @@ else
             this.autoStartServer = this.status.Config.AutoStartServer;
             this.autoStartTunnel = this.status.Config.AutoStartTunnel;
             this.runAtStartup = this.status.Config.RunAtStartup is RunAtStartupState.Enabled;
+            this.keepAwake = ShownKeepAwake(this.status.Config.KeepAwake);
             var rules = this.status.Config.Passwords;
             this.passwordsEnabled = rules.Enabled;
             this.passwordMinimum = rules.MinimumLength;
@@ -665,8 +681,28 @@ else
             this.npmAllowUnpublish,
             this.nugetPermanentDelete
         ),
-        this.allowedHosts.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        this.allowedHosts.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+        this.keepAwake
     );
+
+    /// <summary>
+    /// "Even on battery" stored on a machine without one - a backup restored from a laptop, say -
+    /// behaves exactly like "when plugged in", so the box shows that rather than a blank.
+    /// </summary>
+    static KeepAwakeMode ShownKeepAwake(KeepAwakeInfo? info) => info switch
+    {
+        null => KeepAwakeMode.WhenPluggedIn,
+        { Mode: KeepAwakeMode.Always, HasBattery: false } => KeepAwakeMode.WhenPluggedIn,
+        _ => info.Mode
+    };
+
+    string KeepAwakeHint => this.status?.Config.KeepAwake switch
+    {
+        null or { IsSupported: false } => "This machine has no way for the app to keep it awake, so the operating system's own power settings decide.",
+        { IsHolding: true } => "Keeping this machine awake now, so the server stays reachable. The display can still sleep, and closing a laptop's lid still puts it to sleep.",
+        { Mode: not KeepAwakeMode.OsDefault, IsOnBattery: true } => "On battery, so the operating system's own power settings decide until it is plugged in again.",
+        _ => "The operating system's own power settings decide when this machine sleeps. A sleeping machine serves nothing."
+    };
 
     Task Save() => this.Run(async () =>
     {
@@ -676,6 +712,7 @@ else
 
         // Back as the server stored them: a pasted https://name/ comes back as just the name.
         this.allowedHosts = String.Join('\n', this.status.Config.AllowedHosts ?? []);
+        this.keepAwake = ShownKeepAwake(this.status.Config.KeepAwake);
 
         // Starting at login is the one switch on this form the machine can refuse - or half-grant,
         // as macOS does when it registers the app and then waits to be told it may run it. The box

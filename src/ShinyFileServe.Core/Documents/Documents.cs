@@ -379,6 +379,13 @@ public class ServerSettings
     /// </summary>
     public string? SkippedUpdateVersion { get; set; }
 
+    /// <summary>
+    /// Hold off the operating system's idle sleep while the app is running, so the server stays
+    /// reachable. On mains power by default: a server that falls asleep is no server, and on battery
+    /// draining somebody's laptop is not a choice to make for them.
+    /// </summary>
+    public KeepAwakeMode KeepAwake { get; set; } = KeepAwakeMode.WhenPluggedIn;
+
     public DateTimeOffset? UpdatedUtc { get; set; }
 }
 

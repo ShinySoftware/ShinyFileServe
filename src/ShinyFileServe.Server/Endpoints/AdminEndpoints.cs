@@ -3,6 +3,7 @@ using Shiny;
 using Shiny.AppDeviceBridge.Tunnel;
 using Shiny.Net.HttpServer;
 using ShinyFileServe.Core.Services;
+using ShinyFileServe.Server.Power;
 using ShinyFileServe.Server.Security;
 using ShinyFileServe.Shared;
 
@@ -23,6 +24,7 @@ public class AdminEndpoints(
     ICurrentUserResolver current,
     IActivityLogger activity,
     IAppStartupInstaller startup,
+    IKeepAwake keepAwake,
     ILogger<AdminEndpoints> logger
 )
 {
@@ -120,7 +122,18 @@ public class AdminEndpoints(
         if (request.NotifyOn is not null)
             stored.NotifyOn = request.NotifyOn.Distinct().ToList();
 
+        if (request.KeepAwake is { } awake)
+        {
+            if (!Enum.IsDefined(awake))
+                return new BadRequestObjectResult("Not a keep-awake choice.");
+
+            stored.KeepAwake = awake;
+        }
+
         await settings.Save(stored, ct);
+
+        // Settled now rather than on the next poll, so the status below already says what changed.
+        keepAwake.Refresh();
         await this.LogAdminAction(ctx, "Changed server settings", ct);
 
         // Not part of the settings document, so it is handed to the machine rather than saved - see
@@ -291,7 +304,8 @@ public class AdminEndpoints(
                     config.PackageFeeds.NpmAllowUnpublish,
                     config.PackageFeeds.NuGetPermanentDelete
                 ),
-                config.AllowedHosts
+                config.AllowedHosts,
+                keepAwake.Current
             )
         );
     }

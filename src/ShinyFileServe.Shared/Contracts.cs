@@ -558,6 +558,38 @@ public static class RunAtStartupText
     };
 }
 
+/// <summary>
+/// Whether the app holds off the operating system's idle sleep while it is running. Only idle sleep:
+/// closing a laptop's lid, choosing Sleep, or a battery running flat still put the machine to sleep.
+/// </summary>
+public enum KeepAwakeMode
+{
+    /// <summary>The operating system's own power settings decide, as if the app were not here.</summary>
+    OsDefault,
+
+    /// <summary>Stay awake on mains power, and let the operating system decide on battery.</summary>
+    WhenPluggedIn,
+
+    /// <summary>Stay awake on battery too. Only offered on a machine that has one.</summary>
+    Always
+}
+
+/// <summary>The keep-awake setting and what this machine is doing about it right now.</summary>
+public record KeepAwakeInfo(
+    KeepAwakeMode Mode,
+
+    /// <summary>False where the app has no way to hold off sleep - the switch is then shown but disabled.</summary>
+    bool IsSupported,
+
+    /// <summary>Whether there is a battery (or a UPS) at all. Without one the last option means nothing.</summary>
+    bool HasBattery,
+
+    bool IsOnBattery,
+
+    /// <summary>Whether the app is holding off idle sleep at this moment.</summary>
+    bool IsHolding
+);
+
 public enum TunnelStatus
 {
     Off,
@@ -615,7 +647,10 @@ public record ServerConfig(
     /// Names besides this machine's own that people may reach the server by - a domain a reverse
     /// proxy forwards here, say. Null from a server that predates the setting.
     /// </summary>
-    IReadOnlyList<string>? AllowedHosts = null
+    IReadOnlyList<string>? AllowedHosts = null,
+
+    /// <summary>Null from a server that predates the setting.</summary>
+    KeepAwakeInfo? KeepAwake = null
 );
 
 /// <summary>
@@ -659,7 +694,10 @@ public record UpdateServerConfig(
     /// The whole list of extra host names, replacing the stored one, or null to leave it alone.
     /// Each may be a bare name or a pasted address; the server keeps only the host part.
     /// </summary>
-    IReadOnlyList<string>? AllowedHosts = null
+    IReadOnlyList<string>? AllowedHosts = null,
+
+    /// <summary>Null leaves the stored choice alone.</summary>
+    KeepAwakeMode? KeepAwake = null
 );
 
 public static class ActivityActions
