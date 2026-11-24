@@ -68,6 +68,8 @@ namespace ShinyFileServe.Server;
 [JsonSerializable(typeof(SetAnnotationRequest))]
 [JsonSerializable(typeof(BackupSummary))]
 [JsonSerializable(typeof(LiveActivitySnapshot))]
+[JsonSerializable(typeof(PartialUploadInfo))]
+[JsonSerializable(typeof(List<PartialUploadInfo>))]
 [JsonSerializable(typeof(LiveSessionInfo))]
 [JsonSerializable(typeof(IReadOnlyList<LiveSessionInfo>))]
 [JsonSerializable(typeof(List<LiveSessionInfo>))]

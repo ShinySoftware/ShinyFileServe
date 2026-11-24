@@ -42,6 +42,7 @@ public sealed class ResumableUploads : IDisposable
     readonly TimeProvider time;
     readonly ILogger<ResumableUploads> logger;
     readonly ReservingStore store;
+    readonly DiskTusStore disk;
     readonly ConcurrentDictionary<string, LiveUpload> live = new();
     readonly ITimer idleSweep;
 
@@ -74,7 +75,8 @@ public sealed class ResumableUploads : IDisposable
         this.logger = logger;
 
         Directory.CreateDirectory(options.UploadsDirectory);
-        this.store = new ReservingStore(new DiskTusStore(options.UploadsDirectory), documents);
+        this.disk = new DiskTusStore(options.UploadsDirectory);
+        this.store = new ReservingStore(this.disk, documents);
 
         this.Options = new TusOptions
         {
@@ -445,6 +447,111 @@ public sealed class ResumableUploads : IDisposable
         {
             logger.LogError(ex, "Could not remove resumable upload {Id}", id);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Administration: what is sitting half-arrived, and throwing it away
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Every upload with bytes on disk that has not finished, newest touch first. Bytes with no
+    /// record beside them - left by a crash between the two, say - are listed too, as orphans: they
+    /// hold no quota back, but they do take up space until the expiry sweep reaches them.
+    /// </summary>
+    public async Task<List<PartialUploadInfo>> ListUnfinished(CancellationToken ct)
+    {
+        var records = (await documents.Query<ResumableUpload>().ToList(ct)).ToDictionary(x => x.Id);
+        var ids = Directory.Exists(this.disk.Directory)
+            ? Directory
+                .EnumerateFiles(this.disk.Directory, "*.info")
+                .Select(Path.GetFileNameWithoutExtension)
+                .OfType<string>()
+                .Union(records.Keys)
+                .ToList()
+            : records.Keys.ToList();
+
+        var users = new Dictionary<string, CoreUser?>();
+        var folders = new Dictionary<string, ShareFolder?>();
+        var list = new List<PartialUploadInfo>(ids.Count);
+
+        foreach (var id in ids)
+        {
+            var upload = await this.disk.GetAsync(id, ct);
+            records.TryGetValue(id, out var record);
+
+            if (upload is null)
+            {
+                // A record whose bytes are gone holds quota back for nothing - the same tidy-up
+                // the create path does when it counts reservations.
+                if (record is not null)
+                    await documents.Remove<ResumableUpload>(id, cancellationToken: ct);
+            }
+            else if (!upload.IsComplete)
+            {
+                var user = record is null ? null : await Lookup(users, record.UserId, k => documents.Get<CoreUser>(k, cancellationToken: ct));
+                var folder = record is null ? null : await Lookup(folders, record.FolderId, k => documents.Get<ShareFolder>(k, cancellationToken: ct));
+                this.live.TryGetValue(id, out var moving);
+
+                list.Add(new PartialUploadInfo(
+                    id,
+                    record?.UserId,
+                    user?.Username,
+                    user is null ? null : (String.IsNullOrWhiteSpace(user.DisplayName) ? user.Username : user.DisplayName),
+                    record?.FolderId,
+                    folder?.Name,
+                    record?.Path,
+                    upload.Offset,
+                    upload.Length ?? record?.Length,
+                    record?.CreatedUtc,
+                    this.LastTouched(id, record),
+                    upload.ExpiresUtc,
+                    moving is not null && Volatile.Read(ref moving.InFlight) > 0,
+                    record is null
+                ));
+            }
+        }
+
+        return list.OrderByDescending(x => x.LastTouchedUtc).ToList();
+    }
+
+    /// <summary>
+    /// Throws an unfinished upload away for an administrator: its bytes, its quota reservation and
+    /// its live transfer. The client finds out on its next chunk, which answers 404.
+    /// Returns false when there was nothing there to remove.
+    /// </summary>
+    public async Task<bool> Remove(string id, CancellationToken ct)
+    {
+        var record = await documents.Get<ResumableUpload>(id, cancellationToken: ct);
+        var upload = await this.disk.GetAsync(id, ct);
+        if (record is null && upload is null)
+            return false;
+
+        this.Close(id, transfer => transfer.Fail("Removed by an administrator"));
+        await this.store.DeleteAsync(id, ct);
+        return true;
+    }
+
+    /// <summary>When a chunk last landed: the bytes file is written on every one, the info file on create and expiry changes.</summary>
+    DateTimeOffset LastTouched(string id, ResumableUpload? record)
+    {
+        var data = new FileInfo(this.disk.GetFilePath(id));
+        var info = new FileInfo(this.disk.GetFilePath(id) + ".info");
+        var times = new[] { data, info }
+            .Where(f => f.Exists)
+            .Select(f => new DateTimeOffset(f.LastWriteTimeUtc, TimeSpan.Zero))
+            .ToList();
+
+        return times.Count > 0 ? times.Max() : record?.CreatedUtc ?? DateTimeOffset.MinValue;
+    }
+
+    static async Task<T?> Lookup<T>(Dictionary<string, T?> cache, string key, Func<string, Task<T?>> load) where T : class
+    {
+        if (!cache.TryGetValue(key, out var value))
+        {
+            value = await load(key);
+            cache[key] = value;
+        }
+        return value;
     }
 
     // -----------------------------------------------------------------------

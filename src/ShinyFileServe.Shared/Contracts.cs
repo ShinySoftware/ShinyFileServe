@@ -1276,3 +1276,44 @@ public record AppUpdateInfo(
 
 /// <summary>Ticks or clears "Don't show again" for the release currently on offer.</summary>
 public record SkipAppUpdateRequest(bool Skip);
+
+/// <summary>
+/// A resumable upload that has started and not finished: some of its bytes are on the server,
+/// waiting for the rest. The account, folder and path are null for orphaned bytes, ones left on disk
+/// with no record of whose they were.
+/// </summary>
+public record PartialUploadInfo(
+    string Id,
+    string? UserId,
+    string? Username,
+    string? DisplayName,
+    string? FolderId,
+    string? FolderName,
+    string? Path,
+
+    /// <summary>What has arrived so far.</summary>
+    long ReceivedBytes,
+
+    /// <summary>The whole file, as declared when the upload started. Null when it was never said.</summary>
+    long? ExpectedBytes,
+
+    DateTimeOffset? StartedUtc,
+
+    /// <summary>When the last chunk landed - the time to look at when deciding whether anyone is coming back for it.</summary>
+    DateTimeOffset LastTouchedUtc,
+
+    /// <summary>When the expiry sweep throws it away if nothing more arrives.</summary>
+    DateTimeOffset? ExpiresUtc,
+
+    /// <summary>A chunk is arriving this moment.</summary>
+    bool IsMoving,
+
+    /// <summary>Bytes with no record beside them. They hold no quota back, but they take up space.</summary>
+    bool IsOrphaned
+)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public double? Fraction => this.ExpectedBytes is null or <= 0
+        ? null
+        : Math.Clamp((double)this.ReceivedBytes / this.ExpectedBytes.Value, 0, 1);
+}

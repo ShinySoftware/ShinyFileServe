@@ -54,6 +54,8 @@ namespace ShinyFileServe.Web.Services;
 [JsonSerializable(typeof(CreateMachineFolderRequest))]
 [JsonSerializable(typeof(BackupSummary))]
 [JsonSerializable(typeof(LiveActivitySnapshot))]
+[JsonSerializable(typeof(PartialUploadInfo))]
+[JsonSerializable(typeof(List<PartialUploadInfo>))]
 [JsonSerializable(typeof(LiveSessionInfo))]
 [JsonSerializable(typeof(List<LiveSessionInfo>))]
 [JsonSerializable(typeof(LiveTransferInfo))]

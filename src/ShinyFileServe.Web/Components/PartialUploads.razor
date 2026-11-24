@@ -1,0 +1,179 @@
+@*
+    Resumable uploads that started and have not finished. Each one is bytes on the server waiting
+    for the rest, holding its declared size against the owner's quotas until it finishes or expires.
+    This is where an administrator sees how far each got, when anyone last touched it, and throws
+    away the ones nobody is coming back for.
+*@
+@implements IDisposable
+@inject AdminApi Admin
+@inject IToastService Toasts
+@inject IDialogService Dialogs
+
+<section class="live__section">
+    <h3 class="live__heading">
+        Unfinished uploads<span class="live__count">@this.uploads.Count</span>
+        <button type="button" class="live__more live__refresh" @onclick="() => this.Refresh(CancellationToken.None)">Refresh</button>
+    </h3>
+
+    @if (this.loading)
+    {
+        <p class="live__empty">Looking…</p>
+    }
+    else if (this.uploads.Count == 0)
+    {
+        <p class="live__empty">No uploads are waiting to finish.</p>
+    }
+    else
+    {
+        <div class="live__scroll">
+            <table class="live__table">
+                <thead>
+                    <tr>
+                        <th>What</th>
+                        <th>Who</th>
+                        <th class="live__right">Received</th>
+                        <th class="live__right">Expected</th>
+                        <th>Started</th>
+                        <th>Last touched</th>
+                        <th>Expires</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var upload in this.uploads)
+                    {
+                        <tr class="@(upload.IsOrphaned ? "live__row--bad" : "")">
+                            <td>
+                                @if (upload.IsOrphaned)
+                                {
+                                    <span class="live__path" title="@upload.Id">Orphaned bytes (@upload.Id)</span>
+                                }
+                                else
+                                {
+                                    <span class="live__path" title="@upload.Path">@(upload.FolderName ?? "(removed share)") / @upload.Path</span>
+                                }
+                                @if (upload.IsMoving)
+                                {
+                                    <span class="live__tag">Arriving</span>
+                                }
+                            </td>
+                            <td>@(upload.DisplayName ?? "—")</td>
+                            <td class="num live__right">
+                                @Format.Bytes(upload.ReceivedBytes)
+                                @if (upload.Fraction is { } fraction)
+                                {
+                                    <span class="live__sub">@fraction.ToString("P0")</span>
+                                }
+                            </td>
+                            <td class="num live__right">@(upload.ExpectedBytes is { } expected ? Format.Bytes(expected) : "unknown")</td>
+                            <td class="num">@(upload.StartedUtc is { } started ? Format.When(started) : "—")</td>
+                            <td class="num" title="@upload.LastTouchedUtc.ToLocalTime().ToString("F")">@Ago(upload.LastTouchedUtc)</td>
+                            <td class="num">@(upload.ExpiresUtc is { } expires ? Format.When(expires) : "—")</td>
+                            <td class="live__right">
+                                <button type="button" class="action action--danger" @onclick="() => this.Delete(upload)">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    /// <summary>
+    /// Slower than the live view: these are measured in hours, and each ask reads the upload
+    /// directory, so there is no call to hammer it every second.
+    /// </summary>
+    static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
+
+    List<PartialUploadInfo> uploads = [];
+    readonly CancellationTokenSource polling = new();
+    bool loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await this.Refresh(this.polling.Token);
+        _ = this.Poll();
+    }
+
+    async Task Poll()
+    {
+        using var timer = new PeriodicTimer(Interval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(this.polling.Token))
+                await this.Refresh(this.polling.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // The screen was left between ticks.
+        }
+    }
+
+    async Task Refresh(CancellationToken ct)
+    {
+        try
+        {
+            this.uploads = await this.Admin.GetPartialUploads(ct);
+        }
+        catch (ApiException)
+        {
+            // The next tick tries again.
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        finally
+        {
+            this.loading = false;
+        }
+
+        await this.InvokeAsync(this.StateHasChanged);
+    }
+
+    async Task Delete(PartialUploadInfo upload)
+    {
+        var what = upload.IsOrphaned ? "these orphaned bytes" : upload.Path;
+        var whose = upload.DisplayName is { } name ? $" {name} will have to start it again from the beginning." : "";
+        var confirmed = await this.Dialogs.Confirm(
+            $"Delete {what}?",
+            $"The {Format.Bytes(upload.ReceivedBytes)} received so far are thrown away and any quota they were holding is released.{whose}",
+            okText: "Delete",
+            cancelText: "Keep"
+        );
+
+        if (!confirmed)
+            return;
+
+        try
+        {
+            await this.Admin.DeletePartialUpload(upload.Id);
+            await this.Refresh(CancellationToken.None);
+        }
+        catch (ApiException ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    /// <summary>"4 min ago" rather than a clock time: whether anyone is coming back is a question about how long it has been.</summary>
+    static string Ago(DateTimeOffset value)
+    {
+        var age = DateTimeOffset.UtcNow - value;
+        return age.TotalSeconds switch
+        {
+            < 60 => "just now",
+            < 3600 => $"{(int)age.TotalMinutes} min ago",
+            < 86400 => $"{(int)age.TotalHours} h ago",
+            _ => $"{(int)age.TotalDays} d ago"
+        };
+    }
+
+    public void Dispose()
+    {
+        this.polling.Cancel();
+        this.polling.Dispose();
+    }
+}

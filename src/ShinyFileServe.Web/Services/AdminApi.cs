@@ -200,6 +200,21 @@ public class AdminApi(FileServeApi api)
             ?? new LiveActivitySnapshot([], [], [], BandwidthNow.Empty(DateTimeOffset.UtcNow));
     }
 
+    /// <summary>Resumable uploads that started and have not finished, most recently touched first.</summary>
+    public async Task<List<PartialUploadInfo>> GetPartialUploads(CancellationToken ct = default)
+    {
+        using var response = await this.Http.GetAsync("api/admin/uploads", ct);
+        await Ensure(response);
+        return await response.Content.ReadFromJsonAsync(ClientJsonContext.Default.ListPartialUploadInfo, ct) ?? [];
+    }
+
+    /// <summary>Throws an unfinished upload away - its bytes and the quota it was holding.</summary>
+    public async Task DeletePartialUpload(string id, CancellationToken ct = default)
+    {
+        using var response = await this.Http.DeleteAsync($"api/admin/uploads/{Uri.EscapeDataString(id)}", ct);
+        await Ensure(response);
+    }
+
     /// <summary>How much has gone through the server over a window, by period and by account.</summary>
     public async Task<BandwidthReport> GetBandwidth(BandwidthQuery query, CancellationToken ct = default)
     {

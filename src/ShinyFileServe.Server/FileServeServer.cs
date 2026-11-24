@@ -156,6 +156,7 @@ public static class ServerRegistration
                     server.MapAdminBrowseEndpoints();
                     server.MapAdminBackupEndpoints();
                     server.MapAdminLiveEndpoints();
+                    server.MapAdminUploadsEndpoints();
                     server.MapAdminBandwidthEndpoints();
                     server.MapAdminPackagesEndpoints();
                     server.MapAdminUpdateEndpoints();
