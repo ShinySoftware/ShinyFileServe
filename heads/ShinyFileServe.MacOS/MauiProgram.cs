@@ -30,6 +30,12 @@ public static class MauiProgram
             (handler, _) => handler.PlatformView.UIDelegate = new FilePickerUIDelegate()
         );
 
+        // Without this the page renders into a 0x0 view and the window is blank white - see WebViewContentFit.
+        Microsoft.Maui.Platforms.MacOS.Handlers.WebViewHandler.Mapper.AppendToMapping(
+            nameof(WebViewContentFit),
+            (handler, _) => WebViewContentFit.Attach(handler.PlatformView)
+        );
+
         // Started here rather than from App.CreateWindow: the tray icon has to outlive every
         // window, so it is created before the first one exists.
         return builder.Build().StartFileServe();
