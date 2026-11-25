@@ -1,0 +1,17 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.idea/
+**/*.user
+**/.DS_Store
+.git/
+.github/
+.claude/
+docs/
+site/
+installers/
+heads/ShinyFileServe.Linux/
+heads/ShinyFileServe.MacOS/
+heads/ShinyFileServe.Windows/
+src/ShinyFileServe.App/
+data/

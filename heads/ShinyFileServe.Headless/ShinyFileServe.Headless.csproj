@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!--
+      The server with no desktop around it: no MAUI, no tray, no window. Everything the operator does
+      already happens in the portal, so a container or a systemd unit only needs this process. It is
+      what the Docker image runs.
+    -->
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ShinyFileServe.Headless</RootNamespace>
+    <AssemblyName>fileserve</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Shiny.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ShinyFileServe.Server\ShinyFileServe.Server.csproj" />
+    <ProjectReference Include="..\..\src\ShinyFileServe.Core\ShinyFileServe.Core.csproj" />
+    <ProjectReference Include="..\..\src\ShinyFileServe.Shared\ShinyFileServe.Shared.csproj" />
+  </ItemGroup>
+</Project>

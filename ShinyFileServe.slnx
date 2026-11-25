@@ -15,5 +15,6 @@
         <Project Path="heads/ShinyFileServe.MacOS/ShinyFileServe.MacOS.csproj" />
         <Project Path="heads/ShinyFileServe.Linux/ShinyFileServe.Linux.csproj" />
         <Project Path="heads/ShinyFileServe.Windows/ShinyFileServe.Windows.csproj" />
+        <Project Path="heads/ShinyFileServe.Headless/ShinyFileServe.Headless.csproj" />
     </Folder>
 </Solution>

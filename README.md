@@ -65,17 +65,18 @@ and on macOS and Windows installs it itself; on Linux, install the new package t
 
 | Project | TFM | What it is |
 | --- | --- | --- |
-| `src/ShinyFileServe.Shared` | `net10.0` | DTOs that cross the wire |
-| `src/ShinyFileServe.Core` | `net10.0` | Documents and domain services on Shiny.DocumentDb + SQLite |
-| `src/ShinyFileServe.Server` | `net10.0` | Shiny.Net.HttpServer endpoints, cookie auth, the NuGet feed and npm registry; the SPA host and tunnel from Shiny.AppDeviceBridge |
-| `src/ShinyFileServe.Web` | `net10.0` | Blazor WebAssembly frontend (Shiny.Blazor.Controls) |
-| `src/ShinyFileServe.App` | `net10.0` | The MAUI shell: a WebView, the tray icon, server control |
-| `heads/ShinyFileServe.MacOS` | `net10.0-macos` | AppKit head — `dotnet/maui-labs` |
-| `heads/ShinyFileServe.Linux` | `net10.0` | GTK4 head — `dotnet/maui-labs` |
-| `heads/ShinyFileServe.Windows` | `net10.0-windows10.0.19041.0` | WinUI head |
+| `src/ShinyFileServe.Shared` | `net11.0` | DTOs that cross the wire |
+| `src/ShinyFileServe.Core` | `net11.0` | Documents and domain services on Shiny.DocumentDb + SQLite |
+| `src/ShinyFileServe.Server` | `net11.0` | Shiny.Net.HttpServer endpoints, cookie auth, the NuGet feed and npm registry; the SPA host and tunnel from Shiny.AppDeviceBridge |
+| `src/ShinyFileServe.Web` | `net11.0` | Blazor WebAssembly frontend (Shiny.Blazor.Controls) |
+| `src/ShinyFileServe.App` | `net11.0` | The MAUI shell: a WebView, the tray icon, server control |
+| `heads/ShinyFileServe.MacOS` | `net11.0-macos` | AppKit head — `dotnet/maui-labs` |
+| `heads/ShinyFileServe.Linux` | `net11.0` | GTK4 head — `dotnet/maui-labs` |
+| `heads/ShinyFileServe.Windows` | `net11.0-windows10.0.19041.0` | WinUI head |
+| `heads/ShinyFileServe.Headless` | `net11.0` | The server alone - no UI, no MAUI. What the Docker image runs |
 
-`ShinyFileServe.App` targets plain `net10.0` on purpose: there is no official `-linux` TFM, so the
-GTK4 head is itself a `net10.0` project and the shared UI has to be something it can reference.
+`ShinyFileServe.App` targets plain `net11.0` on purpose: there is no official `-linux` TFM, so the
+GTK4 head is itself a `net11.0` project and the shared UI has to be something it can reference.
 
 ## Libraries
 
@@ -103,6 +104,7 @@ dotnet build ShinyFileServe.slnx          # everything buildable on this machine
 dotnet run --project heads/ShinyFileServe.MacOS     # macOS, AppKit
 dotnet run --project heads/ShinyFileServe.Linux     # Linux, GTK4
 dotnet run --project heads/ShinyFileServe.Windows   # Windows, WinUI
+dotnet run --project heads/ShinyFileServe.Headless  # no UI - the server alone, as in Docker
 ```
 
 Add `-p:SkipFrontendBuild=true` for inner-loop work on the desktop UI — it skips publishing and
@@ -110,7 +112,8 @@ zipping the Blazor app, which is the slow part of a build.
 
 Nothing is seeded on first run. The administrator is created by the first person to open the app,
 **and only from the machine running it** — otherwise whoever found the address on the network first
-would own the server. An account with a password the whole internet knows is worse than no account
+would own the server. (In Docker, where nobody is on that machine, a one-time code from the log
+stands in for it - see [Docker](#docker).) An account with a password the whole internet knows is worse than no account
 at all, so nothing is seeded either.
 
 ### Linux prerequisites
@@ -122,6 +125,81 @@ sudo apt install libayatana-appindicator3-1 libgtk-3-0    # tray icon
 ```
 
 GNOME 40+ needs the AppIndicator shell extension for the tray icon; KDE works as shipped.
+
+## Docker
+
+The image runs `heads/ShinyFileServe.Headless`: the same server and portal with no desktop around it.
+Since the desktop app has no screens of its own anyway, nothing is missing - the portal does it all.
+
+```bash
+docker compose up -d                  # builds from source - see docker-compose.yml
+# or
+docker build -t fileserve .
+docker run -d --name fileserve --restart unless-stopped -p 8746:8080 \
+  -v /srv/fileserve:/data -v /srv/files:/shares fileserve
+```
+
+| Path | What lives there |
+| --- | --- |
+| `/data` | The database, cookie key, NuGet/npm packages and partial uploads. Back this up. |
+| `/shares` | The files. Mount one folder here or several under it (`/shares/media`, `/shares/docs`), then publish them in the portal. They stay ordinary folders on the host, so SMB, NFS or anything else can work with them at the same time. |
+
+| Variable | Default | |
+| --- | --- | --- |
+| `PUID` / `PGID` | `99` / `100` | Who owns what FileServe writes. Unraid's `nobody:users`. The container starts as root only to hand `/data` to this user, then drops to it. |
+| `UMASK` | `002` | `002` leaves uploads group-writable for the host's SMB users. |
+| `FILESERVE_ALLOWED_HOSTS` | | DNS names people reach it by, comma separated (`tower.local,files.example.com`). IP addresses always work. |
+| `FILESERVE_PORT` | `8080` | The port inside the container. The port in the portal's settings is ignored here - change the published port instead. |
+| `FILESERVE_PLACES` | `/shares` | Where the share picker starts, colon separated. |
+| `FILESERVE_TRUST_LOOPBACK` | off | Sign in requests from 127.0.0.1 without a password, as the desktop app does. Behind a port mapping, loopback is the container runtime's proxy rather than a person, so it is off. |
+| `FILESERVE_CLAMD` | | Scan uploads - see [Virus scanning](#virus-scanning). |
+| `TZ` | | Time zone for the log. |
+
+**First run.** Nobody sits at a container's machine, so setup cannot be limited to "this machine"
+the way the desktop app does it. Instead, while there are no accounts, the server prints a one-time
+setup code to its log:
+
+```
+docker logs fileserve
+... No accounts yet. Open the portal and create the administrator with this setup code: 9BK8-P7CX-M3V9
+```
+
+The setup page asks for it whenever the visitor is not on the server's own machine. Whoever can read
+that log already controls the host, so it is the same proof by other means. A fresh code is printed
+on every start until the administrator exists, and it is never accepted once one does.
+
+**Stopping.** Stopping the server from the portal ends the container after 30 seconds (time enough
+for a backup restore, which stops and restarts the listener itself), and the restart policy starts
+it again. Nothing inside could restart it - the portal is served by the listener that closed.
+
+**Start at login** is not offered: the container runtime decides when the server runs.
+
+### Unraid, deployed with Dockhand
+
+`docker-compose.yml` is written for a git-driven deployment: Dockhand clones the repository, builds
+the image on the server from the checked-out source, and starts it. No registry is involved.
+
+1. In Dockhand, add the repository (with credentials if it is private), then create a **git stack**
+   from it: the branch to deploy and compose file `docker-compose.yml`.
+2. Set stack variables for anything that differs from the Unraid defaults:
+
+   | Variable | Default |
+   | --- | --- |
+   | `FILESERVE_SHARES_PATH` | `/mnt/user/files` - the folder (or parent of the shares) to serve |
+   | `FILESERVE_DATA_PATH` | `/mnt/user/appdata/fileserve` |
+   | `FILESERVE_HTTP_PORT` | `8746` - published on the host; inside the container it is always 8080 |
+   | `FILESERVE_ALLOWED_HOSTS` | `tower,tower.local` |
+   | `PUID` / `PGID` / `UMASK` | `99` / `100` / `002` |
+   | `TZ` | `America/Toronto` |
+   | `FILESERVE_CLAMD` | empty (scanning off) |
+
+   The host paths are absolute on purpose: a relative one would resolve inside Dockhand's clone.
+3. Deploy, then open `http://tower:8746` and enter the setup code from the container's log.
+
+The service sets `pull_policy: build`, so every deploy rebuilds from source whatever flags the
+deployer passes to `compose up`; unchanged layers come from the build cache. To redeploy on push, add
+Dockhand's webhook to the repository. The first build pulls the .NET SDK image (about 1 GB) and
+takes a few minutes; later ones reuse it.
 
 ## Signing in
 
@@ -468,9 +546,9 @@ there is no per-head implementation here to write, and none to keep in step:
 
 | Head | What is written |
 | --- | --- |
-| Windows (`net10.0-windows`) | A value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, which Task Manager lists under Startup |
-| macOS (`net10.0-macos`) | An `SMAppService.MainApp` login item |
-| Linux (plain `net10.0`) | An XDG autostart entry at `$XDG_CONFIG_HOME/autostart/net.shinylib.fileserve.desktop` |
+| Windows (`net11.0-windows`) | A value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, which Task Manager lists under Startup |
+| macOS (`net11.0-macos`) | An `SMAppService.MainApp` login item |
+| Linux (plain `net11.0`) | An XDG autostart entry at `$XDG_CONFIG_HOME/autostart/net.shinylib.fileserve.desktop` |
 
 Per-user everywhere, never machine-wide: this server hands out one person's files under one person's
 account, and a machine-wide entry would start it for everybody who signs in to the box — including
@@ -663,10 +741,10 @@ screenshot there.
 ## Building a release
 
 ```bash
-dotnet publish heads/ShinyFileServe.MacOS -c Release -f net10.0-macos -p:CreatePackage=false
+dotnet publish heads/ShinyFileServe.MacOS -c Release -f net11.0-macos -p:CreatePackage=false
 ```
 
-Produces an Apple-silicon `FileServe.app` under `bin/Release/net10.0-macos/osx-arm64/`, ad-hoc
+Produces an Apple-silicon `FileServe.app` under `bin/Release/net11.0-macos/osx-arm64/`, ad-hoc
 signed. The head sets `RuntimeIdentifier` to `osx-arm64` so every publish agrees — a universal build
 would AOT every assembly twice for an Intel build nobody runs. Publish without `-o`, which splits the
 bundle. Drop `-p:CreatePackage=false` to get a `.pkg` installer instead.

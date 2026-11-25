@@ -13,7 +13,8 @@ public class AuthEndpoints(
     ISettingsManager settings,
     IPasswordPolicy passwords,
     ICurrentUserResolver current,
-    BackupStaging staging
+    BackupStaging staging,
+    SetupCode setupCode
 )
 {
     /// <summary>
@@ -33,14 +34,17 @@ public class AuthEndpoints(
             .Select(u => new AnonymousAccount(u.Id, u.DisplayName))
             .ToList();
 
+        var local = LoopbackSignInMiddleware.IsLocal(ctx);
+
         return new OkObjectResult(new SessionPolicy(
             await users.NeedsSetup(ct),
-            LoopbackSignInMiddleware.IsLocal(ctx),
+            local || setupCode.IsEnabled,
             config.AllowRememberMe,
             config.RememberMeDays,
             Math.Max(0, config.IdleLogoffMinutes),
             PasswordPolicyMapping.ToInfo(passwords.Current),
-            anonymous
+            anonymous,
+            !local && setupCode.IsEnabled
         ));
     }
 
@@ -60,13 +64,11 @@ public class AuthEndpoints(
     {
         var context = current.GetActivityContext(ctx);
 
-        // A tunnelled connection terminates on loopback at this end, so the address alone is not
-        // enough - IsLocal checks both.
-        if (!LoopbackSignInMiddleware.IsLocal(ctx))
+        if (!this.MaySetUp(ctx))
         {
             await activity.Log(
                 ActivityAction.Denied, null, request.Username, success: false,
-                detail: "Setup attempted from off this machine", context: context, ct: ct
+                detail: this.SetupRefusal, context: context, ct: ct
             );
             return new ForbidResult();
         }
@@ -171,13 +173,24 @@ public class AuthEndpoints(
         return new NoContentResult();
     }
 
+    /// <summary>
+    /// The machine itself, or anyone holding the code a headless host printed to its log. A tunnelled
+    /// connection terminates on loopback at this end, so the address alone is not enough - IsLocal
+    /// checks both.
+    /// </summary>
+    bool MaySetUp(HttpContext ctx) => LoopbackSignInMiddleware.IsLocal(ctx) || setupCode.Matches(ctx);
+
+    string SetupRefusal => setupCode.IsEnabled
+        ? "Setup attempted without the setup code from the server's log"
+        : "Setup attempted from off this machine";
+
     async Task<IActionResult?> RefuseSetupRestore(HttpContext ctx, CancellationToken ct)
     {
-        if (!LoopbackSignInMiddleware.IsLocal(ctx))
+        if (!this.MaySetUp(ctx))
         {
             await activity.Log(
                 ActivityAction.Denied, null, "(setup)", success: false,
-                detail: "Restore at setup attempted from off this machine", context: current.GetActivityContext(ctx), ct: ct
+                detail: $"Restore at setup refused: {this.SetupRefusal}", context: current.GetActivityContext(ctx), ct: ct
             );
             return new ForbidResult();
         }

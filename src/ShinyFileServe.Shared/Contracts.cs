@@ -40,7 +40,13 @@ public record SessionPolicy(
     /// button per account before anyone is signed in, so it arrives with the rest of the policy.
     /// Only anonymous accounts are ever listed here - this is served to the whole network.
     /// </summary>
-    IReadOnlyList<AnonymousAccount> AnonymousAccounts
+    IReadOnlyList<AnonymousAccount> AnonymousAccounts,
+
+    /// <summary>
+    /// Setup is possible from here, but only with the one-time code a headless server printed to its
+    /// log - there is nobody on a container's machine to set it up from there.
+    /// </summary>
+    bool SetupNeedsCode = false
 );
 
 /// <summary>

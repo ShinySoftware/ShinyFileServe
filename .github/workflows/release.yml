@@ -17,14 +17,14 @@ permissions:
   contents: write
 
 env:
-  # The workload set whose macos SDK (27.0) builds with Xcode 27.
-  WORKLOAD_VERSION: 10.0.402.1
-  DOTNET_VERSION: 10.0.4xx
+  # The workload set whose macos SDK (27.2) builds with Xcode 27.2.
+  WORKLOAD_VERSION: 11.0.100.1
+  DOTNET_VERSION: 11.0.1xx
   PROJECT: heads/ShinyFileServe.MacOS/ShinyFileServe.MacOS.csproj
   WINDOWS_PROJECT: heads/ShinyFileServe.Windows/ShinyFileServe.Windows.csproj
   LINUX_PROJECT: heads/ShinyFileServe.Linux/ShinyFileServe.Linux.csproj
   NFPM_VERSION: 2.48.0
-  APP_PATH: heads/ShinyFileServe.MacOS/bin/Release/net10.0-macos/osx-arm64/FileServe.app
+  APP_PATH: heads/ShinyFileServe.MacOS/bin/Release/net11.0-macos/osx-arm64/FileServe.app
 
 jobs:
   version:
@@ -62,11 +62,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The workload set's macOS SDK (27.0.10742) needs Xcode 27.1 exactly: the runner defaults to 27.0, and the
-      # newest it has (a 27.2 beta) is refused too. Bump this with WORKLOAD_VERSION.
+      # The workload set's macOS SDK (27.2.11039) needs Xcode 27.2: the runner's default may be older.
+      # Bump this with WORKLOAD_VERSION.
       - name: Xcode
         run: |
-          XCODE=/Applications/Xcode_27.1.app
+          XCODE=/Applications/Xcode_27.2.app
           if [ ! -d "$XCODE" ]; then ls -d /Applications/Xcode*.app; echo "No $XCODE on this runner"; exit 1; fi
           sudo xcode-select -s "$XCODE/Contents/Developer"
           xcodebuild -version
@@ -110,7 +110,7 @@ jobs:
       # suffix and all: it is what the app compares against GitHub releases to know whether it is out of date.
       - name: Build
         run: >
-          dotnet publish "$PROJECT" -c Release -f net10.0-macos
+          dotnet publish "$PROJECT" -c Release -f net11.0-macos
           -p:CreatePackage=false
           -p:CodesignKey="$SIGNING_IDENTITY"
           -p:Version="$VERSION"
@@ -197,7 +197,7 @@ jobs:
       - name: Build
         run: |
           foreach ($arch in 'x64', 'arm64') {
-            dotnet publish "$env:WINDOWS_PROJECT" -c Release -f net10.0-windows10.0.19041.0 -r "win-$arch" `
+            dotnet publish "$env:WINDOWS_PROJECT" -c Release -f net11.0-windows10.0.19041.0 -r "win-$arch" `
               --self-contained `
               -p:WindowsAppSDKSelfContained=true `
               -p:Version="$env:VERSION" `
@@ -246,7 +246,7 @@ jobs:
       - name: Pin SDK
         run: dotnet new globaljson --sdk-version "${{ steps.dotnet.outputs.dotnet-version }}" --force
 
-      # No workload: the Linux head and the shared UI are plain net10.0 projects on NuGet packages, as maui-labs'
+      # No workload: the Linux head and the shared UI are plain net11.0 projects on NuGet packages, as maui-labs'
       # template is. Both architectures from one runner - the app is managed code over GTK, which it loads from the
       # system at run time, so an arm64 publish only needs the arm64 runtime pack.
       - name: Build

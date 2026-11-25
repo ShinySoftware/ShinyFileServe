@@ -67,6 +67,9 @@ public static class ServerRegistration
         services.TryAddSingleton<IAppUpdater, NoAppUpdater>();
         services.TryAddSingleton<IKeepAwake, NoKeepAwake>();
 
+        // No code unless the host registered one first: the desktop app sets up on its own machine.
+        services.TryAddSingleton(new SetupCode());
+
         // A singleton because the cache is the whole point of it - one per request would ask the
         // network the same question on every page of the log.
         services.TryAddSingleton<IHostNameResolver>(sp => new HostNameResolver(sp.GetService<TimeProvider>() ?? TimeProvider.System));

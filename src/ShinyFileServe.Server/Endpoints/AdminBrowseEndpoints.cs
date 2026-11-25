@@ -150,10 +150,25 @@ public class AdminBrowseEndpoints(
                 places.Add(new MachineFolder(full, name, true, IsShared(full, shared)));
         }
 
-        Add(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Home");
-        Add(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "Desktop");
-        Add(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Documents");
-        Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"), "Downloads");
+        // Folders the host says to start from - a container's mounted volumes, which are under the
+        // root like anything else but are the only folders there anyone means. They replace the
+        // personal folders, which in a container are the process's own home and nobody's files.
+        // Separated by the platform's path separator, the way PATH is.
+        var hostPlaces = (Environment.GetEnvironmentVariable("FILESERVE_PLACES") ?? String.Empty)
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (hostPlaces.Length > 0)
+        {
+            foreach (var place in hostPlaces)
+                Add(place, Path.GetFileName(Path.TrimEndingDirectorySeparator(place)) is { Length: > 0 } leaf ? leaf : place);
+        }
+        else
+        {
+            Add(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Home");
+            Add(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "Desktop");
+            Add(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Documents");
+            Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"), "Downloads");
+        }
 
         if (OperatingSystem.IsWindows())
         {

@@ -51,9 +51,25 @@
                 <p class="form-error" role="alert">@this.error</p>
             }
 
+            @if (this.policy.SetupNeedsCode)
+            {
+                @* A headless server has nobody on its machine to set it up from, so it printed a code
+                   to its log instead. Whoever can read that log owns the host. *@
+                <label class="field">
+                    <span class="field__label">Setup code</span>
+                    <input type="text" autocomplete="one-time-code" spellcheck="false" autofocus
+                           placeholder="XXXX-XXXX-XXXX"
+                           value="@this.setupCode" @oninput="this.OnSetupCode" />
+                    <span class="admin__hint">
+                        Printed in the server's log when it started with no accounts —
+                        <code>docker logs fileserve</code>, or the container's log in Unraid.
+                    </span>
+                </label>
+            }
+
             <label class="field">
                 <span class="field__label">Your name</span>
-                <input type="text" autocomplete="name" autofocus @bind="this.displayName" @bind:event="oninput" />
+                <input type="text" autocomplete="name" autofocus="@(!this.policy.SetupNeedsCode)" @bind="this.displayName" @bind:event="oninput" />
             </label>
 
             <label class="field">
@@ -125,9 +141,14 @@
                     <p class="form-error" role="alert">@problem</p>
                 }
 
+                @if (!this.HasCode)
+                {
+                    <p style="color:var(--ink-2);">Enter the setup code above first.</p>
+                }
+
                 <label class="action" style="justify-content:center; padding:9px;">
                     @(this.busy ? "Reading…" : "Choose a backup…")
-                    <InputFile OnChange="this.OnBackupPicked" accept=".db" style="display:none" disabled="@this.busy" />
+                    <InputFile OnChange="this.OnBackupPicked" accept=".db" style="display:none" disabled="@(this.busy || !this.HasCode)" />
                 </label>
             }
         </div>
@@ -149,7 +170,17 @@
     BackupSummary? staged;
     SessionPolicy policy = new(true, true, true, 30, 0, PasswordPolicyInfo.Off, []);
 
-    bool CanSubmit => !String.IsNullOrWhiteSpace(this.username) && this.passwordOk;
+    string setupCode = "";
+
+    bool HasCode => !this.policy.SetupNeedsCode || !String.IsNullOrWhiteSpace(this.setupCode);
+
+    bool CanSubmit => !String.IsNullOrWhiteSpace(this.username) && this.passwordOk && this.HasCode;
+
+    void OnSetupCode(ChangeEventArgs e)
+    {
+        this.setupCode = e.Value?.ToString() ?? "";
+        this.Api.SetSetupCode(this.setupCode);
+    }
 
     /// <summary>Fed to the meter so it can refuse a password that is just the person's own name.</summary>
     IReadOnlyList<string> Identifiers => [this.username, this.displayName];
@@ -254,7 +285,7 @@
             }
         }
 
-        this.restoreError = "The server has not come back. Close FileServe and open it again.";
+        this.restoreError = "The server has not come back. Restart FileServe (or its container) and reload this page.";
         this.busy = false;
         this.restoring = false;
     }

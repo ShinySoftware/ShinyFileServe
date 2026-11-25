@@ -29,6 +29,21 @@ public class FileServeApi(HttpClient http)
             ?? new SessionPolicy(false, false, true, 30, 0, PasswordPolicyInfo.Off, []);
     }
 
+    /// <summary>
+    /// The one-time code a headless server printed to its log. Carried as a header on every request
+    /// from then on - the setup calls are the only ones that look at it, and the multipart restore
+    /// has no JSON body to put it in.
+    /// </summary>
+    public void SetSetupCode(string? code)
+    {
+        http.DefaultRequestHeaders.Remove(SetupCodeHeader);
+        if (!String.IsNullOrWhiteSpace(code))
+            http.DefaultRequestHeaders.TryAddWithoutValidation(SetupCodeHeader, code.Trim());
+    }
+
+    // Matches ShinyFileServe.Server.Security.SetupCode.HeaderName, which this project cannot reference.
+    const string SetupCodeHeader = "X-FileServe-Setup-Code";
+
     /// <summary>Creates the first administrator and signs them in.</summary>
     public async Task<CurrentUser> CompleteSetup(string username, string password, string displayName, CancellationToken ct = default)
     {
