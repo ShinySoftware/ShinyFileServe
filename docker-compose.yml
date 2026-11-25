@@ -3,7 +3,8 @@
 #
 #   docker compose up -d          (locally, the same thing)
 #
-# Then open http://<host>:8746 and create the administrator with the setup code from the log:
+# Then open https://<host>:8747 (accept the self-signed certificate once) and create the
+# administrator with the setup code from the log. Plain http://<host>:8746 redirects there.
 #   docker logs fileserve
 #
 # Every ${...} below can be set as a stack variable in Dockhand (or in a .env beside this file)
@@ -22,11 +23,20 @@ services:
     restart: unless-stopped
     ports:
       - "${FILESERVE_HTTP_PORT:-8746}:8080"
+      # The same number inside and out: browsers that arrive over http are redirected to this port
+      # by number, so it has to be the one they can reach. Behind a reverse proxy, point the proxy at
+      # the http port instead - forwarded requests are never redirected.
+      - "${FILESERVE_HTTPS_PORT:-8747}:${FILESERVE_HTTPS_PORT:-8747}"
     environment:
       PUID: ${PUID:-99}                 # owner of everything FileServe writes - Unraid's nobody
       PGID: ${PGID:-100}                # Unraid's users group
       UMASK: ${UMASK:-002}              # group-writable, so SMB users in that group can edit uploads
       TZ: ${TZ:-America/Toronto}
+      # HTTPS on a self-signed certificate made on first start and kept in /data. 0 turns it off.
+      FILESERVE_HTTPS_PORT: ${FILESERVE_HTTPS_PORT:-8747}
+      # The addresses people type, for the certificate to name - the container cannot see the
+      # host's LAN address itself. Comma separated; host names in FILESERVE_ALLOWED_HOSTS are added too.
+      FILESERVE_HTTPS_NAMES: ${FILESERVE_HTTPS_NAMES:-}
       # DNS names people type to reach it, comma separated. IP addresses always work.
       FILESERVE_ALLOWED_HOSTS: ${FILESERVE_ALLOWED_HOSTS:-tower,tower.local}
       # host:port of a clamd to scan uploads with. Empty is off.

@@ -25,6 +25,7 @@ public class AdminEndpoints(
     IActivityLogger activity,
     IAppStartupInstaller startup,
     IKeepAwake keepAwake,
+    ServerTls tls,
     ILogger<AdminEndpoints> logger
 )
 {
@@ -43,6 +44,12 @@ public class AdminEndpoints(
     {
         if (request.Port is < 1 or > 65535)
             return new BadRequestObjectResult("Port must be between 1 and 65535.");
+
+        if (request.HttpsPort is < 0 or > 65535)
+            return new BadRequestObjectResult("The HTTPS port must be between 1 and 65535, or 0 to turn HTTPS off.");
+
+        if (request.HttpsPort is { } wantedHttps and > 0 && wantedHttps == request.Port)
+            return new BadRequestObjectResult("HTTPS needs a port of its own, different from the plain one.");
 
         if (request.RememberMeDays is < 1 or > 3650)
             return new BadRequestObjectResult("A remembered session must last between 1 and 3650 days.");
@@ -66,9 +73,15 @@ public class AdminEndpoints(
         }
 
         var stored = await settings.Load(ct);
-        var portChanged = stored.Port != request.Port;
+        var portChanged = stored.Port != request.Port
+            || (request.HttpsPort is { } nextHttps && nextHttps != stored.HttpsPort && !tls.IsFixedByHost);
 
         stored.Port = request.Port;
+        if (request.HttpsPort is { } httpsPort)
+        {
+            stored.HttpsPort = httpsPort;
+            tls.Request(httpsPort);
+        }
         stored.AutoStartServer = request.AutoStartServer;
         stored.AutoStartTunnel = request.AutoStartTunnel;
 
@@ -271,7 +284,7 @@ public class AdminEndpoints(
         return new ServerStatus(
             server.IsRunning,
             server.State.ToString(),
-            NetworkAddresses.LocalUrls(config.Port),
+            tls.HostUrls() is { Count: > 0 } named ? named : NetworkAddresses.LocalUrls(tls.HostPort ?? config.Port, tls.ActivePort),
             server.ActiveConnections,
             tunnel.State switch
             {
@@ -284,7 +297,7 @@ public class AdminEndpoints(
             tunnel.PublicUrl?.GetLeftPart(UriPartial.Authority),
             tunnel.LastError,
             new ServerConfig(
-                config.Port,
+                tls.HostPort ?? config.Port,
                 config.AutoStartServer,
                 config.AutoStartTunnel,
                 !String.IsNullOrWhiteSpace(config.PinggyToken),
@@ -305,7 +318,13 @@ public class AdminEndpoints(
                     config.PackageFeeds.NuGetPermanentDelete
                 ),
                 config.AllowedHosts,
-                keepAwake.Current
+                keepAwake.Current,
+                new HttpsInfo(
+                    tls.IsFixedByHost ? tls.RequestedPort ?? 0 : config.HttpsPort,
+                    tls.ActivePort,
+                    tls.LastError,
+                    tls.IsFixedByHost
+                )
             )
         );
     }

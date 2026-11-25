@@ -54,6 +54,9 @@
 
     <!-- Before the framework: the whole point is to be on screen while it boots. -->
     <script src="_content/Shiny.Blazor.Controls/splash.js"></script>
-    <script src="_framework/blazor.webassembly.js"></script>
+    <!-- Not started here: the runtime refuses to run outside a secure context, so secure-context.js
+         decides whether to start it or to explain why it cannot. -->
+    <script src="_framework/blazor.webassembly.js" autostart="false"></script>
+    <script src="js/secure-context.js"></script>
 </body>
 </html>

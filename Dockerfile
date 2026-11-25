@@ -2,7 +2,10 @@
 # embedded in it. No MAUI, no tray - the portal is the whole interface, the same as on the desktop.
 #
 #   docker build -t fileserve .
-#   docker run -d -p 8080:8080 -v ./data:/data -v /path/to/files:/shares fileserve
+#   docker run -d -p 8080:8080 -p 8443:8443 -v ./data:/data -v /path/to/files:/shares fileserve
+#
+# 8443 is HTTPS on a certificate the server makes for itself on first start (kept in /data). Publish
+# it on the same number outside: browsers arriving over plain http are redirected to that port.
 #
 # Plain Dockerfile syntax only - no BuildKit extras - so it builds wherever it is cloned, including a
 # compose deployment (Dockhand, Portainer) whose builder may be the classic one. The publish is
@@ -43,6 +46,7 @@ LABEL org.opencontainers.image.title="FileServe" \
 # 99:100 is Unraid's nobody:users.
 ENV FILESERVE_DATA=/data \
     FILESERVE_PORT=8080 \
+    FILESERVE_HTTPS_PORT=8443 \
     FILESERVE_PLACES=/shares \
     HOME=/data \
     PUID=99 \
@@ -57,5 +61,5 @@ COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod 0755 /entrypoint.sh && mkdir -p /data /shares
 
 VOLUME ["/data"]
-EXPOSE 8080
+EXPOSE 8080 8443
 ENTRYPOINT ["/entrypoint.sh"]

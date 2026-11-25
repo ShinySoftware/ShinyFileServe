@@ -656,7 +656,28 @@ public record ServerConfig(
     IReadOnlyList<string>? AllowedHosts = null,
 
     /// <summary>Null from a server that predates the setting.</summary>
-    KeepAwakeInfo? KeepAwake = null
+    KeepAwakeInfo? KeepAwake = null,
+
+    /// <summary>HTTPS beside the plain port, and whether it is being served. Null from a server that predates it.</summary>
+    HttpsInfo? Https = null
+);
+
+/// <summary>
+/// HTTPS on the server's own self-signed certificate. Asked-for and actually-served are kept apart: a
+/// port somebody else holds leaves plain http running and HTTPS off, and the operator has to see that.
+/// </summary>
+public record HttpsInfo(
+    /// <summary>The configured port. 0 is off.</summary>
+    int Port,
+
+    /// <summary>The port HTTPS is being served on right now, or null.</summary>
+    int? ActivePort,
+
+    /// <summary>Why it is not being served although it was asked for.</summary>
+    string? Error,
+
+    /// <summary>Both ports were chosen where the server was started - a container - not in these settings.</summary>
+    bool FixedByHost
 );
 
 /// <summary>
@@ -703,7 +724,10 @@ public record UpdateServerConfig(
     IReadOnlyList<string>? AllowedHosts = null,
 
     /// <summary>Null leaves the stored choice alone.</summary>
-    KeepAwakeMode? KeepAwake = null
+    KeepAwakeMode? KeepAwake = null,
+
+    /// <summary>The HTTPS port, 0 for off, or null to leave it alone. Applied at the next restart, like the port.</summary>
+    int? HttpsPort = null
 );
 
 public static class ActivityActions

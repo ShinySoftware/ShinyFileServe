@@ -24,6 +24,7 @@ public class ShareLinkEndpoints(
     IFileService files,
     ISettingsManager settings,
     AppDeviceBridgeTunnel tunnel,
+    ServerTls tls,
     IActivityLogger activity
 )
 {
@@ -184,7 +185,7 @@ public class ShareLinkEndpoints(
 
     async Task<List<ShareLinkInfo>> ToInfo(HttpContext ctx, IReadOnlyList<ShareLink> found, CancellationToken ct)
     {
-        var baseUrl = ShareLinkAddress.BaseUrl(ctx, tunnel, settings.Current.Port);
+        var baseUrl = ShareLinkAddress.BaseUrl(ctx, tunnel, tls, settings.Current.Port);
         var now = DateTimeOffset.UtcNow;
 
         // A few dozen links name a handful of folders and people; look each up once.
@@ -258,7 +259,7 @@ static class ShareLinkAddress
     /// this machine talking to itself; otherwise the first LAN address. A link copied out of the
     /// desktop window would be <c>127.0.0.1</c> without the last step, which works for nobody else.
     /// </summary>
-    public static string BaseUrl(HttpContext ctx, AppDeviceBridgeTunnel tunnel, int port)
+    public static string BaseUrl(HttpContext ctx, AppDeviceBridgeTunnel tunnel, ServerTls tls, int port)
     {
         if (tunnel.PublicUrl is { } publicUrl)
             return publicUrl.GetLeftPart(UriPartial.Authority);
@@ -269,13 +270,19 @@ static class ShareLinkAddress
             && Uri.TryCreate($"http://{authority}", UriKind.Absolute, out var asked)
             && !IsLoopbackName(asked.Host))
         {
-            return $"{ctx.Request.Scheme}://{authority}";
+            // The scheme the browser used, which behind a reverse proxy is the proxy's https rather
+            // than the plain http it forwarded here.
+            return $"{RequestScheme.Of(ctx)}://{authority}";
         }
 
         // The port this request came in on rather than the stored setting, which can be ahead of a
         // listener that has not been rebound yet.
-        var listening = ctx.Connection.LocalPort > 0 ? ctx.Connection.LocalPort : port;
-        return NetworkAddresses.LocalUrls(listening).FirstOrDefault() ?? $"{ctx.Request.Scheme}://{authority}";
+        // A container's own addresses reach nobody; the ones its host named do.
+        if (tls.HostUrls().FirstOrDefault() is { } named)
+            return named;
+
+        var listening = tls.HostPort ?? (ctx.Connection.LocalPort > 0 ? ctx.Connection.LocalPort : port);
+        return NetworkAddresses.LocalUrls(listening, tls.ActivePort).FirstOrDefault() ?? $"{RequestScheme.Of(ctx)}://{authority}";
     }
 
     static bool IsLoopbackName(string host)

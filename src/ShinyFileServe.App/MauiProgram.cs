@@ -48,6 +48,7 @@ public static class MauiProgram
                 o.Address = IPAddress.Any;
                 o.Port = 8080;
                 o.TicketKeyPath = AppPaths.TicketKeyFile;
+                o.CertificatePath = AppPaths.CertificateFile;
 
                 // Frontend updates, when a release server is configured, live beside the database.
                 o.DataDirectory = AppPaths.WebAppDirectory;

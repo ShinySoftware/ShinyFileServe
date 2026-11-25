@@ -313,6 +313,12 @@ public class ServerSettings
     public int Port { get; set; } = 8080;
 
     /// <summary>
+    /// HTTPS on a self-signed certificate, beside the plain port. 0 turns it off. Browsers run the
+    /// portal only over a secure connection, so without it nobody else on the network can use it.
+    /// </summary>
+    public int HttpsPort { get; set; } = 8443;
+
+    /// <summary>
     /// Start serving as soon as the desktop app opens. On by default: the app has no UI of its own
     /// beyond a window onto its own server, so an app that opened without serving would open onto
     /// nothing.

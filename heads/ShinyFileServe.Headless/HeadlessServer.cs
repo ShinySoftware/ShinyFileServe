@@ -29,6 +29,7 @@ class HeadlessServer(
     FileServeInitializer initializer,
     IUserManager users,
     SetupCode setupCode,
+    ServerTls tls,
     HeadlessOptions options,
     IHostApplicationLifetime lifetime,
     ILogger<HeadlessServer> logger
@@ -57,9 +58,16 @@ class HeadlessServer(
 
         server.StateChanged += this.OnStateChanged;
 
+        // Both ports are the host's: they are what the container publishes.
+        tls.FixByHost(options.Port, options.HttpsPort);
         await server.Rebind(IPAddress.Any, options.Port, stoppingToken);
         await server.Start(stoppingToken);
-        logger.LogInformation("FileServe is serving on port {Port}. Data is in {Data}", options.Port, HeadlessPaths.DataDirectory);
+        logger.LogInformation("FileServe is serving http on port {Port}. Data is in {Data}", options.Port, HeadlessPaths.DataDirectory);
+
+        if (tls.ActivePort is { } https)
+            logger.LogInformation("And https on port {HttpsPort}, on its own certificate - browsers will ask to trust it once", https);
+        else if (tls.LastError is { } problem)
+            logger.LogError("HTTPS is off: {Problem}", problem);
 
         if (await users.NeedsSetup(stoppingToken))
         {
@@ -123,4 +131,7 @@ class HeadlessServer(
 class HeadlessOptions
 {
     public int Port { get; init; } = 8080;
+
+    /// <summary>0 is off.</summary>
+    public int HttpsPort { get; init; } = 8443;
 }

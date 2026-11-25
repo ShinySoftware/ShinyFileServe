@@ -7,6 +7,7 @@ using ShinyFileServe.Core.Documents;
 using ShinyFileServe.Core.Services;
 using ShinyFileServe.Server;
 using ShinyFileServe.Server.Power;
+using ShinyFileServe.Server.Security;
 
 namespace ShinyFileServe.App.Services;
 
@@ -24,6 +25,7 @@ public class ServerController
     readonly AllowedHostsHolder allowedHosts;
     readonly FileServeInitializer initializer;
     readonly IKeepAwake keepAwake;
+    readonly ServerTls tls;
     readonly ILogger<ServerController> logger;
     readonly SemaphoreSlim gate = new(1, 1);
 
@@ -37,6 +39,7 @@ public class ServerController
         AllowedHostsHolder allowedHosts,
         FileServeInitializer initializer,
         IKeepAwake keepAwake,
+        ServerTls tls,
         ILogger<ServerController> logger)
     {
         this.server = server;
@@ -46,6 +49,7 @@ public class ServerController
         this.allowedHosts = allowedHosts;
         this.initializer = initializer;
         this.keepAwake = keepAwake;
+        this.tls = tls;
         this.logger = logger;
 
         this.server.StateChanged += (_, _) => this.Raise();
@@ -92,7 +96,7 @@ public class ServerController
     }
 
     public IReadOnlyList<string> LocalUrls =>
-        this.IsServing ? NetworkAddresses.LocalUrls(this.settings.Current.Port) : [];
+        this.IsServing ? NetworkAddresses.LocalUrls(this.settings.Current.Port, this.tls.ActivePort) : [];
 
     /// <summary>
     /// The address the console window loads. Loopback deliberately: it is the one connection the
@@ -125,7 +129,8 @@ public class ServerController
             this.allowedHosts.Apply(this.settings.Current.AllowedHosts);
 
             // The listener was registered with a placeholder port; move it onto the stored one
-            // before anything binds.
+            // before anything binds, with HTTPS beside it when it is on.
+            this.tls.Request(this.settings.Current.HttpsPort);
             await this.server.Rebind(IPAddress.Any, this.settings.Current.Port, ct);
 
             if (this.settings.Current.AutoStartServer)
@@ -159,6 +164,7 @@ public class ServerController
         this.LastError = null;
         try
         {
+            this.tls.Request(this.settings.Current.HttpsPort);
             await this.server.Rebind(IPAddress.Any, this.settings.Current.Port, ct);
             await this.server.Start(ct);
         }
@@ -218,11 +224,14 @@ public class ServerController
     /// <summary>Persists settings and moves the listener if the port changed.</summary>
     public async Task SaveSettings(ServerSettings updated, CancellationToken ct = default)
     {
-        var portChanged = this.settings.Current.Port != updated.Port;
+        var portChanged = this.settings.Current.Port != updated.Port || this.settings.Current.HttpsPort != updated.HttpsPort;
         await this.settings.Save(updated, ct);
 
         if (portChanged)
+        {
+            this.tls.Request(updated.HttpsPort);
             await this.server.Rebind(IPAddress.Any, updated.Port, ct);
+        }
 
         this.Raise();
     }

@@ -100,8 +100,27 @@ else
 
             <label class="field">
                 <span class="field__label">Port</span>
-                <input type="number" min="1" max="65535" @bind="this.port" />
-                <span class="admin__hint">The server always listens on every network interface on this machine.</span>
+                <input type="number" min="1" max="65535" @bind="this.port" disabled="@this.PortsFixed" />
+                <span class="admin__hint">
+                    @(this.PortsFixed
+                        ? "Chosen where the server was started - in a container, change the port it publishes."
+                        : "The server always listens on every network interface on this machine.")
+                </span>
+            </label>
+
+            <label class="field">
+                <span class="field__label">HTTPS port</span>
+                <input type="number" min="0" max="65535" @bind="this.httpsPort" disabled="@this.PortsFixed" />
+                <span class="admin__hint">
+                    Browsers run this portal only over a secure connection, so people elsewhere on the
+                    network are sent here. It uses a certificate this server made for itself: each
+                    browser asks once whether to trust it. 0 turns it off - then only a reverse proxy
+                    with its own certificate, or the tunnel, can serve anyone but this machine.
+                </span>
+                @if (this.status.Config.Https is { Error: { Length: > 0 } httpsError })
+                {
+                    <p class="form-error">@httpsError</p>
+                }
             </label>
 
             <label class="field">
@@ -409,6 +428,7 @@ else
     ServerStatus? status;
     AppUpdateInfo? update;
     int port = 8080;
+    int httpsPort = 8443;
     string allowedHosts = "";
     string token = "";
     bool autoStartServer;
@@ -498,6 +518,7 @@ else
         {
             this.status = await this.Api.GetServerStatus();
             this.port = this.status.Config.Port;
+            this.httpsPort = this.status.Config.Https?.Port ?? 0;
             this.allowedHosts = String.Join('\n', this.status.Config.AllowedHosts ?? []);
             this.autoStartServer = this.status.Config.AutoStartServer;
             this.autoStartTunnel = this.status.Config.AutoStartTunnel;
@@ -682,8 +703,13 @@ else
             this.nugetPermanentDelete
         ),
         this.allowedHosts.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-        this.keepAwake
+        this.keepAwake,
+        // Null leaves it alone: a server whose ports the host fixed ignores the setting anyway,
+        // and one that predates HTTPS reports none to send back.
+        this.PortsFixed || this.status?.Config.Https is null ? null : this.httpsPort
     );
+
+    bool PortsFixed => this.status?.Config.Https is { FixedByHost: true };
 
     /// <summary>
     /// "Even on battery" stored on a machine without one - a backup restored from a laptop, say -

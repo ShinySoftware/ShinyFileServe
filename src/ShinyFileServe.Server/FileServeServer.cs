@@ -61,6 +61,8 @@ public static class ServerRegistration
         services.TryAddSingleton<BackupStaging>();
         services.TryAddSingleton<ResumableUploads>();
         services.TryAddSingleton<ResumableUploadGateMiddleware>();
+        services.TryAddSingleton<ServerTls>();
+        services.TryAddSingleton<HttpsRedirectMiddleware>();
 
         // The desktop app registers the real one first; anything else hosting the server gets an
         // updater that never finds anything, so the update endpoints still answer.
@@ -123,6 +125,10 @@ public static class ServerRegistration
                     // the sign-in page, a static asset - and so anything that wraps the body later
                     // is counted as it goes on the wire rather than as the handler wrote it.
                     server.Use<BandwidthMeteringMiddleware>();
+
+                    // A browser on another machine that came in over plain http is sent to HTTPS
+                    // before anything else looks at the request - the portal cannot run without it.
+                    server.Use<HttpsRedirectMiddleware>();
 
                     server.UseAuthentication();
 
@@ -316,10 +322,15 @@ class FileServeServerFacade : IFileServeServer, IDisposable
     readonly ISessionTracker sessions;
     readonly WebAppHost? webApp;
 
-    public FileServeServerFacade(HttpServer server, ISessionTracker sessions, IServiceProvider services)
+    readonly ServerTls tls;
+    readonly ILogger<FileServeServerFacade> logger;
+
+    public FileServeServerFacade(HttpServer server, ISessionTracker sessions, ServerTls tls, ILogger<FileServeServerFacade> logger, IServiceProvider services)
     {
         this.server = server;
         this.sessions = sessions;
+        this.tls = tls;
+        this.logger = logger;
         this.webApp = services.GetService<WebAppHost>();
         this.server.StateChanged += this.OnStateChanged;
         this.sessions.Changed += this.OnSessionsChanged;
@@ -342,18 +353,77 @@ class FileServeServerFacade : IFileServeServer, IDisposable
     /// Through the web app host when there is a frontend: it picks the build to serve - the embedded one, or a newer
     /// download - before the listener opens, and runs the update check when one is configured.
     /// </summary>
-    public Task Start(CancellationToken ct = default)
+    public async Task Start(CancellationToken ct = default)
+    {
+        var https = this.ApplyEndpoints();
+        try
+        {
+            await this.StartListening(ct);
+            this.tls.ActivePort = https;
+            this.tls.LastError = null;
+        }
+        catch (Exception ex) when (https is not null)
+        {
+            // HTTPS is the extra. A port somebody else holds, or a certificate that would not load,
+            // must not take plain http down with it - that would leave the operator locked out of
+            // the very screen that changes the port.
+            this.logger.LogError(ex, "Could not serve HTTPS on port {Port}. Serving plain http only", https);
+            this.tls.ActivePort = null;
+            this.tls.LastError = $"HTTPS on port {https} could not start: {ex.Message}";
+
+            this.server.Options.Endpoints.Clear();
+            await this.StartListening(ct);
+        }
+    }
+
+    Task StartListening(CancellationToken ct)
         => this.webApp is { } host ? host.StartAsync(ct) : this.server.StartAsync(ct);
+
+    /// <summary>
+    /// The plain listener alone, or the plain listener and HTTPS beside it on the same interface.
+    /// Returns the HTTPS port when there is one. Rebuilt on every start, because the endpoint list
+    /// replaces the address and port shorthand entirely once it has anything in it.
+    /// </summary>
+    int? ApplyEndpoints()
+    {
+        var options = this.server.Options;
+        options.Endpoints.Clear();
+
+        if (this.tls.RequestedPort is not { } https || https == options.Port)
+            return null;
+
+        try
+        {
+            var certificate = this.tls.Certificate;
+            options.Listen(options.Address, options.Port);
+            options.ListenHttps(options.Address, https, certificate);
+            return https;
+        }
+        catch (Exception ex)
+        {
+            this.logger.LogError(ex, "Could not load or create the HTTPS certificate");
+            this.tls.LastError = $"The HTTPS certificate could not be loaded or created: {ex.Message}";
+            options.Endpoints.Clear();
+            return null;
+        }
+    }
 
     public async Task Stop(CancellationToken ct = default)
     {
         await this.server.StopAsync(ct);
+        this.tls.ActivePort = null;
 
         // Nobody is connected to a closed socket, and leaving stale entries would keep the tray lit
         // for five minutes after the server went down.
         this.sessions.Clear();
     }
-    public Task Restart(CancellationToken ct = default) => this.server.RestartAsync(ct);
+    // Stop and start rather than the library's restart, so the endpoints - HTTPS included - are
+    // rebuilt from whatever was asked for since.
+    public async Task Restart(CancellationToken ct = default)
+    {
+        await this.server.StopAsync(ct);
+        await this.Start(ct);
+    }
 
     public async Task Rebind(IPAddress address, int port, CancellationToken ct = default)
     {

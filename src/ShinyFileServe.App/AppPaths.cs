@@ -22,6 +22,9 @@ public static class AppPaths
 
     public static string DatabaseFile => Path.Combine(DataDirectory, "fileserve.db");
     public static string TicketKeyFile => Path.Combine(DataDirectory, "cookie.key");
+
+    /// <summary>The self-signed HTTPS certificate, kept so a browser that accepted it is not asked again.</summary>
+    public static string CertificateFile => Path.Combine(DataDirectory, "server.pfx");
     public static string WebAppDirectory => Path.Combine(DataDirectory, "webapp");
 
     /// <summary>The NuGet feed's and npm registry's packages. Not in the database backup - they are files.</summary>

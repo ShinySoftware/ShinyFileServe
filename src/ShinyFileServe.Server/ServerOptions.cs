@@ -17,6 +17,23 @@ public class FileServeServerOptions
     public string TicketKeyPath { get; set; } = "fileserve.key";
 
     /// <summary>
+    /// Serve HTTPS on this port as well, on a self-signed certificate kept at
+    /// <see cref="CertificatePath"/>. Null leaves HTTPS off. The host can change it at runtime
+    /// through <see cref="Security.ServerTls"/>.
+    /// </summary>
+    public int? HttpsPort { get; set; }
+
+    /// <summary>Where the self-signed certificate is kept. Made on first use and reused after.</summary>
+    public string CertificatePath { get; set; } = "server.pfx";
+
+    /// <summary>
+    /// Addresses and names the certificate must carry besides the ones this machine can see for
+    /// itself. A container sees only its own internal address, not the host's LAN address people
+    /// type - and a certificate that does not name the address in the browser can never be trusted.
+    /// </summary>
+    public ISet<string> CertificateNames { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Largest request body the server will accept. File uploads are exempt - they stream to disk and
     /// are bounded by each share's per-file limit and quotas instead - so this guards everything else.
     /// </summary>

@@ -13,6 +13,8 @@ using ShinyFileServe.Server.Security;
 //
 //   FILESERVE_DATA            the database, cookie key, packages and partial uploads   (/data in the image)
 //   FILESERVE_PORT            the port to listen on                                     (8080)
+//   FILESERVE_HTTPS_PORT      HTTPS on a self-signed certificate; 0 turns it off        (8443)
+//   FILESERVE_HTTPS_NAMES     addresses/names the certificate must carry - the host's LAN address
 //   FILESERVE_ALLOWED_HOSTS   DNS names people reach it by, comma separated - tower.local, files.example.com
 //   FILESERVE_PLACES          folders the share picker starts from, colon separated     (/shares in the image)
 //   FILESERVE_TRUST_LOOPBACK  sign in requests from 127.0.0.1 without a password        (off)
@@ -21,6 +23,7 @@ using ShinyFileServe.Server.Security;
 Directory.CreateDirectory(HeadlessPaths.DataDirectory);
 
 var port = Int32.TryParse(Environment.GetEnvironmentVariable("FILESERVE_PORT"), out var p) && p is > 0 and < 65536 ? p : 8080;
+var httpsPort = Int32.TryParse(Environment.GetEnvironmentVariable("FILESERVE_HTTPS_PORT"), out var hp) && hp is >= 0 and < 65536 ? hp : 8443;
 var hosts = (Environment.GetEnvironmentVariable("FILESERVE_ALLOWED_HOSTS") ?? String.Empty)
     .Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     .Select(AllowedHostsHolder.Normalize)
@@ -34,7 +37,7 @@ builder.Logging.AddSimpleConsole(o =>
     o.TimestampFormat = "yyyy-MM-dd HH:mm:ss ";
 });
 
-builder.Services.AddSingleton(new HeadlessOptions { Port = port });
+builder.Services.AddSingleton(new HeadlessOptions { Port = port, HttpsPort = httpsPort });
 
 // Nobody sits at a container's machine, so setup is proved by reading the log instead. Registered
 // before the server, whose own registration only adds the do-nothing one if none is there.
@@ -47,6 +50,7 @@ builder.Services.AddFileServeServer(o =>
     o.Address = IPAddress.Any;
     o.Port = port;
     o.TicketKeyPath = HeadlessPaths.TicketKeyFile;
+    o.CertificatePath = HeadlessPaths.CertificateFile;
     o.DataDirectory = HeadlessPaths.WebAppDirectory;
     o.PackagesDirectory = HeadlessPaths.PackagesDirectory;
     o.UploadsDirectory = HeadlessPaths.UploadsDirectory;
@@ -58,6 +62,10 @@ builder.Services.AddFileServeServer(o =>
 
     foreach (var host in hosts)
         o.AllowedHosts.Add(host);
+
+    var names = Environment.GetEnvironmentVariable("FILESERVE_HTTPS_NAMES") ?? String.Empty;
+    foreach (var name in names.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        o.CertificateNames.Add(name);
 });
 
 builder.Services.AddSingleton<IAppStartupInstaller, NoAppStartupInstaller>();

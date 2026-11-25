@@ -135,7 +135,7 @@ Since the desktop app has no screens of its own anyway, nothing is missing - the
 docker compose up -d                  # builds from source - see docker-compose.yml
 # or
 docker build -t fileserve .
-docker run -d --name fileserve --restart unless-stopped -p 8746:8080 \
+docker run -d --name fileserve --restart unless-stopped -p 8746:8080 -p 8443:8443 \
   -v /srv/fileserve:/data -v /srv/files:/shares fileserve
 ```
 
@@ -150,10 +150,31 @@ docker run -d --name fileserve --restart unless-stopped -p 8746:8080 \
 | `UMASK` | `002` | `002` leaves uploads group-writable for the host's SMB users. |
 | `FILESERVE_ALLOWED_HOSTS` | | DNS names people reach it by, comma separated (`tower.local,files.example.com`). IP addresses always work. |
 | `FILESERVE_PORT` | `8080` | The port inside the container. The port in the portal's settings is ignored here - change the published port instead. |
+| `FILESERVE_HTTPS_PORT` | `8443` | HTTPS on a self-signed certificate - see **HTTPS** below. Publish it under the **same number** on the host. `0` turns it off. |
+| `FILESERVE_HTTPS_NAMES` | | The addresses people type (`192.168.0.37,files.lan`), for the certificate to name and the portal to show. The container cannot see the host's LAN address itself. |
 | `FILESERVE_PLACES` | `/shares` | Where the share picker starts, colon separated. |
 | `FILESERVE_TRUST_LOOPBACK` | off | Sign in requests from 127.0.0.1 without a password, as the desktop app does. Behind a port mapping, loopback is the container runtime's proxy rather than a person, so it is off. |
 | `FILESERVE_CLAMD` | | Scan uploads - see [Virus scanning](#virus-scanning). |
 | `TZ` | | Time zone for the log. |
+
+**HTTPS.** The .NET WebAssembly runtime the portal is built on only starts in a secure context -
+https, or `localhost` - so over plain `http://192.168.x.x` it cannot run at all. The server therefore
+also serves HTTPS on a certificate it makes for itself on first start (`server.pfx`, kept beside the
+database and reused, so a browser that accepted it is not asked again). It names localhost, the
+machine's name and addresses, every name in `FILESERVE_ALLOWED_HOSTS`, and `FILESERVE_HTTPS_NAMES`;
+when a required name is missing from the stored one it is made again.
+
+A browser that opens a page over plain http from another machine is sent to the HTTPS port (307).
+Nothing else is: not API calls, not the NuGet feed or npm registry (package tools refuse a self-signed
+certificate), not the desktop window on loopback, not the tunnel, and not anything a reverse proxy
+forwarded - a request carrying `X-Forwarded-Proto` or `X-Forwarded-For` is left alone, and links are
+written with the scheme the proxy reports. **Behind Nginx Proxy Manager** (or Caddy, Traefik), point
+the proxy at the **http** port, give it a certificate, and add its domain to `FILESERVE_ALLOWED_HOSTS`.
+
+Each browser warns once about the self-signed certificate. To stop the warning entirely, trust
+`server.pfx`'s certificate on the machines that use it, or put a proxy with a real certificate in front.
+
+The desktop app does the same, on the **HTTPS port** in Settings (8443 by default, 0 for off).
 
 **First run.** Nobody sits at a container's machine, so setup cannot be limited to "this machine"
 the way the desktop app does it. Instead, while there are no accounts, the server prints a one-time
@@ -188,13 +209,16 @@ the image on the server from the checked-out source, and starts it. No registry 
    | `FILESERVE_SHARES_PATH` | `/mnt/user/files` - the folder (or parent of the shares) to serve |
    | `FILESERVE_DATA_PATH` | `/mnt/user/appdata/fileserve` |
    | `FILESERVE_HTTP_PORT` | `8746` - published on the host; inside the container it is always 8080 |
+   | `FILESERVE_HTTPS_PORT` | `8747` - the same number inside and out; delete that `ports:` line if you set it to `0` |
+   | `FILESERVE_HTTPS_NAMES` | empty - set it to the server's LAN address, e.g. `192.168.0.37` |
    | `FILESERVE_ALLOWED_HOSTS` | `tower,tower.local` |
    | `PUID` / `PGID` / `UMASK` | `99` / `100` / `002` |
    | `TZ` | `America/Toronto` |
    | `FILESERVE_CLAMD` | empty (scanning off) |
 
    The host paths are absolute on purpose: a relative one would resolve inside Dockhand's clone.
-3. Deploy, then open `http://tower:8746` and enter the setup code from the container's log.
+3. Deploy, then open `https://tower:8747` (or `http://tower:8746`, which redirects there), accept the
+   certificate once, and enter the setup code from the container's log.
 
 The service sets `pull_policy: build`, so every deploy rebuilds from source whatever flags the
 deployer passes to `compose up`; unchanged layers come from the build cache. To redeploy on push, add

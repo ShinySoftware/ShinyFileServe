@@ -16,6 +16,7 @@ static class HeadlessPaths
 
     public static string DatabaseFile => Path.Combine(DataDirectory, "fileserve.db");
     public static string TicketKeyFile => Path.Combine(DataDirectory, "cookie.key");
+    public static string CertificateFile => Path.Combine(DataDirectory, "server.pfx");
     public static string WebAppDirectory => Path.Combine(DataDirectory, "webapp");
     public static string PackagesDirectory => Path.Combine(DataDirectory, "packages");
     public static string UploadsDirectory => Path.Combine(DataDirectory, "uploads");
