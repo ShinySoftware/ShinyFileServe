@@ -4,7 +4,10 @@
 
 A self-hosted file server for a team. It runs as a desktop app on **macOS (AppKit)**, **Linux
 (GTK4)** and **Windows**, keeps to the system tray, and serves a browser UI so nobody has to
-install a client. Folders are published to groups with explicit permissions and metered quotas,
+install a client. With no desktop at all it runs **headless in Docker** - on a NAS, Unraid or any
+Linux box - with the files on a volume that stays an ordinary folder on the host. It serves
+**HTTPS** on a certificate it makes for itself, and large uploads **resume** after a dropped
+connection. Folders are published to groups with explicit permissions and metered quotas,
 and every action is written to an audit log. The same server can also host a private **NuGet feed**
 and **npm registry**, authenticated with personal access tokens and governed by the same groups.
 
@@ -27,6 +30,7 @@ These are the only official builds. If you got FileServe from anywhere else, it 
 | Windows (x64, Arm64) | `FileServe-<version>-windows-<arch>-setup.exe` | Installs for the current user, no administrator needed. Not yet code-signed, so SmartScreen warns about an unknown publisher: **More info → Run anyway**. Allow it through Windows Firewall on first launch, or nobody else can reach it. |
 | Debian, Ubuntu (x64, arm64) | `FileServe-<version>-linux-<arch>.deb` | `sudo apt install ./FileServe-*.deb` pulls in GTK and WebKitGTK. Needs WebKitGTK 6 - Ubuntu 24.04, Debian 12 or newer. |
 | Fedora, RHEL (x64, arm64) | `FileServe-<version>-linux-<arch>.rpm` | `sudo dnf install ./FileServe-*.rpm` |
+| Docker (amd64, arm64) | built from this repository | `docker compose up -d` - see [Docker](#docker). No prebuilt image is published. |
 
 `SHA256SUMS.txt` beside them covers every file. The app checks for a newer release when it starts,
 and on macOS and Windows installs it itself; on Linux, install the new package the same way.
@@ -39,8 +43,11 @@ and on macOS and Windows installs it itself; on Linux, install the new package t
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Desktop app (.NET MAUI)          tray icon · console window        │
-│  ├── Shiny.Net.HttpServer  ───────  HTTP on every interface, :8080  │
+│    - or headless (Docker)         the same server, no UI            │
+│  ├── Shiny.Net.HttpServer  ───────  http :8080 on every interface,  │
+│  │                                  https :8443 (self-signed)       │
 │  │     ├── .NuGet / .Npm   ───────  /nuget feed, /npm registry      │
+│  │     ├── .Tus            ───────  resumable uploads               │
 │  │     ├── AppDeviceBridge ───────  frontend host: embedded zip or  │
 │  │     │                            a signed update, served by it   │
 │  ├── Shiny.DocumentDb      ───────  one SQLite file: users, roles,  │
@@ -84,9 +91,10 @@ Versions are pinned centrally in `Directory.Packages.props`.
 
 | Package | Used for |
 | --- | --- |
-| `Shiny.Net.HttpServer` | The HTTP server, routing, middleware, cookie auth |
+| `Shiny.Net.HttpServer` | The HTTP server, routing, middleware, cookie auth, the self-signed HTTPS certificate |
 | `Shiny.Net.HttpServer.NuGet` | The NuGet v3 feed at `/nuget` |
 | `Shiny.Net.HttpServer.Npm` | The npm registry at `/npm` |
+| `Shiny.Net.HttpServer.Tus` | Resumable uploads (tus 1.0.0) at `/api/uploads` |
 | `Shiny.AppDeviceBridge` (+ `.WebView`, `.Tunnel`) | Serving and updating the embedded frontend; the public tunnel |
 | `Shiny.DocumentDb` + `Shiny.DocumentDb.Sqlite` | The document store over one SQLite file |
 | `Shiny.Blazor.Controls` | Portal UI — `DataGrid`, password strength meter and the rest |
@@ -94,7 +102,14 @@ Versions are pinned centrally in `Directory.Packages.props`.
 | `Shiny.Notifications` (+ `.Linux`) | Desktop notifications per activity |
 | `Shiny.Core` | Start at login (`IAppStartupInstaller`) |
 | `nClam` | Talking to a ClamAV daemon |
+| `Markdig` | Release notes on the update screen |
+| `Microsoft.Extensions.Hosting` | The headless host the Docker image runs |
 | `Microsoft.Maui.Platforms.MacOS` / `.Linux.Gtk4` | The AppKit and GTK4 heads, from `dotnet/maui-labs` |
+
+Everything targets **.NET 11** (SDK `11.0.1xx`, MAUI 11). The macOS head carries a workaround,
+`WebViewContentFit`, for a maui-labs preview.15 layout regression that left the console window
+blank ([dotnet/maui-labs#929](https://github.com/dotnet/maui-labs/issues/929)); it can go once a
+release includes the fix.
 
 ## Building and running
 
@@ -125,6 +140,21 @@ sudo apt install libayatana-appindicator3-1 libgtk-3-0    # tray icon
 ```
 
 GNOME 40+ needs the AppIndicator shell extension for the tray icon; KDE works as shipped.
+
+## Resumable uploads
+
+Large files go up over [tus](https://tus.io/) 1.0.0 at `/api/uploads`: a series of chunks against an
+upload the server creates for them, so a dropped connection costs at most the chunk in flight. The
+portal waits, asks the server how far it got, and carries on - retrying for about four and a half
+minutes, long enough for Wi-Fi to come back or a laptop lid to be opened. It remembers the upload in
+the browser too, so choosing the same file again after a reload resumes it rather than starting over.
+
+Everything a plain upload enforces still applies, spread across the moments tus has instead of one
+request: the grant, the per-file cap, the quotas, the parallel-transfer limit, the virus scan, the
+activity log and the live view. Quotas are held against the declared size from the moment the upload
+is created, so several unfinished uploads cannot each fit and together overrun what is left. Partial
+uploads wait in the data directory's `uploads` folder, are listed for administrators under
+**Right now**, and are swept away after 24 hours without a byte.
 
 ## Docker
 
@@ -805,6 +835,9 @@ the platform's application-data directory
 because the browser edits the same values and a second copy on disk would be a second source of
 truth.
 
+The HTTPS certificate (`server.pfx`) and the unfinished uploads (`uploads`) sit beside it. In Docker
+all of it is the `/data` volume, and the shared files are whatever is mounted under `/shares`.
+
 Set `FILESERVE_DATA` to run against a different directory: a demo, a second instance, a test. It has
 to be an environment variable, because on macOS the default comes from the OS rather than from
 `HOME`, so nothing else moves it. The screenshots above were taken that way, against a throwaway
@@ -815,9 +848,16 @@ database.
 - The server binds **every interface**. On a LAN that is the point; through the tunnel it is the
   public internet, so give people real passwords before opening one.
 - **Host names are checked.** A request must name the server by an IP address, loopback, this machine's own name
-  (`name` and `name.local`), a name in `FileServeServerOptions.AllowedHosts`, or the open tunnel's public host.
+  (`name` and `name.local`), a name under **Settings → Other names for this server** (or
+  `FILESERVE_ALLOWED_HOSTS` in Docker), or the open tunnel's public host.
   Anything else gets `421`, which stops a hostile site from rebinding its own name onto the server. A tunneled request
   claiming a loopback name is refused too.
+- **HTTPS is on by default**, on a self-signed certificate, because the portal will not run on plain
+  http from another machine. Each browser is asked once to trust it; a reverse proxy with a real
+  certificate removes the prompt. Package feed requests are never redirected to it, since NuGet and
+  npm refuse a certificate nobody vouched for.
+- **First-run setup needs proof of owning the machine**: being on it, for the desktop app, or the
+  one-time code the headless server prints to its log. Neither works once an administrator exists.
 - Passwords are PBKDF2-SHA256 at 210,000 iterations.
 - Access tokens are 256 random bits, stored only as a SHA-256 hash. The package feeds accept a token
   and nothing else; anonymous feed access can never include a write.

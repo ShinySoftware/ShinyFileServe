@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>FileServe — a file server for your team, on your own machine</title>
-  <meta name="description" content="FileServe is a self-hosted file server for macOS, Windows and Linux. Publish folders to groups with permissions and quotas, share links, watch transfers live, and host a private NuGet feed and npm registry — all from a browser, with no client to install.">
+  <meta name="description" content="FileServe is a self-hosted file server for macOS, Windows, Linux and Docker. Publish folders to groups with permissions and quotas, share links, watch transfers live, and host a private NuGet feed and npm registry — all from a browser, with no client to install.">
   <meta name="theme-color" content="#101619">
 
   <meta property="og:type" content="website">
   <meta property="og:title" content="FileServe — a file server for your team">
-  <meta property="og:description" content="Self-hosted file sharing for macOS, Windows and Linux. Permissions, quotas, share links, live transfers, audit log, and private NuGet and npm feeds.">
+  <meta property="og:description" content="Self-hosted file sharing for macOS, Windows, Linux and Docker. Permissions, quotas, share links, live transfers, audit log, and private NuGet and npm feeds.">
   <meta property="og:url" content="https://shinysoftware.github.io/ShinyFileServe/">
   <meta property="og:image" content="https://shinysoftware.github.io/ShinyFileServe/screenshots/browse.png">
   <meta name="twitter:card" content="summary_large_image">
@@ -50,7 +50,7 @@
   <section class="hero">
     <div class="hero-glow" aria-hidden="true"></div>
     <div class="wrap hero-inner">
-      <p class="eyebrow"><span class="dot"></span> macOS · Windows · Linux</p>
+      <p class="eyebrow"><span class="dot"></span> macOS · Windows · Linux · Docker</p>
       <h1>Your team's files,<br><span class="grad">served from your own machine.</span></h1>
       <p class="lede">
         FileServe turns a computer you already own into a file server. Publish folders to groups,
@@ -71,7 +71,7 @@
       </ul>
 
       <figure class="window hero-shot">
-        <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span>http://fileserve.local:8080</span></div>
+        <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span>https://fileserve.local:8443</span></div>
         <picture>
           <source media="(prefers-color-scheme: dark)" srcset="screenshots/browse-dark.png">
           <img src="screenshots/browse.png" width="1920" height="1200" alt="The FileServe portal browsing a share: a folder tree on the left and a file list with share, download and delete actions on the right">
@@ -83,7 +83,7 @@
   <!-- Strip -->
   <section class="strip" aria-label="At a glance">
     <div class="wrap strip-inner">
-      <div><strong>3</strong><span>desktop platforms, native heads</span></div>
+      <div><strong>3+1</strong><span>desktop platforms, plus Docker</span></div>
       <div><strong>5</strong><span>permissions per group, per folder</span></div>
       <div><strong>2</strong><span>package registries built in</span></div>
       <div><strong>0</strong><span>clients to install</span></div>
@@ -143,7 +143,22 @@
         <article class="card">
           <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
           <h3>Lives in the tray</h3>
-          <p>Start and stop the server, open the tunnel and copy the address from the menu bar. The icon turns green while somebody is connected. Starts at login if you want it to.</p>
+          <p>Start and stop the server, open the tunnel and copy the address from the menu bar. The icon turns green while somebody is connected. Starts at login and keeps the machine awake if you want it to.</p>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M3 13h18v3a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4v-3ZM6 13V9h3v4M9 13V9h3v4M12 13V9h3v4M9 9V5h3v4"/></svg></div>
+          <h3>Runs headless, in Docker</h3>
+          <p>No desktop needed: the same server and portal as a container for a NAS or home server, with your files on a volume you keep working with over SMB. Deploys straight from git with compose.</p>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2"/></svg></div>
+          <h3>HTTPS out of the box</h3>
+          <p>The server makes its own certificate on first start and sends browsers on the network to it. Already behind Nginx Proxy Manager, Caddy or Traefik? Proxied requests are left alone.</p>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 20h14"/><path d="M4 14v-2"/><path d="M20 14v-2"/></svg></div>
+          <h3>Uploads that resume</h3>
+          <p>Large uploads carry on from the last byte after a dropped connection or a sleeping laptop, instead of starting over. Partial uploads are visible to administrators and swept away when abandoned.</p>
         </article>
       </div>
     </div>
@@ -243,7 +258,7 @@
         <p>Nothing is seeded on first run. The administrator is created by whoever opens the app — and only from the machine running it.</p>
       </div>
       <div class="grid security">
-        <div class="sec"><h3>No default password</h3><p>An account the whole internet knows the password to is worse than none, so there isn't one. The first admin is created locally.</p></div>
+        <div class="sec"><h3>No default password</h3><p>An account the whole internet knows the password to is worse than none, so there isn't one. The first admin is created on the machine itself — or, in Docker, with a one-time code from the server's log.</p></div>
         <div class="sec"><h3>Invisible by default</h3><p>A share you have no grant on answers 404, not 403. You don't learn it exists.</p></div>
         <div class="sec"><h3>Strong hashing</h3><p>Passwords are PBKDF2-SHA256 at 210,000 iterations. Access tokens are 256 random bits, stored only as a hash.</p></div>
         <div class="sec"><h3>Path traversal refused</h3><p>Every file operation goes through one check that rejects <code>..</code> and verifies the canonical path against the share root, symlinks included.</p></div>
@@ -260,8 +275,8 @@
     <div class="wrap">
       <div class="section-head">
         <p class="kicker">Technology</p>
-        <h2>Built on .NET 10, top to bottom.</h2>
-        <p>One C# codebase drives three native desktop heads, an embedded HTTP server and a WebAssembly portal. JSON is source-generated end to end — no reflection, trim-safe on every platform.</p>
+        <h2>Built on .NET 11, top to bottom.</h2>
+        <p>One C# codebase drives three native desktop heads, a headless container, an embedded HTTP server and a WebAssembly portal. JSON is source-generated end to end — no reflection, trim-safe on every platform.</p>
       </div>
 
       <div class="arch" aria-label="Architecture">
@@ -273,10 +288,11 @@
             <span>WinUI<small>Windows</small></span>
             <span>GTK4<small>Linux</small></span>
           </div>
+          <div class="arch-box sm"><strong>Headless</strong><span>no UI · Docker</span></div>
         </div>
         <div class="arch-arrow" aria-hidden="true"><svg viewBox="0 0 40 12"><path d="M0 6h36m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></div>
         <div class="arch-col">
-          <p class="arch-label">Server · :8080</p>
+          <p class="arch-label">Server · :8080 · https :8443</p>
           <div class="arch-box"><strong>Shiny.Net.HttpServer</strong><span>routing · cookie auth · middleware</span></div>
           <div class="arch-row">
             <div class="arch-box sm"><strong>/nuget</strong><span>NuGet v3</span></div>
@@ -293,10 +309,10 @@
       </div>
 
       <div class="grid stack">
-        <a class="tech" href="https://dotnet.microsoft.com/" target="_blank" rel="noopener"><span class="tech-badge b-net">.NET</span><div><h3>.NET 10</h3><p>The runtime, C# and source-generated JSON throughout.</p></div></a>
+        <a class="tech" href="https://dotnet.microsoft.com/" target="_blank" rel="noopener"><span class="tech-badge b-net">.NET</span><div><h3>.NET 11</h3><p>The runtime, C# and source-generated JSON throughout.</p></div></a>
         <a class="tech" href="https://dotnet.microsoft.com/apps/maui" target="_blank" rel="noopener"><span class="tech-badge b-maui">MAUI</span><div><h3>.NET MAUI</h3><p>The desktop shell — WinUI on Windows, plus AppKit and GTK4 heads from <code>dotnet/maui-labs</code>.</p></div></a>
         <a class="tech" href="https://dotnet.microsoft.com/apps/aspnet/web-apps/blazor" target="_blank" rel="noopener"><span class="tech-badge b-blazor">WASM</span><div><h3>Blazor WebAssembly</h3><p>The whole portal, in C#, running in the browser.</p></div></a>
-        <a class="tech" href="https://github.com/shinyorg" target="_blank" rel="noopener"><span class="tech-badge b-shiny">HTTP</span><div><h3>Shiny.Net.HttpServer</h3><p>The embedded HTTP server, plus its NuGet feed and npm registry packages.</p></div></a>
+        <a class="tech" href="https://github.com/shinyorg" target="_blank" rel="noopener"><span class="tech-badge b-shiny">HTTP</span><div><h3>Shiny.Net.HttpServer</h3><p>The embedded HTTP server, plus its NuGet feed, npm registry and tus packages.</p></div></a>
         <a class="tech" href="https://github.com/shinyorg" target="_blank" rel="noopener"><span class="tech-badge b-shiny">DB</span><div><h3>Shiny.DocumentDb</h3><p>A JSON document store over a single SQLite file: users, shares, quotas, the log.</p></div></a>
         <a class="tech" href="https://github.com/shinyorg/appdevicebridge" target="_blank" rel="noopener"><span class="tech-badge b-shiny">ADB</span><div><h3>Shiny.AppDeviceBridge</h3><p>Hosts the embedded portal, installs signed updates, and opens the public tunnel.</p></div></a>
         <a class="tech" href="https://github.com/shinyorg" target="_blank" rel="noopener"><span class="tech-badge b-shiny">UI</span><div><h3>Shiny Controls</h3><p><code>Shiny.Blazor.Controls</code> for the portal, <code>Shiny.Maui.Controls</code> for the desktop shell.</p></div></a>
@@ -305,6 +321,9 @@
         <a class="tech" href="https://www.clamav.net/" target="_blank" rel="noopener"><span class="tech-badge b-av">AV</span><div><h3>ClamAV &amp; AMSI</h3><p>Upload scanning via <code>nClam</code> to a clamd daemon, or Windows Defender through AMSI.</p></div></a>
         <a class="tech" href="https://pinggy.io/" target="_blank" rel="noopener"><span class="tech-badge b-tun">TUN</span><div><h3>pinggy</h3><p>Public HTTPS tunnels, opened and closed from the tray.</p></div></a>
         <a class="tech" href="https://github.com/features/actions" target="_blank" rel="noopener"><span class="tech-badge b-gh">CI</span><div><h3>GitHub Actions</h3><p>Signed, notarized macOS builds, Windows installers and .deb/.rpm packages on every tag.</p></div></a>
+        <a class="tech" href="https://www.docker.com/" target="_blank" rel="noopener"><span class="tech-badge b-docker">OCI</span><div><h3>Docker</h3><p>The headless server as a container, built from source by compose — on a NAS, Unraid or any Linux box.</p></div></a>
+        <a class="tech" href="https://tus.io/" target="_blank" rel="noopener"><span class="tech-badge b-shiny">TUS</span><div><h3>tus</h3><p>The open protocol for resumable uploads, served by <code>Shiny.Net.HttpServer.Tus</code>.</p></div></a>
+        <a class="tech" href="https://github.com/shinyorg" target="_blank" rel="noopener"><span class="tech-badge b-tls">TLS</span><div><h3>Self-signed TLS</h3><p>A certificate the server makes and keeps for itself, so the portal runs securely on a LAN address.</p></div></a>
       </div>
     </div>
   </section>
@@ -336,8 +355,14 @@
           <p>x64 &amp; arm64 · .deb and .rpm</p>
           <span class="dl-file">FileServe-&lt;version&gt;-linux-&lt;arch&gt;.deb / .rpm</span>
         </a>
+        <a class="dl" href="https://github.com/ShinySoftware/ShinyFileServe#docker">
+          <svg class="dl-os" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2 12.5h17.2c.4-1 1.6-1.6 2.8-1.3-.2-1.1-1-1.7-1.8-1.9-.5 1-1.4 1.4-2.3 1.4H2.4c-.4 3.6 1.6 7.8 7.6 7.8 4.8 0 8.2-2.2 9.6-6H2Zm2-1.6h2.4V8.5H4v2.4Zm3 0h2.4V8.5H7v2.4Zm3 0h2.4V8.5H10v2.4Zm3 0h2.4V8.5H13v2.4ZM7 7.9h2.4V5.5H7v2.4Zm3 0h2.4V5.5H10v2.4Zm3 0h2.4V5.5H13v2.4Zm0-3h2.4V2.5H13v2.4Z"/></svg>
+          <h3>Docker</h3>
+          <p>amd64 &amp; arm64 · built from source</p>
+          <span class="dl-file">docker compose up -d</span>
+        </a>
       </div>
-      <p class="dl-note">Every release includes <code>SHA256SUMS.txt</code>. On Linux, WebKitGTK 6 is required — Ubuntu 24.04, Debian 12 or newer.</p>
+      <p class="dl-note">Every release includes <code>SHA256SUMS.txt</code>. On Linux, WebKitGTK 6 is required — Ubuntu 24.04, Debian 12 or newer. Docker builds the headless server from the repository with the included compose file.</p>
     </div>
   </section>
 
@@ -375,7 +400,7 @@
     </div>
   </div>
   <div class="wrap foot-legal">
-    <p>© 2026 ShinySoft Technologies. FileServe is source-available, not open source: read it and build it for yourself, but don't repackage or redistribute it — see the <a href="https://github.com/ShinySoftware/ShinyFileServe/blob/main/LICENSE.md" target="_blank" rel="noopener">license</a>. The Shiny .NET libraries are MIT. macOS, Windows and Linux are trademarks of their owners.</p>
+    <p>© 2026 ShinySoft Technologies. FileServe is source-available, not open source: read it and build it for yourself, but don't repackage or redistribute it — see the <a href="https://github.com/ShinySoftware/ShinyFileServe/blob/main/LICENSE.md" target="_blank" rel="noopener">license</a>. The Shiny .NET libraries are MIT. macOS, Windows, Linux and Docker are trademarks of their owners.</p>
   </div>
 </footer>
 
