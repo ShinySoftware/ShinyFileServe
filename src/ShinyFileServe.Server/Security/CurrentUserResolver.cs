@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using Shiny.Net.HttpServer;
 using ShinyFileServe.Core.Services;
 using ShinyFileServe.Shared;
@@ -48,13 +50,17 @@ public static class PrincipalFactory
     /// <summary>Present when the session was granted for being on the server's own machine.</summary>
     public const string LocalSessionClaim = "local_session";
 
+    /// <summary>Ties a cookie to the password it was signed in with. See <see cref="PasswordStampOf"/>.</summary>
+    public const string PasswordStampClaim = "pwd_stamp";
+
     public static ClaimsPrincipal Create(CoreUser user, IReadOnlyList<Role> roles)
     {
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, user.Id),
             new(ClaimTypes.Name, user.Username),
-            new("display_name", user.DisplayName)
+            new("display_name", user.DisplayName),
+            new(PasswordStampClaim, PasswordStampOf(user))
         };
 
         foreach (var role in roles)
@@ -66,6 +72,18 @@ public static class PrincipalFactory
             claims.Add(new Claim(ClaimTypes.Role, ClaimTypesEx.AdminRole));
 
         return new ClaimsPrincipal(new ClaimsIdentity(claims, AuthenticationScheme));
+    }
+
+    /// <summary>
+    /// A short fingerprint of the stored password. Setting a password writes a new salt and hash, so
+    /// the fingerprint changes with it and every cookie signed in under the old one stops matching -
+    /// which is what "change my password" is expected to do to a session left open somewhere else.
+    /// Derived rather than stored so there is nothing extra to keep in step.
+    /// </summary>
+    public static string PasswordStampOf(CoreUser user)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(user.PasswordSalt + ":" + user.PasswordHash));
+        return Convert.ToHexString(hash, 0, 8);
     }
 
     public static CurrentUser ToDto(

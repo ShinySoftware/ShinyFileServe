@@ -383,9 +383,13 @@ public sealed class ResumableUploads : IDisposable
         try
         {
             var name = Path.GetFileName(upload.Path);
-            await using var source = await ctx.OpenReadAsync(ct);
-            saved = await files.Save(
-                folder, upload.Path, source, UploadRules.Conflict(folder, upload.Overwrite),
+
+            // The finished upload is moved into the share, not copied: on the same volume that is a
+            // rename, so a 10 GB file is published as fast as a 10 KB one instead of being written
+            // to disk a second time while the client waits on its last PATCH. Every way out of here
+            // deletes the upload anyway - the store's delete is fine with the data file being gone.
+            saved = await files.SaveFile(
+                folder, upload.Path, this.disk.GetFilePath(id), UploadRules.Conflict(folder, upload.Overwrite),
                 inspect: async (temp, token) =>
                 {
                     var decision = await scanner.Scan(temp, name, token);

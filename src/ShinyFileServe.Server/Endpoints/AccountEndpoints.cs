@@ -1,4 +1,5 @@
 using Shiny.Net.HttpServer;
+using Shiny.Net.HttpServer.Security;
 using ShinyFileServe.Core.Services;
 using ShinyFileServe.Server.Security;
 using ShinyFileServe.Shared;
@@ -238,6 +239,17 @@ public class AccountEndpoints(
         // Records the change and clears the failure count with it, which is what takes the session
         // back out of the must-change state - there is no separate flag to forget to reset.
         await users.SetPassword(user.Id, newPassword, ct);
+
+        // The new password retires every cookie issued under the old one, this one included, so the
+        // caller is signed in again under the new stamp. Sessions left open elsewhere stay retired,
+        // which is the point. Not remembered: whether the old cookie was is not something it says,
+        // and a session that has to be remembered again is the safe way to be wrong.
+        var updated = await users.GetUser(user.Id, ct);
+        if (updated is not null)
+        {
+            var roles = await users.GetRolesFor(updated, ct);
+            await ctx.SignInAsync(PrincipalFactory.Create(updated, roles), persistent: false);
+        }
 
         await activity.Log(
             ActivityAction.Login, user.Id, user.Username, success: true,

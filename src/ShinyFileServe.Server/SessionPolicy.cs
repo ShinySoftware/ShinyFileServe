@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Shiny.Net.HttpServer;
 using Shiny.Net.HttpServer.Security;
 using ShinyFileServe.Core.Services;
+using ShinyFileServe.Server.Security;
 
 namespace ShinyFileServe.Server;
 
@@ -26,10 +27,18 @@ public class SessionPolicyHolder
     }
 
     /// <summary>
-    /// Rejects a cookie that is cryptographically fine but no longer true: the account is gone, or
-    /// its expiry has passed. Cookies carry their claims rather than a session id, so without this
-    /// an expired user would keep working until their cookie happened to run out.
+    /// Rejects a cookie that is cryptographically fine but no longer true: the account is gone, its
+    /// expiry has passed, its password has changed since the cookie was issued, or the cookie says
+    /// administrator and the account no longer is one. Cookies carry their claims rather than a
+    /// session id, and sliding renewal copies those claims forward, so without this a demoted
+    /// administrator would keep the admin API for as long as they kept using it.
     /// </summary>
+    /// <remarks>
+    /// A cookie from before the password stamp existed has no stamp and is refused, which signs
+    /// everyone in again once after an upgrade - a fair price for every cookie meaning the same thing.
+    /// Promotion is not checked: a cookie that claims less than the account now has is merely out of
+    /// date, and signing in again picks up the new rights.
+    /// </remarks>
     internal static async ValueTask<bool> ValidateTicket(AuthenticationTicket ticket, HttpContext context)
     {
         var id = ticket.Principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -42,6 +51,17 @@ public class SessionPolicyHolder
 
         var time = context.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System;
         var user = await users.GetUser(id, context.RequestAborted);
-        return user is not null && !user.IsExpired(time.GetUtcNow());
+        if (user is null || user.IsExpired(time.GetUtcNow()))
+            return false;
+
+        var stamp = ticket.Principal.FindFirst(PrincipalFactory.PasswordStampClaim)?.Value;
+        if (stamp != PrincipalFactory.PasswordStampOf(user))
+            return false;
+
+        if (!ticket.Principal.IsInRole(ClaimTypesEx.AdminRole))
+            return true;
+
+        var roles = await users.GetRolesFor(user, context.RequestAborted);
+        return user.IsAdministrator(roles);
     }
 }

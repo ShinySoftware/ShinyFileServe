@@ -5,10 +5,10 @@
     </PropertyGroup>
     <ItemGroup>
         <PackageVersion Include="Shiny.Core" Version="7.0.1"/>
-        <PackageVersion Include="Shiny.Net.HttpServer" Version="3.0.0"/>
-        <PackageVersion Include="Shiny.Net.HttpServer.NuGet" Version="3.0.0"/>
-        <PackageVersion Include="Shiny.Net.HttpServer.Npm" Version="3.0.0"/>
-        <PackageVersion Include="Shiny.Net.HttpServer.Tus" Version="3.0.0"/>
+        <PackageVersion Include="Shiny.Net.HttpServer" Version="3.1.0"/>
+        <PackageVersion Include="Shiny.Net.HttpServer.NuGet" Version="3.1.0"/>
+        <PackageVersion Include="Shiny.Net.HttpServer.Npm" Version="3.1.0"/>
+        <PackageVersion Include="Shiny.Net.HttpServer.Tus" Version="3.1.0"/>
         <PackageVersion Include="Shiny.AppDeviceBridge" Version="4.0.0"/>
         <PackageVersion Include="Shiny.AppDeviceBridge.WebView" Version="4.0.0"/>
         <PackageVersion Include="Shiny.AppDeviceBridge.Tunnel" Version="4.0.0"/>
