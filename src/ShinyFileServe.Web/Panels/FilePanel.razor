@@ -708,15 +708,17 @@
             await this.WaitForTurn(run);
             Refresh();
 
-            if (small.Count > 0)
+            // In bounded batches rather than one request: a dropped connection or a refusal then
+            // costs one batch, and the files in the batches before it have already landed.
+            foreach (var batch in UploadBatches.Split(small, i => sizes[i].Size))
             {
                 try
                 {
-                    uploaded.AddRange(await this.Uploader.Send(claim, small, folder.Id, path, Sink(small), run.Cancel.Token));
+                    uploaded.AddRange(await this.Uploader.Send(claim, batch, folder.Id, path, Sink(batch), run.Cancel.Token));
                 }
                 catch (ApiException ex)
                 {
-                    failures.Add(small.Count == 1 ? $"{sizes[small[0]].Name}: {ex.Message}" : ex.Message);
+                    failures.Add(batch.Count == 1 ? $"{sizes[batch[0]].Name}: {ex.Message}" : ex.Message);
                 }
             }
 

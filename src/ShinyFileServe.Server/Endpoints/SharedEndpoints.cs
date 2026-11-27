@@ -156,59 +156,45 @@ public class SharedEndpoints(
             return new NotFoundObjectResult(ex.Message);
         }
 
+        // The bytes this request will send - a range, or nothing for a 304 or 416 - are what the
+        // quota is checked against and charged, exactly as for a download through the browser.
+        var etag = FileEndpoints.ETagFor(info);
+        var charge = DownloadCharge.For(ctx.Request, info.Length, etag, info.LastWriteTimeUtc);
+        var downloadName = download ? info.Name : null;
+        if (charge == 0)
+            return FileEndpoints.Serve(info, etag, downloadName, ctx, null);
+
         // The same two ceilings a download through the browser meets, but the creator's: theirs is
         // the allowance the link is spending.
         if (folder.DownloadWindow != QuotaWindow.None && folder.DownloadLimit is { } limit)
         {
             var usage = await quotas.GetUsage(creator.Id, link.FolderId, folder.DownloadWindow, ct);
-            if (usage.DownloadedBytes + info.Length > limit)
-                return await this.OverQuota(opened, inShare, info.Length, "the share's download quota", context, ct);
+            if (usage.DownloadedBytes + charge > limit)
+                return await this.OverQuota(opened, inShare, charge, "the share's download quota", context, ct);
         }
 
         if (creator.DownloadQuotaWindow != QuotaWindow.None && creator.DownloadQuotaBytes is { } accountLimit)
         {
             var usage = await quotas.GetAccountUsage(creator.Id, creator.DownloadQuotaWindow, ct);
-            if (usage.DownloadedBytes + info.Length > accountLimit)
-                return await this.OverQuota(opened, inShare, info.Length, "the account download quota", context, ct);
+            if (usage.DownloadedBytes + charge > accountLimit)
+                return await this.OverQuota(opened, inShare, charge, "the account download quota", context, ct);
         }
 
-        await quotas.RecordDownload(creator.Id, link.FolderId, folder.DownloadWindow, info.Length, ct);
-        await quotas.RecordAccountDownload(creator.Id, creator.DownloadQuotaWindow, info.Length, ct);
+        await quotas.RecordDownload(creator.Id, link.FolderId, folder.DownloadWindow, charge, ct);
+        await quotas.RecordAccountDownload(creator.Id, creator.DownloadQuotaWindow, charge, ct);
         await activity.Log(
-            ActivityAction.Download, opened.Viewer?.Id, Who(opened), true, link.FolderId, folder.Folder.Name, inShare, info.Length,
+            ActivityAction.Download, opened.Viewer?.Id, Who(opened), true, link.FolderId, folder.Folder.Name, inShare, charge,
             Via(link), context, ct
         );
 
         var transferUser = opened.Viewer ?? creator;
         var transferName = opened.Viewer is null ? $"{creator.DisplayName} (link)" : opened.Viewer.DisplayName;
 
-        return FileDownloadResult.FromOpener(
-            _ =>
-            {
-                Stream file = new FileStream(info.FullName, new FileStreamOptions
-                {
-                    Mode = FileMode.Open,
-                    Access = FileAccess.Read,
-                    Share = FileShare.Read,
-                    Options = FileOptions.Asynchronous | FileOptions.SequentialScan
-                });
-
-                var handle = transfers.Begin(
-                    TransferDirection.Download, transferUser.Id, transferUser.Username, transferName,
-                    link.FolderId, folder.Folder.Name, inShare, info.Length
-                );
-
-                return ValueTask.FromResult<Stream>(new CountingStream(
-                    file, handle, () => ctx.Response.ContentLength ?? info.Length
-                ));
-            },
-            info.Length,
-            ContentTypes.ForFileName(info.FullName),
-            // No name serves it inline, which is what lets a photo be an img; a name makes it a download.
-            download ? info.Name : null,
-            $"\"{info.LastWriteTimeUtc.Ticks:x}-{info.Length:x}\"",
-            info.LastWriteTimeUtc
-        );
+        // No name serves it inline, which is what lets a photo be an img; a name makes it a download.
+        return FileEndpoints.Serve(info, etag, downloadName, ctx, () => transfers.Begin(
+            TransferDirection.Download, transferUser.Id, transferUser.Username, transferName,
+            link.FolderId, folder.Folder.Name, inShare, info.Length
+        ));
     }
 
     // -----------------------------------------------------------------------

@@ -18,6 +18,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="ShinyFileServe.Tests"/>
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\ShinyFileServe.Core\ShinyFileServe.Core.csproj"/>
         <ProjectReference Include="..\ShinyFileServe.Shared\ShinyFileServe.Shared.csproj"/>
     </ItemGroup>

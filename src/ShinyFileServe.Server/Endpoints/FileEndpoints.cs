@@ -81,11 +81,18 @@ public class FileEndpoints(
         try
         {
             var info = files.GetFile(folder!, path);
+            var etag = ETagFor(info);
+
+            // What this request will actually send: a range for a resume or a seek, nothing for a
+            // 304 or a 416. That is what is checked against the quota and charged to it.
+            var charge = DownloadCharge.For(ctx.Request, info.Length, etag, info.LastWriteTimeUtc);
+            if (charge == 0)
+                return Serve(info, etag, info.Name, ctx, null);
 
             if (folder!.DownloadWindow != QuotaWindow.None && folder.DownloadLimit is { } limit)
             {
                 var usage = await quotas.GetUsage(user!.Id, folderId, folder.DownloadWindow, ct);
-                if (usage.DownloadedBytes + info.Length > limit)
+                if (usage.DownloadedBytes + charge > limit)
                 {
                     await activity.Log(
                         ActivityAction.Denied, user.Id, user.Username, success: false,
@@ -102,7 +109,7 @@ public class FileEndpoints(
             if (user!.DownloadQuotaWindow != QuotaWindow.None && user.DownloadQuotaBytes is { } accountLimit)
             {
                 var usage = await quotas.GetAccountUsage(user.Id, user.DownloadQuotaWindow, ct);
-                if (usage.DownloadedBytes + info.Length > accountLimit)
+                if (usage.DownloadedBytes + charge > accountLimit)
                 {
                     await activity.Log(
                         ActivityAction.Denied, user.Id, user.Username, success: false,
@@ -136,50 +143,21 @@ public class FileEndpoints(
                 );
             }
 
-            // The whole file counts against the quota the moment it is authorised, even for a range
-            // request. Charging per-range would let a client fetch a file in pieces for free.
-            await quotas.RecordDownload(user.Id, folderId, folder.DownloadWindow, info.Length, ct);
-            await quotas.RecordAccountDownload(user.Id, user.DownloadQuotaWindow, info.Length, ct);
+            // Charged up front, for the bytes this request will send. A range costs its own length,
+            // so a file fetched in pieces still costs every byte once, and a resume costs only the rest.
+            await quotas.RecordDownload(user.Id, folderId, folder.DownloadWindow, charge, ct);
+            await quotas.RecordAccountDownload(user.Id, user.DownloadQuotaWindow, charge, ct);
             await activity.Log(
                 ActivityAction.Download, user.Id, user.Username, success: true,
-                folderId, folder.Folder.Name, path, info.Length,
+                folderId, folder.Folder.Name, path, charge,
                 context: current.GetActivityContext(ctx), ct: ct
             );
 
-            // FromFile in all but the handle it opens: the same content type, download name, ETag
-            // and last-modified, so ranges and conditional GETs behave exactly as they did. The
-            // difference is the counting wrapper, which is what turns a download into something an
-            // administrator can watch. Registered inside the opener because a 304 or a 416 never
-            // opens the file, and neither should appear as a transfer that moved no bytes.
             var me = user!;
-            return FileDownloadResult.FromOpener(
-                _ =>
-                {
-                    Stream file = new FileStream(info.FullName, new FileStreamOptions
-                    {
-                        Mode = FileMode.Open,
-                        Access = FileAccess.Read,
-                        Share = FileShare.Read,
-                        Options = FileOptions.Asynchronous | FileOptions.SequentialScan
-                    });
-
-                    var handle = transfers.Begin(
-                        TransferDirection.Download, me.Id, me.Username, me.DisplayName,
-                        folderId, folder!.Folder.Name, Normalize(path), info.Length
-                    );
-
-                    // How much is actually being sent is only settled once the range has been
-                    // resolved, which happens after the stream is opened and before the first read.
-                    return ValueTask.FromResult<Stream>(new CountingStream(
-                        file, handle, () => ctx.Response.ContentLength ?? info.Length
-                    ));
-                },
-                info.Length,
-                ContentTypes.ForFileName(info.FullName),
-                info.Name,
-                $"\"{info.LastWriteTimeUtc.Ticks:x}-{info.Length:x}\"",
-                info.LastWriteTimeUtc
-            );
+            return Serve(info, etag, info.Name, ctx, () => transfers.Begin(
+                TransferDirection.Download, me.Id, me.Username, me.DisplayName,
+                folderId, folder!.Folder.Name, Normalize(path), info.Length
+            ));
         }
         catch (FileAccessException ex)
         {
@@ -233,7 +211,11 @@ public class FileEndpoints(
 
                 // Cheapest checks first: a per-file cap and the remaining quota are both knowable
                 // before a single byte is written, so a doomed upload is refused rather than absorbed.
-                var declared = ctx.Request.ContentLength ?? 0;
+                // Only the part's own length counts. The request's length is every file in the batch
+                // plus the multipart framing, so checking that against a per-file cap refused a batch
+                // of small files whose total happened to pass it. Browsers do not send a length per
+                // part, so usually this is unknown and the limit is enforced as the bytes arrive.
+                var declared = PartLength(part) ?? 0;
                 if (folder!.MaxUploadFileSizeBytes is { } maxFile && declared > maxFile)
                 {
                     await activity.Log(
@@ -304,11 +286,30 @@ public class FileEndpoints(
                     // The scan runs inside Save, on the finished temp file and before it is moved
                     // into place, so an infected upload is never a file anyone could have listed or
                     // downloaded - not even for the moment it would take to delete it again.
-                    await using var counted = new CountingStream(part.Body, transfer, leaveInnerOpen: true, ownsHandle: false);
+                    // Stops reading the moment the file passes the per-file cap or the quota left, so
+                    // an oversized file is refused at the limit rather than written out in full first.
+                    var allowed = Math.Min(remaining, folder.MaxUploadFileSizeBytes ?? long.MaxValue);
+                    await using var limited = new LimitedReadStream(part.Body, allowed);
+                    await using var counted = new CountingStream(limited, transfer, leaveInnerOpen: true, ownsHandle: false);
                     saved = await files.Save(
                         folder, target, counted, conflict,
                         inspect: (temp, token) => this.Inspect(temp, name, token),
                         ct: ct
+                    );
+                }
+                catch (UploadLimitExceededException ex)
+                {
+                    transfer.Fail("Exceeded the quota or the per-file limit");
+
+                    await activity.Log(
+                        ActivityAction.Denied, user!.Id, user.Username, false, folderId, folder!.Folder.Name,
+                        target, ex.Limit, "Upload exceeded the quota or per-file limit", activityContext, ct
+                    );
+                    return new ObjectResult(
+                        folder.MaxUploadFileSizeBytes is { } fileCap && remaining > fileCap
+                            ? $"{name} is larger than this folder accepts."
+                            : $"{name} is larger than the upload quota you have left.",
+                        StatusCodes.Status413PayloadTooLarge
                     );
                 }
                 catch (FileRejectedException ex)
@@ -500,6 +501,47 @@ public class FileEndpoints(
     /// and be meaningless for several. Null when the client did not say, which is allowed - the
     /// upload then reports bytes and speed without a percentage.
     /// </summary>
+    /// <summary>The validator a download is served with, and that If-Range and If-None-Match are compared to.</summary>
+    internal static string ETagFor(FileInfo info)
+        => $"\"{info.LastWriteTimeUtc.Ticks:x}-{info.Length:x}\"";
+
+    /// <summary>
+    /// FromFile in all but the handle it opens: the same content type, download name, ETag and
+    /// last-modified, so ranges and conditional GETs behave exactly as they did. The difference is
+    /// the counting wrapper, which is what turns a download into something an administrator can
+    /// watch. The transfer is registered inside the opener because a 304 or a 416 never opens the
+    /// file, and neither should appear as a transfer that moved no bytes. A null <paramref name="begin"/>
+    /// serves without watching, for a request that will send nothing. A null
+    /// <paramref name="downloadName"/> serves the file inline.
+    /// </summary>
+    internal static FileDownloadResult Serve(FileInfo info, string etag, string? downloadName, HttpContext ctx, Func<ITransferHandle>? begin)
+        => FileDownloadResult.FromOpener(
+            _ =>
+            {
+                Stream file = new FileStream(info.FullName, new FileStreamOptions
+                {
+                    Mode = FileMode.Open,
+                    Access = FileAccess.Read,
+                    Share = FileShare.Read,
+                    Options = FileOptions.Asynchronous | FileOptions.SequentialScan
+                });
+
+                if (begin is null)
+                    return ValueTask.FromResult(file);
+
+                // How much is actually being sent is only settled once the range has been
+                // resolved, which happens after the stream is opened and before the first read.
+                return ValueTask.FromResult<Stream>(new CountingStream(
+                    file, begin(), () => ctx.Response.ContentLength ?? info.Length
+                ));
+            },
+            info.Length,
+            ContentTypes.ForFileName(info.FullName),
+            downloadName,
+            etag,
+            info.LastWriteTimeUtc
+        );
+
     static long? PartLength(MultipartSection part)
         => Int64.TryParse(part.Headers.GetFirst("Content-Length"), out var length) && length >= 0
             ? length

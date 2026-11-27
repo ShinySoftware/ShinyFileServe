@@ -89,6 +89,12 @@ else
             {
                 <ul class="admin__urls"><li class="num">@tunnelUrl</li></ul>
             }
+            @if (this.TunnelIsAnonymous && this.status.Tunnel is TunnelStatus.Open or TunnelStatus.Connecting or TunnelStatus.Reconnecting)
+            {
+                <p class="form-warning" role="status">
+                    <strong>@TunnelWarnings.AnonymousTitle.</strong> @TunnelWarnings.Anonymous
+                </p>
+            }
             @if (this.status.Tunnel == TunnelStatus.Failed && this.status.TunnelError is { Length: > 0 } tunnelError)
             {
                 <p class="form-error">@tunnelError</p>
@@ -504,6 +510,8 @@ else
         _ => "Tunnel closed"
     };
 
+    bool TunnelIsAnonymous => this.status?.Config.HasPinggyToken != true;
+
     string TokenPlaceholder => this.status?.Config.HasPinggyToken == true
         ? "A token is stored"
         : "None stored";
@@ -599,7 +607,9 @@ else
         var opening = this.status?.Tunnel is not (TunnelStatus.Open or TunnelStatus.Connecting);
         this.status = await this.Api.ControlTunnel(opening);
 
-        if (opening && this.status.Tunnel == TunnelStatus.Open)
+        if (opening && this.status.Tunnel == TunnelStatus.Open && this.TunnelIsAnonymous)
+            await this.Toasts.WarningAsync($"Tunnel open at {this.status.TunnelUrl}. {TunnelWarnings.Anonymous}");
+        else if (opening && this.status.Tunnel == TunnelStatus.Open)
             await this.Toasts.SuccessAsync($"Tunnel open at {this.status.TunnelUrl}");
     });
 

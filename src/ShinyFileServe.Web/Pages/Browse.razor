@@ -4,6 +4,7 @@
 @inject FileServeApi Api
 @inject IToastService Toasts
 @inject IdleWatch Idle
+@inject Uploader Uploader
 @inject SessionActions Session
 @inject NavigationManager Nav
 
@@ -94,7 +95,8 @@ else
             await this.State.LoadFolders();
 
             var policy = await this.Api.GetSessionPolicy();
-            await this.Idle.Start(policy.IdleLogoffMinutes, this.OnIdle);
+            this.idleMinutes = policy.IdleLogoffMinutes;
+            await this.Idle.Start(this.idleMinutes, this.OnIdle);
         }
         catch (ApiException ex)
         {
@@ -106,6 +108,8 @@ else
         }
     }
 
+    int idleMinutes;
+
     public void Dispose() => this.State.Changed -= this.OnStateChanged;
 
     /// <summary>
@@ -114,6 +118,14 @@ else
     /// </summary>
     async Task OnIdle()
     {
+        // An upload on its way up is activity, even with nobody at the keyboard: signing out reloads
+        // the page and would cut it off. The watch starts over, and signs out once it is done.
+        if (this.Uploader.IsBusy)
+        {
+            await this.Idle.Start(this.idleMinutes, this.OnIdle);
+            return;
+        }
+
         await this.Idle.Stop();
         await this.Session.SignOut(wentIdle: true);
     }

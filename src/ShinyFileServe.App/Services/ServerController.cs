@@ -76,6 +76,9 @@ public class ServerController
     public string? TunnelError => this.tunnel.LastError;
     public bool IsTunnelOpen => this.tunnel.State is TunnelState.Connected;
 
+    /// <summary>No pinggy token is stored, so the tunnel is pinggy's anonymous one - see <see cref="ShinyFileServe.Shared.TunnelWarnings"/>.</summary>
+    public bool IsTunnelAnonymous => String.IsNullOrWhiteSpace(this.settings.Current.PinggyToken);
+
     public ServerSettings Settings => this.settings.Current;
 
     public string? LastError { get; private set; }

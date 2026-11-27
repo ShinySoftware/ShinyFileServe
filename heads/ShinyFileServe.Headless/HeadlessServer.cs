@@ -82,6 +82,9 @@ class HeadlessServer(
             // Failures land in the tunnel's own state, which the portal shows.
             var url = await tunnel.StartAsync(settings.Current.PinggyToken, stoppingToken);
             logger.LogInformation("Public tunnel: {Url}", url?.GetLeftPart(UriPartial.Authority) ?? tunnel.LastError ?? "not open");
+
+            if (url is not null && String.IsNullOrWhiteSpace(settings.Current.PinggyToken))
+                logger.LogWarning("{Title}. {Warning}", ShinyFileServe.Shared.TunnelWarnings.AnonymousTitle, ShinyFileServe.Shared.TunnelWarnings.Anonymous);
         }
     }
 

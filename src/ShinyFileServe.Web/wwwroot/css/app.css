@@ -926,6 +926,15 @@ button.cell-name__link:hover { color: var(--accent); text-decoration: underline;
     font-size: 13px;
 }
 
+.form-warning {
+    padding: 9px 11px;
+    border-radius: var(--r-md);
+    background: var(--warn-soft);
+    color: var(--warn);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
 /* ---------------------------------------------------------------------------
    Shiny control theming — bend the library's tokens toward this palette.
    --------------------------------------------------------------------------- */

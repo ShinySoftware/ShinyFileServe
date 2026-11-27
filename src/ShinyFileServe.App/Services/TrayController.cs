@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Shiny.AppDeviceBridge.Tunnel;
 using Shiny.Maui.Controls.Desktop.TrayIcon;
 using ShinyFileServe.Server;
+using ShinyFileServe.Shared;
 
 namespace ShinyFileServe.App.Services;
 
@@ -26,6 +27,9 @@ public class TrayController(
 
     /// <summary>Null until the first paint, so the artwork is only re-decoded when the state moves.</summary>
     bool? showingBusy;
+
+    /// <summary>The tunnel state at the last paint, so its warnings go out once per change rather than on every refresh.</summary>
+    TunnelState? lastTunnel;
 
     public bool IsAvailable => this.icon is not null;
 
@@ -121,6 +125,8 @@ public class TrayController(
             tunnelToggle.IsEnabled = server.IsServing;
         }
 
+        this.WarnAboutAnonymousTunnel();
+
         var people = server.ActiveSessionCount;
         var who = people switch
         {
@@ -135,6 +141,27 @@ public class TrayController(
             ({ } url, null) => $"FileServe — {url}",
             _ => "FileServe — not serving"
         };
+    }
+
+    /// <summary>
+    /// An anonymous pinggy tunnel closes after an hour and comes back at a new address, cutting off
+    /// whatever was moving through it. The tray is where the tunnel is opened by hand and where an
+    /// auto-started one shows up, so it says so when the tunnel opens - and again each time it comes
+    /// back somewhere else, which is when links that were handed out stop working.
+    /// </summary>
+    void WarnAboutAnonymousTunnel()
+    {
+        var now = server.TunnelState;
+        var before = this.lastTunnel;
+        this.lastTunnel = now;
+
+        if (now != TunnelState.Connected || before == TunnelState.Connected || !server.IsTunnelAnonymous)
+            return;
+
+        if (before == TunnelState.Reconnecting)
+            this.ShowNotification(TunnelWarnings.ReconnectedTitle, TunnelWarnings.Reconnected(server.TunnelUrl));
+        else
+            this.ShowNotification(TunnelWarnings.AnonymousTitle, TunnelWarnings.Anonymous);
     }
 
     /// <summary>

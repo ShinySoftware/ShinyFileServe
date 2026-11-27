@@ -131,6 +131,21 @@ would own the server. (In Docker, where nobody is on that machine, a one-time co
 stands in for it - see [Docker](#docker).) An account with a password the whole internet knows is worse than no account
 at all, so nothing is seeded either.
 
+### Tests
+
+```bash
+dotnet test tests/ShinyFileServe.Tests        # the server, end to end
+node --test tests/ShinyFileServe.Web.Tests    # the portal's upload script
+```
+
+The server tests start the real server on loopback, with a real database and share folder, and
+drive it over plain HTTP/1.1, HTTPS HTTP/1.1 and HTTPS HTTP/2 (the protocol browsers use on the
+HTTPS port). They cover downloads arriving intact, being cut off and resumed with a range, several
+running at once on one connection, and what each costs against a quota. They also cover multipart
+and resumable uploads: chunks cut off part way, a lost reply to the last chunk, a save that fails,
+and the per-file cap and quotas. The upload script's tests run `upload.js` against a fake tus server
+that drops chunks, loses replies, stalls, and fails saves the way real connections and proxies do.
+
 ### Linux prerequisites
 
 ```bash
@@ -155,6 +170,21 @@ activity log and the live view. Quotas are held against the declared size from t
 is created, so several unfinished uploads cannot each fit and together overrun what is left. Partial
 uploads wait in the data directory's `uploads` folder, are listed for administrators under
 **Right now**, and are swept away after 24 hours without a byte.
+
+The reply to the last chunk is the only place the browser hears how an upload ended, and a dropped
+connection or a proxy timing out during the virus scan can lose it. So for 30 minutes afterwards
+the server keeps the outcome: a `HEAD` on the upload answers with every byte arrived plus
+`Upload-Saved-As` (where the file landed) or `Upload-Error` / `Upload-Error-Status` (why it was not
+saved), and resending the last chunk gets the original reply. The portal asks, waits while the scan
+finishes, and reports what actually happened instead of "the upload expired". If the file cannot be
+saved, the upload is thrown away and its quota reservation released.
+
+A chunk whose upload stops moving for a minute is treated as a dropped connection and retried, so a
+connection that hangs without closing no longer freezes the progress bar. Files under 16 MB go up
+in ordinary requests of at most 32 MB or 50 files each, so a dropped connection costs one batch.
+Those get three minutes rather than one, because the server stops reading a batch while it scans
+each file in it. The idle sign-out waits while an upload is running, since signing out reloads the
+page and would cut it off.
 
 ## Docker
 
@@ -329,10 +359,12 @@ because the two ceilings are independent and either may be the one that stops th
 Weeks are ISO-8601 so a weekly quota does not roll over on a different day depending on the
 machine's culture.
 
-A download charges the whole file the moment it is authorised, even for a range request — charging
-per range would let a client fetch a file in pieces for free. An upload that turns out to exceed
-the quota is deleted rather than left on disk. Either refusal is a **429**, and the activity log
-says which of the two ceilings it was.
+A download is charged for the bytes the request will actually send, the moment it is authorised:
+the whole file for an ordinary download, the range for a resume or a video seek, and nothing for a
+`304 Not Modified`. Fetching a file in pieces still costs every byte once, and resuming a cut-off
+download costs only the rest instead of a second whole file. A download over the quota is a
+**429**, and the activity log says which of the two ceilings it was. An upload is stopped the moment
+it passes the quota or the per-file cap (a **413**), and nothing of it is left on disk.
 
 ## Virus scanning
 

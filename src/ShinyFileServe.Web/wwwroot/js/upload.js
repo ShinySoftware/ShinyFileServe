@@ -56,6 +56,62 @@ export function release(key) {
     claimed.delete(key);
 }
 
+// A request whose body has stopped moving for this long is treated as a dropped connection. An
+// XMLHttpRequest has no idle timeout of its own, so a connection that hangs without closing (a
+// stalled HTTP/2 stream, a proxy holding a dead socket) used to leave the progress bar frozen
+// forever without the retry logic ever starting. Only counted while the body is still going up:
+// once every byte is sent the server may be scanning the file, and that wait is legitimate.
+const STALL_SECONDS = 60;
+
+// The same for an ordinary multipart upload, which is longer because the server stops reading it
+// while it scans each finished file: the next file's bytes wait until the scan is done, and a scan
+// may take up to its own two-minute timeout. A minute would cut off a batch that is fine.
+const MULTIPART_STALL_SECONDS = 180;
+
+// Every wait in this file, in one place. Only the tests change them, so a retry that waits a minute
+// in the browser waits milliseconds there.
+const timing = {
+    stallSeconds: STALL_SECONDS,
+    multipartStallSeconds: MULTIPART_STALL_SECONDS,
+    retryDelays: null,
+    finishingSeconds: null,
+    pollSeconds: 3
+};
+
+/** For the tests only: shortens the waits. Never called by the app. */
+export function __setTimingForTests(overrides) {
+    Object.assign(timing, overrides);
+}
+
+/** Aborts `xhr` if its upload makes no progress for STALL_SECONDS. Returns a function that reports whether it did. */
+function watchStall(xhr, seconds = timing.stallSeconds) {
+    let stalled = false;
+    let timer = null;
+    let sentAll = false;
+
+    const arm = () => {
+        clearTimeout(timer);
+        if (sentAll) return;
+        timer = setTimeout(() => {
+            stalled = true;
+            xhr.abort();
+        }, seconds * 1000);
+    };
+
+    xhr.upload.addEventListener('loadstart', arm);
+    xhr.upload.addEventListener('progress', e => {
+        if (e.lengthComputable && e.loaded >= e.total) sentAll = true;
+        arm();
+    });
+    xhr.upload.addEventListener('load', () => {
+        sentAll = true;
+        clearTimeout(timer);
+    });
+    xhr.addEventListener('loadend', () => clearTimeout(timer));
+
+    return () => stalled;
+}
+
 // Throttled: progress fires every few kilobytes, and each report is a render on the .NET side.
 function throttled(dotnet) {
     let last = 0;
@@ -86,6 +142,7 @@ export function start(id, key, indexes, url, dotnet) {
         active.set(id, { abort: () => xhr.abort() });
 
         xhr.upload.onprogress = e => report(e.loaded, e.total);
+        const stalled = watchStall(xhr, timing.multipartStallSeconds);
 
         const done = (status, body) => {
             active.delete(id);
@@ -94,7 +151,9 @@ export function start(id, key, indexes, url, dotnet) {
 
         xhr.onload = () => done(xhr.status, xhr.responseText);
         xhr.onerror = () => done(0, '');
-        xhr.onabort = () => done(-1, '');
+        xhr.onabort = () => (stalled()
+            ? done(0, 'The connection stopped moving and the upload was abandoned. Try again.')
+            : done(-1, ''));
 
         xhr.open('POST', url);
         xhr.send(form);
@@ -122,11 +181,18 @@ const TUS_VERSION = '1.0.0';
 // come back or a laptop lid to be opened again, short enough that a server that is really gone is
 // reported rather than waited on forever.
 const RETRY_DELAYS = [1, 2, 4, 8, 15, 30, 30, 60, 60, 60];
+timing.retryDelays = RETRY_DELAYS;
 
 // Worth another try: no connection, the upload busy with a request that has not let go yet, or the
-// server - or a proxy in front of it - having a moment. 503 is not here: that is the virus scanner
-// unable to judge the file, which a retry would not change.
-const RETRYABLE = new Set([0, 408, 423, 500, 502, 504]);
+// server - or a proxy in front of it - having a moment. 520-524 are what Cloudflare answers when it
+// cannot reach the server or gives up waiting on it, which is the same thing seen through a tunnel.
+// 503 is not here: that is the virus scanner unable to judge the file, which a retry would not change.
+const RETRYABLE = new Set([0, 408, 423, 500, 502, 504, 520, 521, 522, 523, 524]);
+
+// How long to keep asking after every byte has arrived but the server has not said how the upload
+// ended - it is still scanning or saving the file. A little longer than the scanner's own timeout.
+const FINISHING_SECONDS = 180;
+timing.finishingSeconds = FINISHING_SECONDS;
 
 const REMEMBERED = 'fileserve.uploads';
 
@@ -184,6 +250,9 @@ function request(job, method, url, headers, body, onProgress) {
         if (onProgress)
             xhr.upload.onprogress = e => onProgress(e.loaded);
 
+        // Only a request with a body can stall on the way up; a HEAD that hangs is the browser's to time out.
+        const stalled = body ? watchStall(xhr) : () => false;
+
         const done = status => {
             job.xhr = null;
             resolve({
@@ -195,7 +264,7 @@ function request(job, method, url, headers, body, onProgress) {
 
         xhr.onload = () => done(xhr.status);
         xhr.onerror = () => done(0);
-        xhr.onabort = () => done(-1);
+        xhr.onabort = () => done(stalled() ? 0 : -1);
 
         xhr.open(method, url);
         xhr.setRequestHeader('Tus-Resumable', TUS_VERSION);
@@ -215,13 +284,56 @@ function sleep(job, seconds) {
     });
 }
 
-/** How many bytes the server holds, or -1 when it has no such upload (or not for this account). */
+/**
+ * How many bytes the server holds, or -1 when it has no such upload (or not for this account). For
+ * an upload that has finished, the server also says how it ended: `savedAs` is where the file was
+ * saved, `error` and `errorStatus` why it was not. Neither means it has not finished yet.
+ */
 async function offsetOf(job) {
     const r = await request(job, 'HEAD', job.url, {}, null);
-    if (r.status === 200 || r.status === 204)
-        return { status: r.status, offset: parseInt(r.header('Upload-Offset'), 10) };
+    if (r.status === 200 || r.status === 204) {
+        const saved = r.header('Upload-Saved-As');
+        const error = r.header('Upload-Error');
+        return {
+            status: r.status,
+            offset: parseInt(r.header('Upload-Offset'), 10),
+            savedAs: saved ? decodeURIComponent(saved) : null,
+            error: error ? decodeURIComponent(error) : null,
+            errorStatus: parseInt(r.header('Upload-Error-Status') || '0', 10) || 500
+        };
+    }
 
     return { status: r.status, offset: -1, body: r.body };
+}
+
+/**
+ * Every byte is on the server but the reply saying how it went was lost. Asks until the server
+ * says the file was saved, or why it was not, or until it has had longer than a scan can take.
+ */
+async function awaitOutcome(job, known, size) {
+    const until = performance.now() + timing.finishingSeconds * 1000;
+    while (true) {
+        if (known.savedAs)
+            return { status: 200, body: '', savedAs: known.savedAs };
+
+        if (known.error)
+            return { status: known.errorStatus, body: known.error };
+
+        if (known.offset >= 0 && known.offset < size)
+            return null;
+
+        if (known.offset < 0 && !RETRYABLE.has(known.status))
+            return { status: 0, body: 'The file arrived, but the connection dropped before the server could confirm it was saved. Refresh the folder to check.' };
+
+        if (performance.now() > until)
+            return { status: 0, body: 'The file arrived, but the server has not confirmed it was saved. Refresh the folder to check.' };
+
+        await sleep(job, timing.pollSeconds);
+        if (job.cancelled)
+            return { status: -1, body: '' };
+
+        known = await offsetOf(job);
+    }
 }
 
 /**
@@ -266,6 +378,17 @@ export async function startResumable(id, key, index, endpoint, metadata, chunkSi
     if (job.url) {
         const known = await offsetOf(job);
         offset = known.offset;
+
+        // The same file to the same place already went up in full, and the reply to it was missed.
+        if (known.savedAs) {
+            forget(fingerprint);
+            return finish({ status: 200, body: '', savedAs: known.savedAs });
+        }
+
+        // It went up before and was refused or failed to save. Start a fresh upload.
+        if (known.error)
+            offset = -1;
+
         if (offset < 0) {
             forget(fingerprint);
             job.url = null;
@@ -327,12 +450,13 @@ export async function startResumable(id, key, index, endpoint, metadata, chunkSi
             // A 409 is the offset having moved under us - a request that was cut off kept what it
             // had. Either way, ask where things stand before sending another byte.
             attempt++;
-            if (attempt > RETRY_DELAYS.length)
+            const delays = timing.retryDelays;
+            if (attempt > delays.length)
                 return finish({ status: 0, body: 'The connection was lost and did not come back. Pick the file again to resume.' });
 
             if (r.status !== 409) {
-                status(`Reconnecting… (attempt ${attempt} of ${RETRY_DELAYS.length})`);
-                await sleep(job, RETRY_DELAYS[attempt - 1]);
+                status(`Reconnecting… (attempt ${attempt} of ${delays.length})`);
+                await sleep(job, delays[attempt - 1]);
                 if (job.cancelled)
                     return cancelled();
             }
@@ -341,19 +465,26 @@ export async function startResumable(id, key, index, endpoint, metadata, chunkSi
             if (job.cancelled)
                 return cancelled();
 
+            // Every byte is there, so the last chunk did arrive - but the answer saying how it went
+            // was lost with the connection. The server keeps that answer for a while; ask for it,
+            // waiting if it is still scanning or saving the file.
+            if (known.offset >= file.size || known.savedAs || known.error) {
+                const outcome = await awaitOutcome(job, known, file.size);
+                if (job.cancelled || (outcome && outcome.status === -1))
+                    return cancelled();
+
+                if (outcome) {
+                    forget(fingerprint);
+                    return finish(outcome);
+                }
+            }
+
             if (known.offset >= 0) {
                 offset = known.offset;
                 report(offset, file.size);
             } else if (!RETRYABLE.has(known.status)) {
                 forget(fingerprint);
                 return finish({ status: known.status, body: message(known.body) || 'The upload expired on the server. Start it again.' });
-            }
-
-            // Every byte is there, so the last chunk did arrive - but the answer saying how it went
-            // was lost with the connection, and that answer cannot be asked for again.
-            if (offset >= file.size) {
-                forget(fingerprint);
-                return finish({ status: 0, body: 'The file arrived, but the connection dropped before the server could confirm it was saved. Refresh the folder to check.' });
             }
         } else {
             forget(fingerprint);

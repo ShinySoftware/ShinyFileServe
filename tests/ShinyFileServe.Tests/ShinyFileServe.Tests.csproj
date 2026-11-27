@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>ShinyFileServe.Tests</RootNamespace>
+
+    <!-- xunit v3 on Microsoft.Testing.Platform: the test assembly is its own runner, so `dotnet test`
+         and running the executable directly do the same thing. -->
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The server is tested without the Blazor frontend: these tests drive the API, and publishing
+         the WebAssembly app on every test build would add minutes for nothing. -->
+    <ProjectReference Include="..\..\src\ShinyFileServe.Server\ShinyFileServe.Server.csproj" AdditionalProperties="SkipFrontendBuild=true" />
+    <ProjectReference Include="..\..\src\ShinyFileServe.Core\ShinyFileServe.Core.csproj" />
+    <ProjectReference Include="..\..\src\ShinyFileServe.Shared\ShinyFileServe.Shared.csproj" />
+  </ItemGroup>
+</Project>

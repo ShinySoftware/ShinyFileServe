@@ -23,6 +23,13 @@ public readonly record struct UploadProgress(long Sent, long Total)
 public class Uploader(IJSRuntime js) : IAsyncDisposable
 {
     IJSObjectReference? module;
+    int running;
+
+    /// <summary>
+    /// Whether an upload is on its way up right now. The idle sign-out asks: signing out reloads the
+    /// page, which would cut off an upload somebody started and walked away from.
+    /// </summary>
+    public bool IsBusy => Volatile.Read(ref this.running) > 0;
 
     /// <summary>Starts remembering dropped files. Call before the first drop it should handle.</summary>
     public async Task WatchDrops() => await (await this.Module()).InvokeVoidAsync("watchDrops");
@@ -72,6 +79,26 @@ public class Uploader(IJSRuntime js) : IAsyncDisposable
         var id = Guid.NewGuid().ToString("N");
         var url = $"api/files/upload?{FileServeApi.Query(folderId, path)}&overwrite=true";
 
+        Interlocked.Increment(ref this.running);
+        try
+        {
+            return await this.SendCore(module, id, claim, indexes, url, progress, ct);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref this.running);
+        }
+    }
+
+    async Task<List<FileEntryInfo>> SendCore(
+        IJSObjectReference module,
+        string id,
+        string claim,
+        IReadOnlyList<int> indexes,
+        string url,
+        IProgress<UploadProgress> progress,
+        CancellationToken ct)
+    {
         using var callback = DotNetObjectReference.Create(new ProgressCallback(progress, null, null));
         await using var cancel = ct.Register(() => _ = module.InvokeVoidAsync("abort", id).AsTask());
 
@@ -117,9 +144,18 @@ public class Uploader(IJSRuntime js) : IAsyncDisposable
         using var callback = DotNetObjectReference.Create(new ProgressCallback(progress, onStatus, onResumed));
         await using var cancel = ct.Register(() => _ = module.InvokeVoidAsync("abort", id).AsTask());
 
-        var result = await module.InvokeAsync<JsonElement>(
-            "startResumable", CancellationToken.None, id, claim, index, "api/uploads", metadata, ChunkSize, callback
-        );
+        JsonElement result;
+        Interlocked.Increment(ref this.running);
+        try
+        {
+            result = await module.InvokeAsync<JsonElement>(
+                "startResumable", CancellationToken.None, id, claim, index, "api/uploads", metadata, ChunkSize, callback
+            );
+        }
+        finally
+        {
+            Interlocked.Decrement(ref this.running);
+        }
         Check(result, ct);
 
         var savedAs = result.TryGetProperty("savedAs", out var saved) && saved.ValueKind == JsonValueKind.String

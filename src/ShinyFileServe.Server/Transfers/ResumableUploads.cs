@@ -31,6 +31,24 @@ public sealed class ResumableUploads : IDisposable
     /// <summary>A chunk request that has gone quiet for this long is a client that left; its live transfer is closed off.</summary>
     static readonly TimeSpan IdleTransfer = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// How long the outcome of a finished upload is kept after its record is gone. The reply to the
+    /// last chunk is the only place a client hears how the upload ended, and a dropped connection or
+    /// a proxy timing out during the scan loses it. Within this window the client can ask again
+    /// (HEAD) or resend the last chunk and get the same answer, instead of a 404 that reads as
+    /// "expired" for a file that was saved.
+    /// </summary>
+    static readonly TimeSpan FinishedMemory = TimeSpan.FromMinutes(30);
+
+    /// <summary>Response header carrying the reason a finished upload was not saved, URI-escaped.</summary>
+    public const string ErrorHeader = "Upload-Error";
+
+    /// <summary>Response header carrying the status the failed completion answered with.</summary>
+    public const string ErrorStatusHeader = "Upload-Error-Status";
+
+    /// <summary>Response header carrying where a finished upload was saved, URI-escaped.</summary>
+    public const string SavedAsHeader = "Upload-Saved-As";
+
     readonly IDocumentStore documents;
     readonly ICurrentUserResolver current;
     readonly IAccessResolver access;
@@ -44,6 +62,7 @@ public sealed class ResumableUploads : IDisposable
     readonly ReservingStore store;
     readonly DiskTusStore disk;
     readonly ConcurrentDictionary<string, LiveUpload> live = new();
+    readonly ConcurrentDictionary<string, FinishedUpload> finished = new();
     readonly ITimer idleSweep;
 
     // Creates are quick and rare, so they take turns: the quota check and the reservation it is
@@ -149,6 +168,12 @@ public sealed class ResumableUploads : IDisposable
 
         // Somebody else's upload answers exactly like one that does not exist.
         var upload = await documents.Get<ResumableUpload>(id, cancellationToken: ct);
+        if (upload is null && this.finished.TryGetValue(id, out var outcome) && outcome.UserId == user.Id)
+        {
+            await AnswerFinished(context, method, outcome);
+            return;
+        }
+
         if (upload is null || upload.UserId != user.Id)
         {
             await Refuse(context, StatusCodes.Status404NotFound, "That upload does not exist, or has expired.");
@@ -359,12 +384,43 @@ public sealed class ResumableUploads : IDisposable
     /// </summary>
     async ValueTask Complete(TusCompleteContext ctx)
     {
+        var id = ctx.Upload.Id;
+        var length = ctx.Upload.Length ?? ctx.Upload.Offset;
+        var upload = await documents.Get<ResumableUpload>(id, cancellationToken: CancellationToken.None);
+
+        try
+        {
+            var savedAs = await this.Finish(ctx, upload);
+            this.Remember(id, upload?.UserId, length, savedAs, StatusCodes.Status204NoContent, null);
+        }
+        catch (TusException ex)
+        {
+            this.Remember(id, upload?.UserId, length, null, ex.StatusCode, ex.Message);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Anything nobody planned for - a full disk, a folder the server may no longer write to.
+            // The upload is thrown away rather than left complete-but-unsaved, where nothing would
+            // ever finish it and it would hold its quota reservation until it expired. The detail
+            // is for the log: it can name paths on the server.
+            logger.LogError(ex, "Resumable upload {Id} arrived whole but could not be saved", id);
+            await this.Discard(id, "Could not be saved");
+
+            const string message = "The file arrived, but the server could not save it into the folder. Ask an administrator to check the server's log.";
+            this.Remember(id, upload?.UserId, length, null, StatusCodes.Status500InternalServerError, message);
+            throw new TusException(StatusCodes.Status500InternalServerError, message);
+        }
+    }
+
+    /// <summary>Scans and publishes a finished upload. Returns where it landed.</summary>
+    async Task<string> Finish(TusCompleteContext ctx, ResumableUpload? upload)
+    {
         var http = ctx.HttpContext;
         var id = ctx.Upload.Id;
         var ct = CancellationToken.None;
         var activityContext = current.GetActivityContext(http);
 
-        var upload = await documents.Get<ResumableUpload>(id, cancellationToken: ct);
         var user = await current.Resolve(http, ct);
         if (upload is null || user is null)
         {
@@ -433,10 +489,75 @@ public sealed class ResumableUploads : IDisposable
         );
 
         // Where it landed, so the client can say when that is not where it was aimed.
-        http.Response.Headers.Set("Upload-Saved-As", Uri.EscapeDataString(saved.VirtualPath));
+        http.Response.Headers.Set(SavedAsHeader, Uri.EscapeDataString(saved.VirtualPath));
 
         this.Close(id, transfer => transfer.Complete());
         await this.store.DeleteAsync(id, ct);
+        return saved.VirtualPath;
+    }
+
+    // -----------------------------------------------------------------------
+    // Finished uploads: the answer to the last chunk, kept for a client that missed it
+    // -----------------------------------------------------------------------
+
+    sealed record FinishedUpload(string UserId, long Length, string? SavedAs, int Status, string? Error, DateTimeOffset At);
+
+    void Remember(string id, string? userId, long length, string? savedAs, int status, string? error)
+    {
+        if (userId is not null)
+            this.finished[id] = new FinishedUpload(userId, length, savedAs, status, error, time.GetUtcNow());
+    }
+
+    /// <summary>
+    /// Answers a request about an upload that has already finished, with the outcome it finished
+    /// with. A HEAD reports every byte as arrived, plus where the file was saved or why it was not.
+    /// A resent last chunk gets the reply the original would have had. Anything else answers 404,
+    /// as it would have before.
+    /// </summary>
+    static async Task AnswerFinished(HttpContext context, string method, FinishedUpload outcome)
+    {
+        var response = context.Response;
+        response.Headers.Set("Tus-Resumable", "1.0.0");
+        response.Headers.Set("Cache-Control", "no-store");
+
+        if (method == "HEAD")
+        {
+            response.StatusCode = StatusCodes.Status200OK;
+            response.Headers.Set("Upload-Offset", outcome.Length.ToString(CultureInfo.InvariantCulture));
+            response.Headers.Set("Upload-Length", outcome.Length.ToString(CultureInfo.InvariantCulture));
+            SetOutcomeHeaders(response, outcome);
+            response.ContentLength = 0;
+            return;
+        }
+
+        if (method == "PATCH" && outcome.Error is null)
+        {
+            response.StatusCode = StatusCodes.Status204NoContent;
+            response.Headers.Set("Upload-Offset", outcome.Length.ToString(CultureInfo.InvariantCulture));
+            SetOutcomeHeaders(response, outcome);
+            return;
+        }
+
+        if (method == "PATCH")
+        {
+            SetOutcomeHeaders(response, outcome);
+            await Refuse(context, outcome.Status, outcome.Error!);
+            return;
+        }
+
+        await Refuse(context, StatusCodes.Status404NotFound, "That upload does not exist, or has expired.");
+    }
+
+    static void SetOutcomeHeaders(HttpResponse response, FinishedUpload outcome)
+    {
+        if (outcome.SavedAs is not null)
+            response.Headers.Set(SavedAsHeader, Uri.EscapeDataString(outcome.SavedAs));
+
+        if (outcome.Error is not null)
+        {
+            response.Headers.Set(ErrorHeader, Uri.EscapeDataString(outcome.Error));
+            response.Headers.Set(ErrorStatusHeader, outcome.Status.ToString(CultureInfo.InvariantCulture));
+        }
     }
 
     /// <summary>Throws an upload away, bytes and reservation both, and closes its live transfer as failed.</summary>
@@ -605,6 +726,11 @@ public sealed class ResumableUploads : IDisposable
         // resume later starts a fresh transfer for whatever is left.
         foreach (var id in idle)
             this.Close(id, _ => { });
+
+        var forgotten = time.GetUtcNow() - FinishedMemory;
+        var stale = this.finished.Where(x => x.Value.At < forgotten).Select(x => x.Key).ToList();
+        foreach (var id in stale)
+            this.finished.TryRemove(id, out _);
     }
 
     public void Dispose()

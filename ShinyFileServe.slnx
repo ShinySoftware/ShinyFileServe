@@ -10,6 +10,9 @@
     <Project Path="src/ShinyFileServe.Core/ShinyFileServe.Core.csproj" />
     <Project Path="src/ShinyFileServe.Server/ShinyFileServe.Server.csproj" />
     <Project Path="src/ShinyFileServe.Web/ShinyFileServe.Web.csproj" />
+    <Folder Name="/tests/">
+        <Project Path="tests/ShinyFileServe.Tests/ShinyFileServe.Tests.csproj" />
+    </Folder>
     <Project Path="src/ShinyFileServe.App/ShinyFileServe.App.csproj" />
     <Folder Name="/heads/">
         <Project Path="heads/ShinyFileServe.MacOS/ShinyFileServe.MacOS.csproj" />

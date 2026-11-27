@@ -51,8 +51,9 @@ public interface IFileService
     /// <summary>
     /// <see cref="Save"/> for content that is already a whole file on this machine: it is moved
     /// rather than copied, which on the same volume is a rename however large the file. The source
-    /// is consumed whatever the outcome - published, refused, or failed - so it must be something
-    /// the caller was about to throw away anyway, such as a finished resumable upload.
+    /// is consumed only when the file is published. If the save fails or the inspection refuses it,
+    /// the bytes are moved back to <paramref name="sourcePath"/>, so a failure never destroys the
+    /// only copy; what to do with them then is the caller's decision.
     /// </summary>
     Task<SavedFile> SaveFile(
         FolderAccess access,
@@ -235,6 +236,13 @@ public class FileService : IFileService
             // the cross-volume case blocks for as long as the copy takes and cannot be cancelled.
             await Task.Run(() => File.Move(sourcePath, temp));
             return new FileInfo(temp).Length;
+        },
+        // A failure after the move must not take the only copy with it. The bytes go back to where
+        // they came from, and the caller decides whether they are kept or thrown away.
+        temp =>
+        {
+            if (!File.Exists(sourcePath))
+                File.Move(temp, sourcePath);
         });
 
     /// <summary>
@@ -247,7 +255,8 @@ public class FileService : IFileService
         SaveConflict conflict,
         Func<string, CancellationToken, Task>? inspect,
         CancellationToken ct,
-        Func<string, CancellationToken, Task<long>> fill)
+        Func<string, CancellationToken, Task<long>> fill,
+        Action<string>? reclaim = null)
     {
         var full = this.ResolvePath(access, virtualPath);
 
@@ -279,11 +288,38 @@ public class FileService : IFileService
         }
         catch
         {
-            if (File.Exists(temp))
-                File.Delete(temp);
+            Abandon(temp, reclaim);
             throw;
         }
         return new SavedFile(published, written);
+    }
+
+    /// <summary>
+    /// Clears away the temp file of a save that did not finish. When the content was moved in from a
+    /// file the caller still owns, it goes back there instead of being deleted. If that move fails
+    /// too, the temp file is deleted so nothing half-saved is left in the share.
+    /// </summary>
+    static void Abandon(string temp, Action<string>? reclaim)
+    {
+        if (!File.Exists(temp))
+            return;
+
+        if (reclaim is not null)
+        {
+            try
+            {
+                reclaim(temp);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        if (File.Exists(temp))
+            File.Delete(temp);
     }
 
     /// <summary>Moves the finished temp file to its name and returns the virtual path it ended up at.</summary>
